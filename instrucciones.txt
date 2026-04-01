@@ -1,0 +1,22 @@
+..\venv\Scripts\activate
+scripts/search_manuals.py
+streamlit run app/app.py
+http://127.0.0.1:5000/
+---
+
+cd Desktop\proyecto_interlocks\scripts
+..\venv\Scripts\activate
+python api.py
+
+-----
+EN ADMIN CMD
+C:
+cd C:\Users\CGutierrez\Desktop\proyecto_interlocks\scripts
+
+---
+ngrok.exe http 5000 ( EN LA CARPETA DEL NGROK - DESCARGAS)
+
+--
+
+a veces se queda grabado worker anterior, para eso buscar el worker del gnrok o el link, eliminar entrando en:
+chrome://serviceworker-internals/

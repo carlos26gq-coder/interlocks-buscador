@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Interlocks — Buscador Técnico</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, interactive-widget=resizes-content">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg:      #0b0f1a;
+    --surface: #111827;
+    --surface2:#151e2e;
+    --border:  #1e293b;
+    --accent:  #00d4ff;
+    --accent2: #0077ff;
+    --green:   #4ade80;
+    --warn:    #f59e0b;
+    --danger:  #ef4444;
+    --note:    #a78bfa;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --mono:    'Share Tech Mono', monospace;
+    --sans:    'Barlow', sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden;padding-bottom:80px}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+
+/* HEADER */
+header{position:relative;z-index:10;padding:20px 20px 16px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(0,212,255,.06) 0%,transparent 100%)}
+.hrow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-icon{width:38px;height:38px;background:linear-gradient(135deg,var(--accent2),var(--accent));border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.logo h1{font-size:1.05rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.logo p{font-size:.68rem;color:var(--muted);font-family:var(--mono);letter-spacing:.08em}
+#estadoRed{display:flex;align-items:center;gap:6px;font-size:.75rem;font-family:var(--mono);padding:4px 11px;border-radius:20px;border:1px solid var(--border);background:rgba(255,255,255,.03);white-space:nowrap}
+#estadoRed.online{color:var(--green);border-color:rgba(74,222,128,.3)}
+#estadoRed.offline{color:var(--danger);border-color:rgba(239,68,68,.3)}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* BOTTOM NAV */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:100;background:var(--surface);border-top:1px solid var(--border);display:flex}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:10px 4px;font-size:.65rem;font-family:var(--mono);color:var(--muted);border:none;background:none;cursor:pointer;transition:color .2s;letter-spacing:.04em;text-transform:uppercase}
+.nav-btn .icon{font-size:1.3rem}
+.nav-btn.active{color:var(--accent)}
+.nav-btn.active .icon{filter:drop-shadow(0 0 6px var(--accent))}
+
+/* SCREENS */
+.screen{display:none;position:relative;z-index:10;padding:20px}
+.screen.active{display:block}
+
+/* ── SEARCH SCREEN ── */
+.search-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.input-wrap{position:relative;flex:1;min-width:160px}
+.iicon{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none;color:var(--muted)}
+input,select,textarea{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:var(--sans);font-size:.93rem;padding:12px 12px 12px 38px;border-radius:9px;outline:none;transition:border-color .2s,box-shadow .2s;-webkit-appearance:none}
+select{padding-left:38px;cursor:pointer}
+textarea{padding:12px;resize:vertical;min-height:90px}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,255,.12)}
+input::placeholder,textarea::placeholder{color:var(--muted)}
+.btn{border:none;color:#000;font-family:var(--sans);font-weight:700;font-size:.93rem;letter-spacing:.04em;padding:12px 22px;border-radius:9px;cursor:pointer;transition:transform .15s,box-shadow .15s,opacity .15s;white-space:nowrap}
+.btn-primary{background:linear-gradient(135deg,var(--accent2),var(--accent))}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(0,212,255,.3)}
+.btn-primary:active{transform:translateY(0);opacity:.85}
+.btn-primary.loading{opacity:.6;pointer-events:none}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+
+/* Meta bar */
+#metaBar{display:none;align-items:center;justify-content:space-between;margin:14px 0 10px;flex-wrap:wrap;gap:6px}
+.meta-count{font-size:.8rem;font-family:var(--mono);color:var(--muted)}
+.meta-count span{color:var(--accent);font-weight:700}
+.meta-mode{font-size:.72rem;font-family:var(--mono);padding:2px 9px;border-radius:10px;background:rgba(0,212,255,.08);color:var(--accent);border:1px solid rgba(0,212,255,.2)}
+
+/* Cards */
+.result-card{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:16px 18px;margin-bottom:10px;transition:border-color .2s,transform .2s;animation:fadeIn .3s ease both}
+.result-card:hover{border-color:rgba(0,212,255,.35);transform:translateY(-1px)}
+.result-card.note-card{border-left:3px solid var(--note)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;flex-wrap:wrap;gap:5px}
+.card-manual{font-size:.72rem;font-family:var(--mono);font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:3px 9px;border-radius:5px}
+.card-manual.manual-badge{color:var(--accent);background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2)}
+.card-manual.note-badge{color:var(--note);background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.2)}
+.card-page{font-size:.72rem;font-family:var(--mono);color:var(--muted)}
+.card-ctx{font-size:.85rem;line-height:1.65;color:#94a3b8;border-left:3px solid var(--border);padding-left:11px;margin-bottom:9px}
+.card-ctx mark{background:rgba(245,158,11,.22);color:var(--warn);border-radius:3px;padding:0 2px}
+.card-action{display:flex;align-items:flex-start;gap:7px;font-size:.8rem;color:#60a5fa;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.15);border-radius:7px;padding:7px 11px}
+.card-action::before{content:'⚙';font-size:13px;flex-shrink:0}
+.card-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+.tag{font-size:.68rem;font-family:var(--mono);padding:2px 8px;border-radius:10px;background:rgba(167,139,250,.1);color:var(--note);border:1px solid rgba(167,139,250,.2)}
+
+/* States */
+.state-box{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:50px 20px;text-align:center;color:var(--muted)}
+.state-box .icon{font-size:3rem;margin-bottom:14px}
+.state-box p{font-size:.88rem;line-height:1.6;max-width:300px}
+.state-box h2{font-size:1rem;font-weight:600;color:var(--text);margin-bottom:6px}
+.pills{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:18px}
+.pill{font-size:.68rem;font-family:var(--mono);padding:3px 9px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--muted);text-transform:uppercase}
+.spinner-wrap{display:flex;align-items:center;justify-content:center;padding:60px 0}
+.spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── NOTES SCREEN ── */
+.notes-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.notes-header h2{font-size:1rem;font-weight:700;color:var(--text)}
+.note-form{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:16px;margin-bottom:16px}
+.note-form h3{font-size:.85rem;font-weight:700;color:var(--accent);margin-bottom:12px;font-family:var(--mono)}
+.field{margin-bottom:10px}
+.field label{display:block;font-size:.75rem;color:var(--muted);margin-bottom:5px;font-family:var(--mono)}
+.form-btns{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.note-item{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--note);border-radius:11px;padding:14px 16px;margin-bottom:10px}
+.note-item-header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px}
+.note-item-title{font-size:.95rem;font-weight:600;color:var(--text)}
+.note-item-text{font-size:.83rem;color:#94a3b8;line-height:1.55;margin-bottom:8px}
+.note-actions{display:flex;gap:6px}
+.btn-sm{font-size:.72rem;padding:5px 12px;border-radius:7px}
+
+/* ── ADMIN SCREEN ── */
+.admin-lock{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:40px 20px;text-align:center}
+.admin-lock .icon{font-size:3rem}
+.admin-lock p{font-size:.85rem;color:var(--muted)}
+.admin-content{display:none}
+.admin-section{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:18px;margin-bottom:14px}
+.admin-section h3{font-size:.85rem;font-weight:700;color:var(--accent);margin-bottom:14px;font-family:var(--mono);display:flex;align-items:center;gap:7px}
+.upload-drop{border:2px dashed var(--border);border-radius:9px;padding:28px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:12px}
+.upload-drop:hover{border-color:var(--accent)}
+.upload-drop p{font-size:.85rem;color:var(--muted);margin-top:8px}
+.upload-drop .up-icon{font-size:2rem}
+#fileInput{display:none}
+.manual-list{margin-top:10px}
+.manual-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.82rem}
+.manual-row:last-child{border-bottom:none}
+.manual-row span{color:var(--muted);font-family:var(--mono)}
+.toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);padding:10px 20px;border-radius:9px;font-size:.83rem;z-index:1000;animation:fadeIn .3s ease;white-space:nowrap;pointer-events:none}
+.toast.ok{border-color:rgba(74,222,128,.4);color:var(--green)}
+.toast.err{border-color:rgba(239,68,68,.4);color:var(--danger)}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+    <div class="hrow">
+        <div class="logo">
+            <div class="logo-icon">⚡</div>
+            <div>
+                <h1>Interlocks</h1>
+                <p>ELEKTA LINAC · MANUAL SEARCH</p>
+            </div>
+        </div>
+        <div id="estadoRed" class="online">
+            <div class="dot"></div>
+            <span id="estadoTxt">Conectado</span>
+        </div>
+    </div>
+</header>
+
+<!-- ══════════════════════════════════════
+     SCREEN 1 — BÚSQUEDA
+══════════════════════════════════════ -->
+<div id="screenSearch" class="screen active">
+    <div class="search-row">
+        <div class="input-wrap" style="flex:2;min-width:160px">
+            <span class="iicon">🔍</span>
+            <input id="q" type="search" placeholder="Buscar palabra clave..." autocomplete="off" autocorrect="off" spellcheck="false">
+        </div>
+        <div class="input-wrap" style="flex:1;min-width:130px">
+            <span class="iicon">📘</span>
+            <select id="manual">
+                <option value="">Todos</option>
+                <option value="accessory">Accessory</option>
+                <option value="beam physics">Beam Physics</option>
+                <option value="catalogue">Catalogue</option>
+                <option value="communications">Communications</option>
+                <option value="corrective">Corrective</option>
+                <option value="covers">Covers</option>
+                <option value="dosimetry">Dosimetry</option>
+                <option value="ht_rf">HT / RF</option>
+                <option value="item part">Item Part</option>
+                <option value="movement">Movement</option>
+                <option value="power_supplies">Power Supplies</option>
+                <option value="table">Table</option>
+                <option value="technical">Technical</option>
+                <option value="vacuum">Vacuum</option>
+                <option value="xvi">XVI</option>
+                <option value="apuntes">📝 Apuntes</option>
+            </select>
+        </div>
+        <button id="btnBuscar" class="btn btn-primary">Buscar</button>
+    </div>
+
+    <div id="metaBar">
+        <div class="meta-count">Se encontraron <span id="countNum">0</span> resultados</div>
+        <div class="meta-mode" id="modeTag">OFFLINE</div>
+    </div>
+
+    <div id="welcomeState" class="state-box">
+        <div class="icon">🔬</div>
+        <h2>Buscador de Manuales Técnicos</h2>
+        <p>Ingresa una palabra clave para buscar en los manuales de mantenimiento del acelerador lineal Elekta.</p>
+        <div class="pills">
+            <span class="pill">Corrective</span><span class="pill">Dosimetry</span>
+            <span class="pill">HT/RF</span><span class="pill">Movement</span>
+            <span class="pill">Technical</span><span class="pill">Vacuum</span>
+            <span class="pill">XVI</span><span class="pill">📝 Apuntes</span>
+        </div>
+    </div>
+    <div id="spinnerState" style="display:none"><div class="spinner-wrap"><div class="spinner"></div></div></div>
+    <div id="emptyState" class="state-box" style="display:none">
+        <div class="icon">🔎</div>
+        <p>No se encontraron resultados.<br>Intenta con otra palabra clave.</p>
+    </div>
+    <div id="resultsList"></div>
+</div>
+
+<!-- ══════════════════════════════════════
+     SCREEN 2 — APUNTES
+══════════════════════════════════════ -->
+<div id="screenNotes" class="screen">
+    <div class="notes-header">
+        <h2>📝 Mis Apuntes</h2>
+        <button class="btn btn-primary btn-sm" onclick="toggleNoteForm()">+ Nuevo</button>
+    </div>
+
+    <!-- Formulario nuevo/editar -->
+    <div id="noteForm" class="note-form" style="display:none">
+        <h3 id="noteFormTitle">✏️ NUEVO APUNTE</h3>
+        <input type="hidden" id="editingId">
+        <div class="field">
+            <label>Título</label>
+            <input id="noteTitle" type="text" placeholder="Ej: Interlock MLC not ready" style="padding-left:12px">
+        </div>
+        <div class="field">
+            <label>Contenido</label>
+            <textarea id="noteText" placeholder="Descripción, pasos, observaciones..."></textarea>
+        </div>
+        <div class="field">
+            <label>Etiquetas (separadas por coma)</label>
+            <input id="noteTags" type="text" placeholder="Ej: mlc, interlock, corrective" style="padding-left:12px">
+        </div>
+        <div class="form-btns">
+            <button class="btn btn-primary" onclick="saveNote()">Guardar</button>
+            <button class="btn btn-ghost" onclick="cancelNoteForm()">Cancelar</button>
+        </div>
+    </div>
+
+    <div id="notesList"></div>
+    <div id="notesEmpty" class="state-box" style="display:none">
+        <div class="icon">📓</div>
+        <h2>Sin apuntes aún</h2>
+        <p>Toca "+ Nuevo" para agregar tu primer apunte personal.</p>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     SCREEN 3 — ADMIN
+══════════════════════════════════════ -->
+<div id="screenAdmin" class="screen">
+
+    <!-- Lock / login -->
+    <div id="adminLock" class="admin-lock">
+        <div class="icon">🔒</div>
+        <h2 style="font-size:1rem;color:var(--text)">Área de Administración</h2>
+        <p>Ingresa la contraseña para subir manuales y gestionar la app.</p>
+        <div style="width:100%;max-width:320px">
+            <input id="adminPass" type="password" placeholder="Contraseña" style="padding-left:12px;margin-bottom:10px">
+            <button class="btn btn-primary" style="width:100%" onclick="adminLogin()">Entrar</button>
+        </div>
+    </div>
+
+    <!-- Contenido admin -->
+    <div id="adminContent" class="admin-content">
+
+        <div class="admin-section">
+            <h3>📤 Subir nuevo manual PDF</h3>
+            <div class="field">
+                <label>Nombre del manual (sin espacios)</label>
+                <input id="uploadName" type="text" placeholder="Ej: nuevo_manual" style="padding-left:12px">
+            </div>
+            <div class="upload-drop" onclick="document.getElementById('fileInput').click()">
+                <div class="up-icon">📄</div>
+                <p id="uploadLabel">Toca aquí para seleccionar un PDF</p>
+            </div>
+            <input type="file" id="fileInput" accept=".pdf" onchange="onFileSelected(this)">
+            <button class="btn btn-primary" style="width:100%" onclick="uploadPDF()">⬆️ Subir y procesar</button>
+            <div id="uploadStatus" style="margin-top:10px;font-size:.82rem;color:var(--muted)"></div>
+        </div>
+
+        <div class="admin-section">
+            <h3>📚 Manuales en el sistema</h3>
+            <button class="btn btn-ghost btn-sm" onclick="loadManualList()">🔄 Actualizar lista</button>
+            <div id="manualList" class="manual-list" style="margin-top:12px">
+                <p style="font-size:.82rem;color:var(--muted)">Toca "Actualizar lista" para ver los manuales.</p>
+            </div>
+        </div>
+
+        <div style="text-align:center;margin-top:6px">
+            <button class="btn btn-ghost btn-sm" onclick="adminLogout()">Cerrar sesión</button>
+        </div>
+    </div>
+</div>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+    <button class="nav-btn active" id="nav-search" onclick="showScreen('search')">
+        <span class="icon">🔍</span>Buscar
+    </button>
+    <button class="nav-btn" id="nav-notes" onclick="showScreen('notes')">
+        <span class="icon">📝</span>Apuntes
+    </button>
+    <button class="nav-btn" id="nav-admin" onclick="showScreen('admin')">
+        <span class="icon">⚙️</span>Admin
+    </button>
+</nav>
+
+<script src="/static/app.js"></script>
+<script>
+/* ══ NAVEGACIÓN ══ */
+function showScreen(name) {
+    document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+    document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+    document.getElementById("screen" + name.charAt(0).toUpperCase() + name.slice(1)).classList.add("active");
+    document.getElementById("nav-" + name).classList.add("active");
+    if (name === "notes") loadNotes();
+}
+
+/* ══ SERVICE WORKER ══ */
+(async () => {
+    if (!("serviceWorker" in navigator)) return;
+    const cacheKeys = await caches.keys();
+    for (const key of cacheKeys) {
+        if (key !== "interlocks-v11") await caches.delete(key);
+    }
+    const regs = await navigator.serviceWorker.getRegistrations();
+    for (const reg of regs) await reg.unregister();
+    try {
+        const reg = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
+        const awaitUpdate = w => w.addEventListener("statechange", () => {
+            if (w.state === "activated") window.location.reload();
+        });
+        if (reg.installing) awaitUpdate(reg.installing);
+        if (reg.waiting) { reg.waiting.postMessage({ type: "SKIP_WAITING" }); awaitUpdate(reg.waiting); }
+        reg.addEventListener("updatefound", () => awaitUpdate(reg.installing));
+    } catch(e) { console.error("SW error:", e); }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: interlocks-buscador
+    runtime: python
+    # Render buscará api.py en la carpeta scripts/
+    rootDir: scripts
+    buildCommand: pip install -r ../requirements.txt
+    startCommand: gunicorn api:app --bind 0.0.0.0:$PORT --workers 2
+    envVars:
+      - key: ADMIN_PASSWORD
+        sync: false          # lo ingresas manualmente en el dashboard de Render
+      - key: SUPABASE_URL
+        sync: false          # opcional — para notas persistentes
+      - key: SUPABASE_KEY
+        sync: false          # opcional
