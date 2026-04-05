@@ -1,53 +1,42 @@
 """
-api.py  — Interlocks Buscador Técnico  v4
-+ Sirve PDFs desde /manuals/ para visor con página exacta
+api.py — Interlocks Buscador Técnico v6
+- Contraseña admin robusta
+- Notas en data/notes.json (sin Supabase)
+- PDFs en Cloudflare R2 (URL pública configurable)
+- Sin dependencias opcionales que puedan fallar
 """
 
 from flask import Flask, request, jsonify, render_template, send_from_directory, make_response
 from flask_cors import CORS
 from pathlib import Path
-import json, os, uuid, re
+import json, os, uuid
 from action_extractor import extract_action
-
-# ── PDF processing ──
-try:
-    import pdfplumber
-    PDF_AVAILABLE = True
-except ImportError:
-    PDF_AVAILABLE = False
-
-# ── Supabase (opcional) ──
-USE_SUPABASE = False
-supabase     = None
-try:
-    from supabase import create_client
-    _url = os.environ.get("SUPABASE_URL", "")
-    _key = os.environ.get("SUPABASE_KEY", "")
-    if _url and _key:
-        supabase     = create_client(_url, _key)
-        USE_SUPABASE = True
-        print("✅ Supabase conectado")
-except ImportError:
-    pass
 
 # ════════════════════════════════════════════════════════
 app = Flask(__name__, template_folder="templates", static_folder="static")
 CORS(app)
 
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "elekta2025")
+# ── Contraseña admin ──
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "elekta2025").strip()
 
+# ── URL base de Cloudflare R2 (ej: https://pub-xxx.r2.dev) ──
+# Sin barra al final. Si no está configurada, el botón PDF no aparece.
+R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "").strip().rstrip("/")
+
+# ── Paths ──
 BASE_DIR   = Path(__file__).resolve().parent.parent
 DATA_DIR   = BASE_DIR / "data"
 PAGES_DIR  = DATA_DIR / "pages"
 DATA_PATH  = DATA_DIR / "all_manuals.json"
 NOTES_PATH = DATA_DIR / "notes.json"
-MANUAL_DIR = BASE_DIR / "manuals"   # PDFs originales
 
-MANUAL_DIR.mkdir(exist_ok=True)
-PAGES_DIR.mkdir(exist_ok=True)
-
+# Cargar índice de manuales
 with open(DATA_PATH, "r", encoding="utf-8") as f:
     manuals = json.load(f)
+
+print(f"✅ {len(manuals)} páginas cargadas")
+print(f"🔑 Admin password: {'env' if os.environ.get('ADMIN_PASSWORD') else 'default'}")
+print(f"☁️  R2 URL: {R2_PUBLIC_URL or 'no configurada'}")
 
 # ════════════════════════════════════════════════════════
 #  HELPERS
@@ -59,66 +48,43 @@ def no_cache(resp):
     resp.headers["Expires"] = "0"
     return resp
 
-# ── Notas ──
+def check_pw(pw):
+    return pw.strip() == ADMIN_PASSWORD
+
+# ── Notas en JSON local (data/notes.json) ──
 def notes_load():
-    if USE_SUPABASE:
-        return supabase.table("notes").select("*").execute().data or []
     if NOTES_PATH.exists():
         with open(NOTES_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
     return []
 
-def _notes_save(notes):
+def notes_save(notes):
     with open(NOTES_PATH, "w", encoding="utf-8") as f:
         json.dump(notes, f, ensure_ascii=False, indent=2)
 
-def notes_create(title, text, tags):
-    note = {"id": str(uuid.uuid4()), "title": title.strip(),
-            "text": text.strip(), "tags": [t.strip() for t in tags if t.strip()]}
-    if USE_SUPABASE:
-        supabase.table("notes").insert(note).execute()
-    else:
-        data = notes_load(); data.append(note); _notes_save(data)
+def note_create(title, text, tags):
+    note = {
+        "id":    str(uuid.uuid4()),
+        "title": title.strip(),
+        "text":  text.strip(),
+        "tags":  [t.strip() for t in tags if t.strip()]
+    }
+    notes = notes_load()
+    notes.append(note)
+    notes_save(notes)
     return note
 
-def notes_update(nid, title, text, tags):
-    upd = {"title": title.strip(), "text": text.strip(),
-           "tags": [t.strip() for t in tags if t.strip()]}
-    if USE_SUPABASE:
-        supabase.table("notes").update(upd).eq("id", nid).execute()
-    else:
-        data = notes_load()
-        for n in data:
-            if n["id"] == nid: n.update(upd)
-        _notes_save(data)
-    return upd
+def note_update(nid, title, text, tags):
+    notes = notes_load()
+    for n in notes:
+        if n["id"] == nid:
+            n["title"] = title.strip()
+            n["text"]  = text.strip()
+            n["tags"]  = [t.strip() for t in tags if t.strip()]
+    notes_save(notes)
 
-def notes_delete(nid):
-    if USE_SUPABASE:
-        supabase.table("notes").delete().eq("id", nid).execute()
-    else:
-        _notes_save([n for n in notes_load() if n["id"] != nid])
-
-# ── PDF ──
-def pdf_to_pages(pdf_path, manual_name):
-    pages = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for i, page in enumerate(pdf.pages, 1):
-            text = (page.extract_text() or "").strip()
-            if text:
-                pages.append({"manual": manual_name.lower().strip(), "page": i, "text": text})
-    return pages
-
-def rebuild_index():
-    global manuals
-    all_pages = []
-    for jf in sorted(PAGES_DIR.glob("*_pages.json")):
-        with open(jf, "r", encoding="utf-8") as f:
-            all_pages.extend(json.load(f))
-    with open(DATA_PATH, "w", encoding="utf-8") as f:
-        json.dump(all_pages, f, ensure_ascii=False, indent=2)
-    manuals = all_pages
-    return len(all_pages)
+def note_delete(nid):
+    notes_save([n for n in notes_load() if n["id"] != nid])
 
 # ════════════════════════════════════════════════════════
 #  FRONTEND
@@ -140,11 +106,12 @@ border-top-color:#00d4ff;border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}p{color:#64748b;font-size:.9rem}
 </style></head><body><div class="s"></div><h2>⚡ Limpiando caché...</h2>
 <p>Serás redirigido automáticamente.</p>
-<script>(async()=>{const k=await caches.keys();
-await Promise.all(k.map(c=>caches.delete(c)));
+<script>(async()=>{
+const k=await caches.keys();await Promise.all(k.map(c=>caches.delete(c)));
 const r=await navigator.serviceWorker.getRegistrations();
 await Promise.all(r.map(x=>x.unregister()));
-window.location.replace('/?v='+Date.now());})();</script></body></html>"""
+window.location.replace('/?nocache='+Date.now());
+})();</script></body></html>"""
     return no_cache(make_response(html))
 
 @app.route("/manifest.json")
@@ -162,12 +129,6 @@ def service_worker():
 def serve_data(filename):
     return send_from_directory(DATA_DIR, filename)
 
-# ── Servir PDFs para el visor ──
-@app.route("/manuals/<path:filename>")
-def serve_manual(filename):
-    """Sirve el PDF original para abrirlo en el navegador en la página exacta."""
-    return send_from_directory(MANUAL_DIR, filename)
-
 # ════════════════════════════════════════════════════════
 #  API — BÚSQUEDA
 # ════════════════════════════════════════════════════════
@@ -177,19 +138,20 @@ def search():
     keyword = request.args.get("q", "").lower().strip()
     mfilter = request.args.get("manual", "").lower().strip()
     if not keyword:
-        return jsonify({"results": []})
+        return jsonify({"results": [], "r2_url": R2_PUBLIC_URL})
 
     results = []
 
+    # Buscar en manuales
     for page in manuals:
         if mfilter and mfilter != "apuntes" and page["manual"].lower() != mfilter:
             continue
         tl = page["text"].lower()
         if keyword not in tl:
             continue
-        pos   = tl.find(keyword)
-        ctx   = page["text"][max(0,pos-80):min(len(page["text"]),pos+120)]
-        ctx   = ctx.replace("\n"," ").strip()
+        pos = tl.find(keyword)
+        ctx = page["text"][max(0, pos-80):min(len(page["text"]), pos+120)]
+        ctx = ctx.replace("\n", " ").strip()
         results.append({
             "type":    "manual",
             "manual":  page["manual"],
@@ -199,9 +161,11 @@ def search():
                        or "Revisar sección completa del manual"
         })
 
+    # Buscar en apuntes
     if not mfilter or mfilter == "apuntes":
         for note in notes_load():
-            blob = (note["title"]+" "+note["text"]+" "+" ".join(note.get("tags",[]))).lower()
+            blob = (note["title"] + " " + note["text"] + " " +
+                    " ".join(note.get("tags", []))).lower()
             if keyword in blob:
                 results.append({
                     "type":    "note",
@@ -213,7 +177,7 @@ def search():
                     "tags":    note.get("tags", [])
                 })
 
-    return jsonify({"results": results})
+    return jsonify({"results": results, "r2_url": R2_PUBLIC_URL})
 
 # ════════════════════════════════════════════════════════
 #  API — NOTAS
@@ -226,60 +190,58 @@ def get_notes():
 @app.route("/notes", methods=["POST"])
 def create_note():
     d = request.get_json(force=True)
-    return jsonify(notes_create(d.get("title","Sin título"),
-                                d.get("text",""), d.get("tags",[]))), 201
+    return jsonify(note_create(
+        d.get("title", "Sin título"),
+        d.get("text", ""),
+        d.get("tags", [])
+    )), 201
 
 @app.route("/notes/<nid>", methods=["PUT"])
 def update_note(nid):
     d = request.get_json(force=True)
-    return jsonify(notes_update(nid, d.get("title",""),
-                                d.get("text",""), d.get("tags",[])))
+    note_update(nid, d.get("title",""), d.get("text",""), d.get("tags",[]))
+    return jsonify({"ok": True})
 
 @app.route("/notes/<nid>", methods=["DELETE"])
 def delete_note(nid):
-    notes_delete(nid)
+    note_delete(nid)
     return jsonify({"ok": True})
 
 # ════════════════════════════════════════════════════════
 #  API — ADMIN
 # ════════════════════════════════════════════════════════
 
-@app.route("/admin/upload", methods=["POST"])
-def upload_pdf():
-    if request.form.get("password","") != ADMIN_PASSWORD:
-        return jsonify({"error": "Contraseña incorrecta"}), 403
-    if not PDF_AVAILABLE:
-        return jsonify({"error": "Instala pdfplumber: pip install pdfplumber"}), 500
-    file = request.files.get("pdf")
-    if not file or not file.filename.lower().endswith(".pdf"):
-        return jsonify({"error": "Sube un archivo PDF válido"}), 400
-
-    manual_name = request.form.get("manual_name","").strip() or Path(file.filename).stem.lower()
-    safe        = re.sub(r"[^\w\-]","_", manual_name)
-    pdf_path    = MANUAL_DIR / f"{safe}.pdf"
-    file.save(str(pdf_path))
-
-    try:
-        pages = pdf_to_pages(str(pdf_path), manual_name)
-    except Exception as e:
-        return jsonify({"error": f"Error procesando PDF: {e}"}), 500
-
-    pages_path = PAGES_DIR / f"{safe}_pages.json"
-    with open(pages_path, "w", encoding="utf-8") as f:
-        json.dump(pages, f, ensure_ascii=False, indent=2)
-
-    total = rebuild_index()
-    return jsonify({"ok": True, "manual": manual_name,
-                    "pages": len(pages), "total_pages": total})
+@app.route("/admin/check", methods=["POST"])
+def admin_check():
+    d  = request.get_json(force=True)
+    pw = d.get("password", "").strip()
+    if check_pw(pw):
+        return jsonify({"ok": True, "r2_configured": bool(R2_PUBLIC_URL)})
+    return jsonify({"ok": False}), 403
 
 @app.route("/admin/manuals")
 def list_manuals():
-    if request.args.get("password","") != ADMIN_PASSWORD:
+    pw = request.args.get("password", "").strip()
+    if not check_pw(pw):
         return jsonify({"error": "Contraseña incorrecta"}), 403
     counts = {}
     for p in manuals:
         counts[p["manual"]] = counts.get(p["manual"], 0) + 1
-    return jsonify([{"manual":k,"pages":v} for k,v in sorted(counts.items())])
+    return jsonify([{"manual": k, "pages": v} for k, v in sorted(counts.items())])
+
+@app.route("/admin/config")
+def admin_config():
+    """Devuelve configuración no sensible para mostrar en Admin."""
+    pw = request.args.get("password", "").strip()
+    if not check_pw(pw):
+        return jsonify({"error": "Contraseña incorrecta"}), 403
+    return jsonify({
+        "r2_configured": bool(R2_PUBLIC_URL),
+        "r2_url":        R2_PUBLIC_URL or "No configurada",
+        "total_pages":   len(manuals),
+        "total_manuals": len(set(p["manual"] for p in manuals)),
+        "notes_count":   len(notes_load()),
+    })
 
 # ════════════════════════════════════════════════════════
 if __name__ == "__main__":

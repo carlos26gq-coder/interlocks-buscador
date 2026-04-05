@@ -1,4 +1,4 @@
-console.log("✅ app.js v4");
+console.log("✅ app.js v6");
 
 /* ══════════════════════════════════════════
    RED
@@ -9,7 +9,7 @@ function actualizarRed() {
     if (navigator.onLine) {
         el.className = "online";
         txt.textContent = "Conectado";
-        sincronizarNotasPendientes(); // sync al recuperar conexión
+        sincronizarPendientes();
     } else {
         el.className = "offline";
         txt.textContent = "Sin conexión";
@@ -20,9 +20,10 @@ window.addEventListener("offline", actualizarRed);
 actualizarRed();
 
 /* ══════════════════════════════════════════
-   CACHÉ OFFLINE — manuales
+   CACHÉ OFFLINE
 ══════════════════════════════════════════ */
 let manualsData = null;
+let r2BaseUrl   = "";   // se llena al primera búsqueda online
 
 async function cargarManuales() {
     if (manualsData) return manualsData;
@@ -41,13 +42,12 @@ function esc(s) {
         .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); }
-
 function highlight(text, kw) {
     if (!kw) return esc(text);
     return esc(text).replace(new RegExp(escRe(kw),"gi"), m => `<mark>${m}</mark>`);
 }
-
 function toast(msg, type="ok") {
+    document.querySelectorAll(".toast").forEach(t => t.remove());
     const t = document.createElement("div");
     t.className = `toast ${type}`;
     t.textContent = msg;
@@ -56,13 +56,16 @@ function toast(msg, type="ok") {
 }
 
 /* ══════════════════════════════════════════
-   VISOR PDF
+   PDF — abrir en R2 en página exacta
 ══════════════════════════════════════════ */
 function abrirPDF(manual, page) {
-    // Construye URL al PDF y abre en nueva pestaña con página exacta
-    // Los PDFs deben estar en /manuals/ servidos por Flask
-    const url = `/manuals/${encodeURIComponent(manual)}.pdf#page=${page}`;
-    window.open(url, "_blank");
+    if (!r2BaseUrl) {
+        toast("⚠️ URL de PDFs no configurada en el servidor","err");
+        return;
+    }
+    // El nombre del archivo en R2 debe coincidir con el nombre del manual
+    const filename = encodeURIComponent(manual + ".pdf");
+    window.open(`${r2BaseUrl}/${filename}#page=${page}`, "_blank");
 }
 
 /* ══════════════════════════════════════════
@@ -73,9 +76,9 @@ function showState(state) {
         const el = document.getElementById(id);
         if (el) el.style.display = "none";
     });
-    if (state === "welcome") document.getElementById("welcomeState").style.display  = "flex";
-    if (state === "loading") document.getElementById("spinnerState").style.display  = "block";
-    if (state === "empty")   document.getElementById("emptyState").style.display    = "flex";
+    if (state === "welcome") document.getElementById("welcomeState").style.display = "flex";
+    if (state === "loading") document.getElementById("spinnerState").style.display = "block";
+    if (state === "empty")   document.getElementById("emptyState").style.display   = "flex";
     if (state === "results") {
         document.getElementById("resultsList").style.display = "block";
         document.getElementById("metaBar").style.display     = "flex";
@@ -99,24 +102,24 @@ function renderResultados(results, keyword, mode) {
         const isNote = r.type === "note";
         const card   = document.createElement("div");
         card.className = `result-card${isNote ? " note-card" : ""}`;
-        card.style.animationDelay = `${i * 35}ms`;
+        card.style.animationDelay = `${i * 30}ms`;
 
-        const badgeClass  = isNote ? "note-badge" : "manual-badge";
-        const manualLabel = isNote ? "📝 Apunte" : esc(r.manual);
-        const pageLabel   = isNote ? esc(r.page)  : `Página ${r.page}`;
-        const tagsHtml    = isNote && r.tags?.length
+        const badge   = isNote ? "note-badge" : "manual-badge";
+        const mLabel  = isNote ? "📝 Apunte"  : esc(r.manual);
+        const pLabel  = isNote ? esc(r.page)   : `Página ${r.page}`;
+        const tagsHtml = isNote && r.tags?.length
             ? `<div class="card-tags">${r.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join("")}</div>`
             : "";
 
-        // Botón abrir PDF solo para manuales (no apuntes)
-        const pdfBtn = !isNote
-            ? `<button class="btn-pdf" onclick="abrirPDF('${esc(r.manual)}',${r.page})" title="Abrir PDF en página ${r.page}">📖 Ver PDF</button>`
+        // Botón PDF solo si hay R2 configurado y es un manual
+        const pdfBtn = (!isNote && r2BaseUrl)
+            ? `<button class="btn-pdf" onclick="abrirPDF('${esc(r.manual)}',${r.page})">📖 Pág. ${r.page}</button>`
             : "";
 
         card.innerHTML = `
             <div class="card-header">
-                <span class="card-manual ${badgeClass}">${manualLabel}</span>
-                <span class="card-page">📄 ${pageLabel}</span>
+                <span class="card-manual ${badge}">${mLabel}</span>
+                <span class="card-page">📄 ${pLabel}</span>
             </div>
             <div class="card-ctx">${highlight(r.context, keyword)}</div>
             <div class="card-footer">
@@ -143,13 +146,13 @@ async function buscarOffline(kw, mf) {
         const tl = page.text.toLowerCase();
         if (!tl.includes(kwl)) continue;
         const pos = tl.indexOf(kwl);
-        const ctx = page.text.substring(Math.max(0,pos-80), Math.min(page.text.length,pos+120))
-                              .replace(/\n+/g," ").trim();
+        const ctx = page.text
+            .substring(Math.max(0,pos-80), Math.min(page.text.length,pos+120))
+            .replace(/\n+/g," ").trim();
         results.push({ type:"manual", manual:page.manual, page:page.page,
                        context:ctx, action:"Revisar sección completa del manual" });
     }
 
-    // Apuntes desde localStorage
     if (!mfl || mfl === "apuntes") {
         for (const note of localNotesLoad()) {
             const blob = (note.title+" "+note.text+" "+(note.tags||[]).join(" ")).toLowerCase();
@@ -171,7 +174,10 @@ async function buscarOnline(kw, mf) {
     if (mf) url += `&manual=${encodeURIComponent(mf)}`;
     const r = await fetch(url);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return (await r.json()).results || [];
+    const data = await r.json();
+    // Guardar la URL de R2 que viene del servidor
+    if (data.r2_url) r2BaseUrl = data.r2_url;
+    return data.results || [];
 }
 
 /* ══════════════════════════════════════════
@@ -214,7 +220,7 @@ async function iniciarBusqueda() {
 }
 
 /* ══════════════════════════════════════════
-   EVENTOS BÚSQUEDA
+   EVENTOS
 ══════════════════════════════════════════ */
 window.addEventListener("load", () => {
     const q = document.getElementById("q");
@@ -222,15 +228,24 @@ window.addEventListener("load", () => {
     if (q) { q.disabled = false; q.readOnly = false; setTimeout(() => q.focus(), 300); }
     if (m) m.disabled = false;
     showState("welcome");
+    if (navigator.onLine) sincronizarPendientes();
 
-    // Sincronizar notas al arrancar si hay conexión
-    if (navigator.onLine) sincronizarNotasPendientes();
+    document.getElementById("btnBuscar")
+        ?.addEventListener("click", iniciarBusqueda);
 
-    document.getElementById("btnBuscar")?.addEventListener("click", iniciarBusqueda);
     [q, m].forEach(el => {
-        el?.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();iniciarBusqueda();} });
-        el?.addEventListener("keyup",   e => { if(e.key==="Enter"){e.preventDefault();iniciarBusqueda();} });
+        el?.addEventListener("keydown", e => {
+            if (e.key === "Enter") { e.preventDefault(); iniciarBusqueda(); }
+        });
+        el?.addEventListener("keyup", e => {
+            if (e.key === "Enter") { e.preventDefault(); iniciarBusqueda(); }
+        });
     });
+
+    document.getElementById("adminPass")
+        ?.addEventListener("keydown", e => {
+            if (e.key === "Enter") { e.preventDefault(); adminLogin(); }
+        });
 });
 
 /* ══════════════════════════════════════════
@@ -244,40 +259,40 @@ function localNotesSave(notes) {
     localStorage.setItem("interlocks_notes", JSON.stringify(notes));
 }
 function localNoteSync(note) {
-    const notes = localNotesLoad().filter(n => n.id !== note.id);
-    notes.push(note);
-    localNotesSave(notes);
+    const all = localNotesLoad().filter(n => n.id !== note.id);
+    all.push(note);
+    localNotesSave(all);
 }
 function localNoteDelete(id) {
     localNotesSave(localNotesLoad().filter(n => n.id !== id));
 }
 
-// Notas pendientes de sync (creadas offline)
-function pendingLoad()       { try { return JSON.parse(localStorage.getItem("interlocks_pending") || "[]"); } catch { return []; } }
-function pendingSave(p)      { localStorage.setItem("interlocks_pending", JSON.stringify(p)); }
-function pendingAdd(note)    { const p = pendingLoad(); p.push(note); pendingSave(p); }
-function pendingRemove(id)   { pendingSave(pendingLoad().filter(n => n.id !== id)); }
+// Pendientes (creados offline)
+function pendingLoad()     { try { return JSON.parse(localStorage.getItem("interlocks_pending")||"[]"); } catch{return[];} }
+function pendingSave(p)    { localStorage.setItem("interlocks_pending", JSON.stringify(p)); }
+function pendingAdd(note)  { const p=pendingLoad(); p.push(note); pendingSave(p); }
+function pendingRemove(id) { pendingSave(pendingLoad().filter(n=>n.id!==id)); }
 
-async function sincronizarNotasPendientes() {
+async function sincronizarPendientes() {
     const pending = pendingLoad();
     if (!pending.length) return;
     let synced = 0;
     for (const note of pending) {
         try {
             await fetch("/notes", {
-                method: "POST",
-                headers: {"Content-Type":"application/json"},
+                method:"POST",
+                headers:{"Content-Type":"application/json"},
                 body: JSON.stringify(note)
             });
             pendingRemove(note.id);
             synced++;
         } catch { break; }
     }
-    if (synced > 0) toast(`☁️ ${synced} apunte(s) sincronizado(s) con el servidor`);
+    if (synced > 0) toast(`☁️ ${synced} apunte(s) sincronizado(s)`);
 }
 
 /* ══════════════════════════════════════════
-   APUNTES — cargar y renderizar
+   APUNTES — cargar
 ══════════════════════════════════════════ */
 async function loadNotes() {
     const list  = document.getElementById("notesList");
@@ -289,8 +304,8 @@ async function loadNotes() {
     if (navigator.onLine) {
         try {
             const r = await fetch("/notes");
-            notes = await r.json();
-            localNotesSave(notes); // ← guardar siempre al cargar online
+            notes   = await r.json();
+            localNotesSave(notes);
         } catch { notes = localNotesLoad(); }
     } else {
         notes = localNotesLoad();
@@ -302,25 +317,28 @@ function renderNotes(notes) {
     const list  = document.getElementById("notesList");
     const empty = document.getElementById("notesEmpty");
     list.innerHTML = "";
-    if (!notes || notes.length === 0) { empty.style.display = "flex"; return; }
+    if (!notes?.length) { empty.style.display = "flex"; return; }
     empty.style.display = "none";
 
     notes.forEach(note => {
         const div = document.createElement("div");
         div.className = "note-item";
         div.id = `note-${note.id}`;
-        const tagsHtml = (note.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join("");
-        const isPending = pendingLoad().some(p => p.id === note.id);
+        const tagsHtml  = (note.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join("");
+        const isPending = pendingLoad().some(p=>p.id===note.id);
         div.innerHTML = `
             <div class="note-item-header">
-                <div class="note-item-title">${esc(note.title)}${isPending ? ' <span style="color:var(--warn);font-size:.7rem">⏳ pendiente</span>' : ""}</div>
+                <div class="note-item-title">
+                    ${esc(note.title)}
+                    ${isPending?'<span style="color:var(--warn);font-size:.7rem"> ⏳</span>':""}
+                </div>
                 <div class="note-actions">
                     <button class="btn btn-ghost btn-sm" onclick="editNote('${note.id}')">✏️</button>
                     <button class="btn btn-danger btn-sm" onclick="deleteNote('${note.id}')">🗑</button>
                 </div>
             </div>
             <div class="note-item-text">${esc(note.text)}</div>
-            ${tagsHtml ? `<div class="card-tags">${tagsHtml}</div>` : ""}
+            ${tagsHtml?`<div class="card-tags">${tagsHtml}</div>`:""}
         `;
         list.appendChild(div);
     });
@@ -334,19 +352,15 @@ function toggleNoteForm() {
     if (form.style.display !== "none") { cancelNoteForm(); return; }
     form.style.display = "block";
     document.getElementById("noteFormTitle").textContent = "✏️ NUEVO APUNTE";
-    document.getElementById("editingId").value = "";
-    document.getElementById("noteTitle").value = "";
-    document.getElementById("noteText").value  = "";
-    document.getElementById("noteTags").value  = "";
+    ["editingId","noteTitle","noteText","noteTags"].forEach(id =>
+        document.getElementById(id).value = "");
     document.getElementById("noteTitle").focus();
 }
-
 function cancelNoteForm() {
     document.getElementById("noteForm").style.display = "none";
 }
-
 function editNote(id) {
-    const note = localNotesLoad().find(n => n.id === id);
+    const note = localNotesLoad().find(n=>n.id===id);
     if (!note) return;
     document.getElementById("noteForm").style.display = "block";
     document.getElementById("noteFormTitle").textContent = "✏️ EDITAR APUNTE";
@@ -355,14 +369,15 @@ function editNote(id) {
     document.getElementById("noteText").value  = note.text;
     document.getElementById("noteTags").value  = (note.tags||[]).join(", ");
     document.getElementById("noteTitle").focus();
-    document.getElementById("noteForm").scrollIntoView({ behavior:"smooth" });
+    document.getElementById("noteForm").scrollIntoView({behavior:"smooth"});
 }
 
 async function saveNote() {
     const id    = document.getElementById("editingId").value.trim();
     const title = document.getElementById("noteTitle").value.trim();
     const text  = document.getElementById("noteText").value.trim();
-    const tags  = document.getElementById("noteTags").value.split(",").map(t=>t.trim()).filter(Boolean);
+    const tags  = document.getElementById("noteTags").value
+                    .split(",").map(t=>t.trim()).filter(Boolean);
     if (!title) { toast("El título es obligatorio","err"); return; }
 
     const note = { id: id || crypto.randomUUID(), title, text, tags };
@@ -371,16 +386,16 @@ async function saveNote() {
         try {
             const method = id ? "PUT" : "POST";
             const url    = id ? `/notes/${id}` : "/notes";
-            await fetch(url, { method, headers:{"Content-Type":"application/json"}, body:JSON.stringify(note) });
-            pendingRemove(note.id); // ya sincronizado
-        } catch {
-            if (!id) pendingAdd(note); // guardar como pendiente si falla
-            toast("⚠️ Error al guardar en servidor, guardado localmente","err");
-        }
+            await fetch(url, {
+                method,
+                headers:{"Content-Type":"application/json"},
+                body: JSON.stringify(note)
+            });
+            pendingRemove(note.id);
+        } catch { if (!id) pendingAdd(note); }
     } else {
-        // Sin internet: guardar local y marcar como pendiente
         if (!id) pendingAdd(note);
-        toast("⚠️ Sin internet — se sincronizará cuando te conectes");
+        toast("⚠️ Sin internet — se sincronizará al conectarte");
     }
 
     localNoteSync(note);
@@ -391,15 +406,15 @@ async function saveNote() {
 
 async function deleteNote(id) {
     if (!confirm("¿Eliminar este apunte?")) return;
-    try {
-        if (navigator.onLine) await fetch(`/notes/${id}`, { method:"DELETE" });
-        localNoteDelete(id);
-        pendingRemove(id);
-        document.getElementById(`note-${id}`)?.remove();
-        const list = document.getElementById("notesList");
-        if (!list.children.length) document.getElementById("notesEmpty").style.display = "flex";
-        toast("🗑 Apunte eliminado");
-    } catch(e) { toast("❌ Error al eliminar","err"); }
+    if (navigator.onLine) {
+        try { await fetch(`/notes/${id}`, {method:"DELETE"}); } catch {}
+    }
+    localNoteDelete(id);
+    pendingRemove(id);
+    document.getElementById(`note-${id}`)?.remove();
+    if (!document.getElementById("notesList").children.length)
+        document.getElementById("notesEmpty").style.display = "flex";
+    toast("🗑 Apunte eliminado");
 }
 
 /* ══════════════════════════════════════════
@@ -407,22 +422,27 @@ async function deleteNote(id) {
 ══════════════════════════════════════════ */
 let adminPassword = "";
 
-function adminLogin() {
+async function adminLogin() {
     const pw = document.getElementById("adminPass").value.trim();
     if (!pw) { toast("Ingresa la contraseña","err"); return; }
-    adminPassword = pw;
-    fetch(`/admin/manuals?password=${encodeURIComponent(pw)}`)
-        .then(r => {
-            if (r.ok) {
-                document.getElementById("adminLock").style.display    = "none";
-                document.getElementById("adminContent").style.display = "block";
-                loadManualList();
-            } else {
-                toast("❌ Contraseña incorrecta","err");
-                adminPassword = "";
-            }
-        })
-        .catch(() => toast("❌ Sin conexión","err"));
+    try {
+        const r = await fetch("/admin/check", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({password: pw})
+        });
+        if (r.ok) {
+            adminPassword = pw;
+            document.getElementById("adminLock").style.display    = "none";
+            document.getElementById("adminContent").style.display = "block";
+            loadAdminConfig();
+            loadManualList();
+        } else {
+            toast("❌ Contraseña incorrecta","err");
+        }
+    } catch {
+        toast("❌ Sin conexión al servidor","err");
+    }
 }
 
 function adminLogout() {
@@ -433,56 +453,36 @@ function adminLogout() {
 }
 
 /* ══════════════════════════════════════════
-   ADMIN — upload PDF
+   ADMIN — config y estado
 ══════════════════════════════════════════ */
-let selectedFile = null;
-
-function onFileSelected(input) {
-    selectedFile = input.files[0] || null;
-    document.getElementById("uploadLabel").textContent =
-        selectedFile ? `📄 ${selectedFile.name}` : "Toca aquí para seleccionar un PDF";
-}
-
-async function uploadPDF() {
-    if (!selectedFile) { toast("Selecciona un PDF primero","err"); return; }
-    const name   = document.getElementById("uploadName").value.trim();
-    const status = document.getElementById("uploadStatus");
-
-    const fd = new FormData();
-    fd.append("password", adminPassword);
-    fd.append("pdf", selectedFile);
-    if (name) fd.append("manual_name", name);
-
-    status.textContent = "⏳ Subiendo y procesando...";
-    status.style.color = "var(--accent)";
-
+async function loadAdminConfig() {
     try {
-        const r    = await fetch("/admin/upload", { method:"POST", body:fd });
+        const r    = await fetch(`/admin/config?password=${encodeURIComponent(adminPassword)}`);
         const data = await r.json();
-        if (r.ok) {
-            status.innerHTML = `✅ <b>${data.manual}</b>: ${data.pages} páginas agregadas (total en índice: ${data.total_pages})<br>
-                <span style="color:var(--warn);font-size:.78rem">⚠️ Para que el manual persista en Render, súbelo también a GitHub (ver instrucciones abajo).</span>`;
-            status.style.color = "var(--green)";
-            selectedFile = null;
-            document.getElementById("fileInput").value = "";
-            document.getElementById("uploadLabel").textContent = "Toca aquí para seleccionar un PDF";
-            document.getElementById("uploadName").value = "";
-            loadManualList();
-            manualsData = null; // forzar recarga offline
-            toast(`✅ Manual "${data.manual}" procesado`);
-        } else {
-            status.textContent = `❌ ${data.error}`;
-            status.style.color = "var(--danger)";
+        if (!r.ok) return;
+
+        document.getElementById("configInfo").innerHTML = `
+            <div class="config-row"><span>📚 Total páginas</span><span>${data.total_pages}</span></div>
+            <div class="config-row"><span>📘 Manuales</span><span>${data.total_manuals}</span></div>
+            <div class="config-row"><span>📝 Apuntes</span><span>${data.notes_count}</span></div>
+            <div class="config-row">
+                <span>☁️ Cloudflare R2</span>
+                <span style="color:${data.r2_configured?'var(--green)':'var(--warn)'}">
+                    ${data.r2_configured ? '✅ Configurado' : '⚠️ No configurado'}
+                </span>
+            </div>
+        `;
+
+        // Actualizar r2BaseUrl si está disponible
+        if (data.r2_url && data.r2_url !== "No configurada") {
+            r2BaseUrl = data.r2_url;
         }
-    } catch(e) {
-        status.textContent = `❌ Error: ${e.message}`;
-        status.style.color = "var(--danger)";
-    }
+    } catch {}
 }
 
 async function loadManualList() {
     const div = document.getElementById("manualList");
-    div.innerHTML = `<div class="spinner-wrap" style="padding:16px 0"><div class="spinner"></div></div>`;
+    div.innerHTML = `<div class="spinner-wrap" style="padding:12px 0"><div class="spinner"></div></div>`;
     try {
         const r    = await fetch(`/admin/manuals?password=${encodeURIComponent(adminPassword)}`);
         const data = await r.json();
