@@ -1,294 +1,266 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Interlocks — Buscador Técnico</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, interactive-widget=resizes-content">
-    <link rel="manifest" href="/manifest.json">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Interlocks">
-    <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="theme-color" content="#0b0f1a">
-    <meta name="description" content="Buscador de manuales técnicos Elekta Linac">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta charset="UTF-8">
+<title>Interlocks — Buscador Técnico</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=yes,interactive-widget=resizes-content">
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Interlocks">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0f1a">
+<meta name="description" content="Buscador de manuales técnicos Elekta Linac">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0b0f1a;--surface:#111827;--surface2:#151e2e;--border:#1e293b;--accent:#00d4ff;--accent2:#0077ff;--green:#4ade80;--warn:#f59e0b;--danger:#ef4444;--note:#a78bfa;--text:#e2e8f0;--muted:#64748b;--mono:'Share Tech Mono',monospace;--sans:'Barlow',sans-serif}
+:root{--bg:#0b0f1a;--surface:#111827;--s2:#151e2e;--border:#1e293b;--accent:#00d4ff;--a2:#0077ff;--green:#4ade80;--warn:#f59e0b;--danger:#ef4444;--note:#a78bfa;--text:#e2e8f0;--muted:#64748b;--mono:'Share Tech Mono',monospace;--sans:'Barlow',sans-serif}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden;padding-bottom:80px}
 body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
-header{position:relative;z-index:10;padding:18px 20px 14px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(0,212,255,.06) 0%,transparent 100%)}
+header{position:relative;z-index:10;padding:16px 18px 12px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(0,212,255,.06) 0%,transparent 100%)}
 .hrow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .logo{display:flex;align-items:center;gap:10px}
-.logo-icon{width:36px;height:36px;background:linear-gradient(135deg,var(--accent2),var(--accent));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px}
-.logo h1{font-size:1rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
-.logo p{font-size:.65rem;color:var(--muted);font-family:var(--mono);letter-spacing:.08em}
-#estadoRed{display:flex;align-items:center;gap:6px;font-size:.72rem;font-family:var(--mono);padding:4px 10px;border-radius:20px;border:1px solid var(--border);background:rgba(255,255,255,.03);white-space:nowrap}
+.logo-icon{width:34px;height:34px;background:linear-gradient(135deg,var(--a2),var(--accent));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px}
+.logo h1{font-size:.95rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.logo p{font-size:.63rem;color:var(--muted);font-family:var(--mono)}
+#estadoRed{display:flex;align-items:center;gap:6px;font-size:.7rem;font-family:var(--mono);padding:3px 9px;border-radius:20px;border:1px solid var(--border);background:rgba(255,255,255,.03);white-space:nowrap}
 #estadoRed.online{color:var(--green);border-color:rgba(74,222,128,.3)}
 #estadoRed.offline{color:var(--danger);border-color:rgba(239,68,68,.3)}
-.dot{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 2s infinite}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:100;background:var(--surface);border-top:1px solid var(--border);display:flex}
-.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:10px 4px;font-size:.63rem;font-family:var(--mono);color:var(--muted);border:none;background:none;cursor:pointer;transition:color .2s;text-transform:uppercase;letter-spacing:.04em;-webkit-tap-highlight-color:transparent}
-.nav-btn .icon{font-size:1.25rem}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:9px 4px;font-size:.62rem;font-family:var(--mono);color:var(--muted);border:none;background:none;cursor:pointer;text-transform:uppercase;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.nav-btn .icon{font-size:1.2rem}
 .nav-btn.active{color:var(--accent)}
-.screen{display:none;position:relative;z-index:10;padding:18px}
+.screen{display:none;position:relative;z-index:10;padding:16px}
 .screen.active{display:block}
-.search-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
-.input-wrap{position:relative;flex:1;min-width:150px}
-.iicon{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none;color:var(--muted)}
-input,select,textarea{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:var(--sans);font-size:.9rem;padding:11px 11px 11px 36px;border-radius:8px;outline:none;transition:border-color .2s,box-shadow .2s;-webkit-appearance:none;appearance:none}
-select{padding-left:36px;cursor:pointer}
-textarea{padding:11px;resize:vertical;min-height:85px}
+.search-row{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:4px}
+.input-wrap{position:relative;flex:1;min-width:140px}
+.iicon{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;pointer-events:none;color:var(--muted)}
+input,select,textarea{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:var(--sans);font-size:.88rem;padding:10px 10px 10px 33px;border-radius:8px;outline:none;transition:border-color .2s;-webkit-appearance:none;appearance:none}
+select{padding-left:33px;cursor:pointer}
+textarea{padding:10px;resize:vertical;min-height:82px}
 input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,255,.12)}
 input::placeholder,textarea::placeholder{color:var(--muted)}
-.btn{border:none;font-family:var(--sans);font-weight:700;font-size:.9rem;letter-spacing:.03em;padding:11px 20px;border-radius:8px;cursor:pointer;transition:opacity .15s;white-space:nowrap;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
-.btn-primary{background:linear-gradient(135deg,var(--accent2),var(--accent));color:#000}
-.btn-primary:active,.btn-primary.loading{opacity:.7;pointer-events:none}
+.btn{border:none;font-family:var(--sans);font-weight:700;font-size:.88rem;padding:10px 18px;border-radius:8px;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent;touch-action:manipulation;transition:opacity .15s}
+.btn-primary{background:linear-gradient(135deg,var(--a2),var(--accent));color:#000}
+.btn-primary:active{opacity:.75}
+.btn-primary:disabled{opacity:.6;pointer-events:none}
 .btn-danger{background:var(--danger);color:#fff}
-.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
-.btn-sm{font-size:.72rem;padding:5px 11px;border-radius:7px}
-.btn-pdf{display:inline-flex;align-items:center;gap:4px;font-size:.72rem;padding:5px 10px;border-radius:6px;border:1px solid rgba(0,212,255,.3);background:rgba(0,212,255,.07);color:var(--accent);cursor:pointer;font-family:var(--mono);white-space:nowrap;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-#metaBar{display:none;align-items:center;justify-content:space-between;margin:12px 0 8px;flex-wrap:wrap;gap:6px}
-.meta-count{font-size:.78rem;font-family:var(--mono);color:var(--muted)}
+.btn-ghost{background:var(--s2);color:var(--text);border:1px solid var(--border)}
+.btn-sm{font-size:.7rem;padding:4px 10px;border-radius:6px}
+.btn-pdf{display:inline-flex;align-items:center;gap:4px;font-size:.7rem;padding:4px 9px;border-radius:6px;border:1px solid rgba(0,212,255,.3);background:rgba(0,212,255,.07);color:var(--accent);cursor:pointer;font-family:var(--mono);touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#metaBar{display:none;align-items:center;justify-content:space-between;margin:10px 0 7px;flex-wrap:wrap;gap:5px}
+.meta-count{font-size:.76rem;font-family:var(--mono);color:var(--muted)}
 .meta-count span{color:var(--accent);font-weight:700}
-.meta-mode{font-size:.7rem;font-family:var(--mono);padding:2px 8px;border-radius:10px;background:rgba(0,212,255,.08);color:var(--accent);border:1px solid rgba(0,212,255,.2)}
-.result-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:9px;animation:fadeIn .3s ease both}
+.meta-mode{font-size:.68rem;font-family:var(--mono);padding:2px 7px;border-radius:10px;background:rgba(0,212,255,.08);color:var(--accent);border:1px solid rgba(0,212,255,.2)}
+.result-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px 15px;margin-bottom:8px;animation:fadeIn .3s ease both}
 .result-card.note-card{border-left:3px solid var(--note)}
-@keyframes fadeIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
-.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:4px}
-.card-manual{font-size:.7rem;font-family:var(--mono);font-weight:700;text-transform:uppercase;letter-spacing:.07em;padding:2px 8px;border-radius:5px}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;flex-wrap:wrap;gap:4px}
+.card-manual{font-size:.68rem;font-family:var(--mono);font-weight:700;text-transform:uppercase;padding:2px 7px;border-radius:5px}
 .manual-badge{color:var(--accent);background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2)}
 .note-badge{color:var(--note);background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.2)}
-.card-page{font-size:.7rem;font-family:var(--mono);color:var(--muted)}
-.card-ctx{font-size:.84rem;line-height:1.6;color:#94a3b8;border-left:2px solid var(--border);padding-left:10px;margin-bottom:8px}
+.card-page{font-size:.68rem;font-family:var(--mono);color:var(--muted)}
+.card-ctx{font-size:.82rem;line-height:1.6;color:#94a3b8;border-left:2px solid var(--border);padding-left:9px;margin-bottom:7px}
 .card-ctx mark{background:rgba(245,158,11,.2);color:var(--warn);border-radius:3px;padding:0 2px}
-.card-footer{display:flex;align-items:flex-start;justify-content:space-between;gap:7px;flex-wrap:wrap}
-.card-action{display:flex;align-items:flex-start;gap:6px;font-size:.78rem;color:#60a5fa;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.15);border-radius:6px;padding:6px 10px;flex:1}
-.card-action::before{content:'⚙';font-size:12px;flex-shrink:0}
-.card-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
-.tag{font-size:.67rem;font-family:var(--mono);padding:2px 7px;border-radius:10px;background:rgba(167,139,250,.1);color:var(--note);border:1px solid rgba(167,139,250,.2)}
-.state-box{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 20px;text-align:center;color:var(--muted)}
-.state-box .icon{font-size:2.8rem;margin-bottom:12px}
-.state-box h2{font-size:.95rem;font-weight:600;color:var(--text);margin-bottom:5px}
-.state-box p{font-size:.85rem;line-height:1.6;max-width:290px}
-.pills{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:16px}
-.pill{font-size:.67rem;font-family:var(--mono);padding:3px 8px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--muted);text-transform:uppercase}
-.spinner-wrap{display:flex;align-items:center;justify-content:center;padding:50px 0}
-.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+.card-footer{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.card-action{display:flex;align-items:flex-start;gap:5px;font-size:.76rem;color:#60a5fa;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.15);border-radius:6px;padding:5px 9px;flex:1}
+.card-action::before{content:'⚙';font-size:11px;flex-shrink:0}
+.card-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
+.tag{font-size:.65rem;font-family:var(--mono);padding:2px 6px;border-radius:10px;background:rgba(167,139,250,.1);color:var(--note);border:1px solid rgba(167,139,250,.2)}
+.state-box{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:44px 18px;text-align:center;color:var(--muted)}
+.state-box .icon{font-size:2.6rem;margin-bottom:10px}
+.state-box h2{font-size:.9rem;font-weight:600;color:var(--text);margin-bottom:4px}
+.state-box p{font-size:.83rem;line-height:1.6;max-width:280px}
+.pills{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:14px}
+.pill{font-size:.65rem;font-family:var(--mono);padding:2px 7px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--muted);text-transform:uppercase}
+.spinner-wrap{display:flex;align-items:center;justify-content:center;padding:46px 0}
+.spinner{width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.notes-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-.notes-header h2{font-size:.95rem;font-weight:700;color:var(--text)}
-.note-form{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px}
-.note-form h3{font-size:.82rem;font-weight:700;color:var(--accent);margin-bottom:10px;font-family:var(--mono)}
-.field{margin-bottom:9px}
-.field label{display:block;font-size:.72rem;color:var(--muted);margin-bottom:4px;font-family:var(--mono)}
-.form-btns{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
-.note-item{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--note);border-radius:10px;padding:12px 14px;margin-bottom:9px}
-.note-item-header{display:flex;align-items:flex-start;justify-content:space-between;gap:7px;margin-bottom:5px}
-.note-item-title{font-size:.9rem;font-weight:600;color:var(--text)}
-.note-item-text{font-size:.81rem;color:#94a3b8;line-height:1.5;margin-bottom:7px}
-.note-actions{display:flex;gap:5px;flex-shrink:0}
-.admin-lock{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:36px 20px;text-align:center}
-.admin-lock .icon{font-size:2.8rem}
-.admin-lock p{font-size:.83rem;color:var(--muted);max-width:280px}
+.notes-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.notes-header h2{font-size:.9rem;font-weight:700;color:var(--text)}
+.note-form{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px;margin-bottom:12px}
+.note-form h3{font-size:.8rem;font-weight:700;color:var(--accent);margin-bottom:9px;font-family:var(--mono)}
+.field{margin-bottom:8px}
+.field label{display:block;font-size:.7rem;color:var(--muted);margin-bottom:3px;font-family:var(--mono)}
+.form-btns{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
+.note-item{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--note);border-radius:10px;padding:11px 13px;margin-bottom:8px}
+.note-item-header{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:4px}
+.note-item-title{font-size:.88rem;font-weight:600;color:var(--text)}
+.note-item-text{font-size:.79rem;color:#94a3b8;line-height:1.5;margin-bottom:6px}
+.note-actions{display:flex;gap:4px;flex-shrink:0}
+.admin-lock{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:11px;padding:34px 18px;text-align:center}
+.admin-lock .icon{font-size:2.6rem}
+.admin-lock p{font-size:.81rem;color:var(--muted);max-width:270px}
 .admin-content{display:none}
-.admin-section{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px}
-.admin-section h3{font-size:.82rem;font-weight:700;color:var(--accent);margin-bottom:12px;font-family:var(--mono)}
-.config-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:.82rem}
+.admin-section{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:11px}
+.admin-section h3{font-size:.8rem;font-weight:700;color:var(--accent);margin-bottom:10px;font-family:var(--mono)}
+.config-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.8rem}
 .config-row:last-child{border-bottom:none}
 .config-row span:first-child{color:var(--muted)}
-.manual-list{margin-top:8px}
-.manual-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.8rem}
+.manual-list{margin-top:7px}
+.manual-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:.78rem}
 .manual-row:last-child{border-bottom:none}
 .manual-row span{color:var(--muted);font-family:var(--mono)}
-.info-box{background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:11px 13px;font-size:.78rem;color:#fcd34d;line-height:1.7}
-.info-box code{background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:.72rem}
-.toast{position:fixed;top:75px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);padding:9px 18px;border-radius:8px;font-size:.81rem;z-index:2000;animation:fadeIn .3s ease;white-space:nowrap;pointer-events:none;max-width:92vw;text-align:center}
-.toast.ok{border-color:rgba(74,222,128,.4);color:var(--green)}
-.toast.err{border-color:rgba(239,68,68,.4);color:var(--danger)}
+.info-box{background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.2);border-radius:7px;padding:10px 12px;font-size:.76rem;color:#fcd34d;line-height:1.7}
+.info-box code{background:rgba(0,0,0,.3);padding:1px 4px;border-radius:3px;font-family:var(--mono);font-size:.7rem}
+.toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);padding:8px 16px;border-radius:8px;font-size:.79rem;z-index:2000;animation:fadeIn .3s ease;white-space:nowrap;pointer-events:none;max-width:92vw;text-align:center}
+.tok{border-color:rgba(74,222,128,.4);color:var(--green)}
+.terr{border-color:rgba(239,68,68,.4);color:var(--danger)}
 </style>
 </head>
 <body>
 
 <header>
-    <div class="hrow">
-        <div class="logo">
-            <div class="logo-icon">⚡</div>
-            <div>
-                <h1>Interlocks</h1>
-                <p>ELEKTA LINAC · MANUAL SEARCH</p>
-            </div>
-        </div>
-        <div id="estadoRed" class="online">
-            <div class="dot"></div>
-            <span id="estadoTxt">Conectado</span>
-        </div>
+  <div class="hrow">
+    <div class="logo">
+      <div class="logo-icon">⚡</div>
+      <div><h1>Interlocks</h1><p>ELEKTA LINAC · MANUAL SEARCH</p></div>
     </div>
+    <div id="estadoRed" class="online"><div class="dot"></div><span id="estadoTxt">Conectado</span></div>
+  </div>
 </header>
 
 <!-- BÚSQUEDA -->
 <div id="screenSearch" class="screen active">
-    <div class="search-row">
-        <div class="input-wrap" style="flex:2;min-width:150px">
-            <span class="iicon">🔍</span>
-            <input id="q" type="search" placeholder="Buscar palabra clave..." autocomplete="off" autocorrect="off" spellcheck="false">
-        </div>
-        <div class="input-wrap" style="flex:1;min-width:120px">
-            <span class="iicon">📘</span>
-            <select id="manual">
-                <option value="">Todos</option>
-                <option value="accessory">Accessory</option>
-                <option value="beam physics">Beam Physics</option>
-                <option value="catalogue">Catalogue</option>
-                <option value="communications">Communications</option>
-                <option value="corrective">Corrective</option>
-                <option value="covers">Covers</option>
-                <option value="dosimetry">Dosimetry</option>
-                <option value="ht_rf">HT / RF</option>
-                <option value="item part">Item Part</option>
-                <option value="movement">Movement</option>
-                <option value="power_supplies">Power Supplies</option>
-                <option value="table">Table</option>
-                <option value="technical">Technical</option>
-                <option value="vacuum">Vacuum</option>
-                <option value="xvi">XVI</option>
-                <option value="apuntes">📝 Apuntes</option>
-            </select>
-        </div>
-        <button id="btnBuscar" class="btn btn-primary" onclick="iniciarBusqueda()">Buscar</button>
+  <div class="search-row">
+    <div class="input-wrap" style="flex:2;min-width:140px">
+      <span class="iicon">🔍</span>
+      <input id="q" type="search" placeholder="Buscar palabra clave..." autocomplete="off" autocorrect="off" spellcheck="false">
     </div>
-    <div id="metaBar">
-        <div class="meta-count">Se encontraron <span id="countNum">0</span> resultados</div>
-        <div class="meta-mode" id="modeTag">OFFLINE</div>
+    <div class="input-wrap" style="flex:1;min-width:110px">
+      <span class="iicon">📘</span>
+      <select id="manual">
+        <option value="">Todos</option>
+        <option value="accessory">Accessory</option>
+        <option value="beam physics">Beam Physics</option>
+        <option value="catalogue">Catalogue</option>
+        <option value="communications">Communications</option>
+        <option value="corrective">Corrective</option>
+        <option value="covers">Covers</option>
+        <option value="dosimetry">Dosimetry</option>
+        <option value="ht_rf">HT / RF</option>
+        <option value="item part">Item Part</option>
+        <option value="movement">Movement</option>
+        <option value="power_supplies">Power Supplies</option>
+        <option value="table">Table</option>
+        <option value="technical">Technical</option>
+        <option value="vacuum">Vacuum</option>
+        <option value="xvi">XVI</option>
+        <option value="apuntes">📝 Apuntes</option>
+      </select>
     </div>
-    <div id="welcomeState" class="state-box">
-        <div class="icon">🔬</div>
-        <h2>Buscador de Manuales Técnicos</h2>
-        <p>Ingresa una palabra clave para buscar en los manuales de mantenimiento del acelerador lineal Elekta.</p>
-        <div class="pills">
-            <span class="pill">Corrective</span><span class="pill">Dosimetry</span>
-            <span class="pill">HT/RF</span><span class="pill">Movement</span>
-            <span class="pill">Technical</span><span class="pill">Vacuum</span>
-            <span class="pill">XVI</span><span class="pill">📝 Apuntes</span>
-        </div>
+    <button class="btn btn-primary" id="btnBuscar" onclick="buscar()">Buscar</button>
+  </div>
+  <div id="metaBar">
+    <div class="meta-count">Se encontraron <span id="countNum">0</span> resultados</div>
+    <div class="meta-mode" id="modeTag">OFFLINE</div>
+  </div>
+  <div id="welcomeState" class="state-box">
+    <div class="icon">🔬</div>
+    <h2>Buscador de Manuales Técnicos</h2>
+    <p>Ingresa una palabra clave para buscar en los manuales de mantenimiento del acelerador lineal Elekta.</p>
+    <div class="pills">
+      <span class="pill">Corrective</span><span class="pill">Dosimetry</span>
+      <span class="pill">HT/RF</span><span class="pill">Movement</span>
+      <span class="pill">Technical</span><span class="pill">Vacuum</span>
+      <span class="pill">XVI</span><span class="pill">📝 Apuntes</span>
     </div>
-    <div id="spinnerState" style="display:none"><div class="spinner-wrap"><div class="spinner"></div></div></div>
-    <div id="emptyState" class="state-box" style="display:none">
-        <div class="icon">🔎</div>
-        <p>No se encontraron resultados.<br>Intenta con otra palabra clave.</p>
-    </div>
-    <div id="resultsList"></div>
+  </div>
+  <div id="spinnerState" style="display:none"><div class="spinner-wrap"><div class="spinner"></div></div></div>
+  <div id="emptyState" class="state-box" style="display:none">
+    <div class="icon">🔎</div><p>No se encontraron resultados.<br>Intenta con otra palabra clave.</p>
+  </div>
+  <div id="resultsList"></div>
 </div>
 
 <!-- APUNTES -->
 <div id="screenNotes" class="screen">
-    <div class="notes-header">
-        <h2>📝 Mis Apuntes</h2>
-        <button class="btn btn-primary btn-sm" onclick="toggleNoteForm()">+ Nuevo</button>
+  <div class="notes-header">
+    <h2>📝 Mis Apuntes</h2>
+    <button class="btn btn-primary btn-sm" onclick="abrirFormNota()">+ Nuevo</button>
+  </div>
+  <div id="formNota" class="note-form" style="display:none">
+    <h3 id="formTit">✏️ NUEVO APUNTE</h3>
+    <input type="hidden" id="editId">
+    <div class="field"><label>Título</label><input id="notaTit" type="text" placeholder="Ej: Interlock MLC not ready" style="padding-left:10px"></div>
+    <div class="field"><label>Contenido</label><textarea id="notaTxt" placeholder="Descripción, pasos, observaciones..."></textarea></div>
+    <div class="field"><label>Etiquetas (separadas por coma)</label><input id="notaTags" type="text" placeholder="Ej: mlc, interlock" style="padding-left:10px"></div>
+    <div class="form-btns">
+      <button class="btn btn-primary" onclick="guardarNota()">Guardar</button>
+      <button class="btn btn-ghost" onclick="cerrarFormNota()">Cancelar</button>
     </div>
-    <div id="noteForm" class="note-form" style="display:none">
-        <h3 id="noteFormTitle">✏️ NUEVO APUNTE</h3>
-        <input type="hidden" id="editingId">
-        <div class="field">
-            <label>Título</label>
-            <input id="noteTitle" type="text" placeholder="Ej: Interlock MLC not ready" style="padding-left:11px">
-        </div>
-        <div class="field">
-            <label>Contenido</label>
-            <textarea id="noteText" placeholder="Descripción, pasos, observaciones..."></textarea>
-        </div>
-        <div class="field">
-            <label>Etiquetas (separadas por coma)</label>
-            <input id="noteTags" type="text" placeholder="Ej: mlc, interlock, corrective" style="padding-left:11px">
-        </div>
-        <div class="form-btns">
-            <button class="btn btn-primary" onclick="saveNote()">Guardar</button>
-            <button class="btn btn-ghost" onclick="cancelNoteForm()">Cancelar</button>
-        </div>
-    </div>
-    <div id="notesList"></div>
-    <div id="notesEmpty" class="state-box" style="display:none">
-        <div class="icon">📓</div>
-        <h2>Sin apuntes aún</h2>
-        <p>Toca "+ Nuevo" para agregar tu primer apunte personal.</p>
-    </div>
+  </div>
+  <div id="listaNotas"></div>
+  <div id="sinNotas" class="state-box" style="display:none">
+    <div class="icon">📓</div><h2>Sin apuntes aún</h2>
+    <p>Toca "+ Nuevo" para agregar tu primer apunte personal.</p>
+  </div>
 </div>
 
 <!-- ADMIN -->
 <div id="screenAdmin" class="screen">
-    <div id="adminLock" class="admin-lock">
-        <div class="icon">🔒</div>
-        <h2 style="font-size:.95rem;color:var(--text)">Área de Administración</h2>
-        <p>Ingresa la contraseña para ver el estado del sistema.</p>
-        <div style="width:100%;max-width:300px">
-            <input id="adminPass" type="password" placeholder="Contraseña" style="padding-left:11px;margin-bottom:9px">
-            <button class="btn btn-primary" style="width:100%" onclick="adminLogin()">Entrar</button>
-        </div>
+  <div id="adminLock" class="admin-lock">
+    <div class="icon">🔒</div>
+    <h2 style="font-size:.9rem;color:var(--text)">Área de Administración</h2>
+    <p>Ingresa la contraseña para ver el estado del sistema.</p>
+    <div style="width:100%;max-width:290px">
+      <input id="adminPw" type="password" placeholder="Contraseña" style="padding-left:10px;margin-bottom:8px">
+      <button class="btn btn-primary" style="width:100%" onclick="adminEntrar()">Entrar</button>
     </div>
-    <div id="adminContent" class="admin-content">
-        <div class="admin-section">
-            <h3>📊 ESTADO DEL SISTEMA</h3>
-            <div id="configInfo"><div class="spinner-wrap" style="padding:12px 0"><div class="spinner"></div></div></div>
-        </div>
-        <div class="admin-section">
-            <h3>📚 MANUALES EN EL SISTEMA</h3>
-            <button class="btn btn-ghost btn-sm" onclick="loadManualList()">🔄 Actualizar</button>
-            <div id="manualList" class="manual-list" style="margin-top:10px">
-                <p style="font-size:.8rem;color:var(--muted)">Toca "Actualizar" para ver la lista.</p>
-            </div>
-        </div>
-        <div class="admin-section">
-            <h3>➕ AGREGAR NUEVO MANUAL</h3>
-            <div class="info-box">
-                <b>Paso 1</b> — En tu laptop, extrae el texto del PDF y sube el JSON a GitHub:<br>
-                <code>git add data/pages/</code> → <code>git commit</code> → <code>git push</code><br><br>
-                <b>Paso 2</b> — Sube el PDF a Cloudflare R2:<br>
-                R2 → bucket <code>interlocks-manuals</code> → Upload
-            </div>
-        </div>
-        <div class="admin-section">
-            <h3>📝 APUNTES PERMANENTES</h3>
-            <div class="info-box">
-                Para que los apuntes persistan tras un reinicio de Render,<br>
-                copia <code>data/notes.json</code> a tu repo local y haz push a GitHub.
-            </div>
-        </div>
-        <div style="text-align:center;margin-top:4px">
-            <button class="btn btn-ghost btn-sm" onclick="adminLogout()">Cerrar sesión</button>
-        </div>
+  </div>
+  <div id="adminCont" class="admin-content">
+    <div class="admin-section"><h3>📊 ESTADO DEL SISTEMA</h3><div id="cfgInfo"><div class="spinner-wrap" style="padding:10px 0"><div class="spinner"></div></div></div></div>
+    <div class="admin-section">
+      <h3>📚 MANUALES EN EL SISTEMA</h3>
+      <button class="btn btn-ghost btn-sm" onclick="cargarListaManuales()">🔄 Actualizar</button>
+      <div id="listaManuales" class="manual-list" style="margin-top:9px"><p style="font-size:.78rem;color:var(--muted)">Toca "Actualizar".</p></div>
     </div>
+    <div class="admin-section"><h3>➕ AGREGAR NUEVO MANUAL</h3>
+      <div class="info-box">
+        <b>1.</b> Extrae el JSON del PDF en tu laptop y sube a GitHub:<br>
+        <code>git add data/pages/</code> → <code>git commit</code> → <code>git push</code><br><br>
+        <b>2.</b> Sube el PDF a Cloudflare R2 → bucket <code>interlocks-manuals</code>
+      </div>
+    </div>
+    <div class="admin-section"><h3>📝 APUNTES PERMANENTES</h3>
+      <div class="info-box">
+        Para que persistan tras un reinicio de Render,<br>
+        copia <code>data/notes.json</code> a tu repo y haz push a GitHub.
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:4px">
+      <button class="btn btn-ghost btn-sm" onclick="adminSalir()">Cerrar sesión</button>
+    </div>
+  </div>
 </div>
 
 <nav class="bottom-nav">
-    <button class="nav-btn active" id="nav-search" onclick="showScreen('search')">
-        <span class="icon">🔍</span>Buscar
-    </button>
-    <button class="nav-btn" id="nav-notes" onclick="showScreen('notes')">
-        <span class="icon">📝</span>Apuntes
-    </button>
-    <button class="nav-btn" id="nav-admin" onclick="showScreen('admin')">
-        <span class="icon">⚙️</span>Admin
-    </button>
+  <button class="nav-btn active" id="navS" onclick="irA('Search')"><span class="icon">🔍</span>Buscar</button>
+  <button class="nav-btn" id="navN" onclick="irA('Notes')"><span class="icon">📝</span>Apuntes</button>
+  <button class="nav-btn" id="navA" onclick="irA('Admin')"><span class="icon">⚙️</span>Admin</button>
 </nav>
 
-<!-- Cache-busting: build_time cambia con cada deploy de Render -->
-<script src="/static/app.js?v={{ build_time }}"></script>
+<!-- app.js se carga al final del body para que el DOM ya esté listo -->
+<script src="/static/app.js"></script>
 <script>
-function showScreen(name) {
-    document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
-    document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));
-    const n = name.charAt(0).toUpperCase()+name.slice(1);
-    document.getElementById("screen"+n).classList.add("active");
-    document.getElementById("nav-"+name).classList.add("active");
-    if (name==="notes") window.loadNotes();
+// Navegación entre pantallas
+function irA(name) {
+    ['Search','Notes','Admin'].forEach(n => {
+        document.getElementById('screen'+n).classList.toggle('active', n===name);
+        document.getElementById('nav'+n[0]).classList.toggle('active', n===name);
+    });
+    if (name==='Notes') cargarNotas();
 }
-if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/sw.js", {updateViaCache:"none"})
+
+// Service Worker — solo registrar, sin lógica de recarga
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js', {updateViaCache:'none'})
         .then(reg => reg.update())
-        .catch(e => console.error("SW:", e));
+        .catch(e => console.error('SW:', e));
 }
 </script>
 </body>
