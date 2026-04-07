@@ -50,33 +50,19 @@ function toast(msg, tipo) {
 // ─── PDF ─────────────────────────────────────────────────
 function verPDF(manual, page) {
     if (!_r2url) { toast("⚠️ PDFs no configurados","err"); return; }
-    
-    const url = _r2url + "/" + encodeURIComponent(manual + ".pdf") + "#page=" + page;
-    
-    // ANDROID: Download directo (evita crash del viewer Chrome)
-    if (/Android/.test(navigator.userAgent)) {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = manual + ".pdf";
-        a.target = "_blank";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        toast("📥 PDF descargado — ábrelo en Descargas", "tok");
-        return;
+    const pdfUrl  = _r2url + "/" + encodeURIComponent(manual + ".pdf");
+    const esAndroid = /Android/i.test(navigator.userAgent);
+
+    if (esAndroid) {
+        // Android Chrome no tiene visor PDF nativo en window.open.
+        // Google Docs Viewer carga el PDF como página web sin intentar descargarlo,
+        // funciona bien con PDFs grandes. No soporta #page pero al menos abre.
+        const viewer = "https://docs.google.com/viewer?url=" + encodeURIComponent(pdfUrl) + "&embedded=false";
+        window.open(viewer, "_blank");
+    } else {
+        // iOS Safari y Desktop: visor nativo soporta #page directamente
+        window.open(pdfUrl + "#page=" + page, "_blank");
     }
-    
-    // iOS/DESKTOP: Link optimizado + prefetch
-    const link = document.createElement('a');
-    link.href = url + (/iPad|iPhone|iPod/.test(navigator.userAgent) ? "&zoom=100" : "");
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    // Prefetch para acelerar
-    fetch(url, {method: 'HEAD'}).catch(() => {});
 }
 
 // ─── UI STATE ────────────────────────────────────────────
