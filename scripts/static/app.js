@@ -50,17 +50,23 @@ function toast(msg, tipo) {
 // ─── PDF ─────────────────────────────────────────────────
 function verPDF(manual, page) {
     if (!_r2url) { toast("⚠️ PDFs no configurados","err"); return; }
-    const pdfUrl  = _r2url + "/" + encodeURIComponent(manual + ".pdf");
+    const pdfUrl    = _r2url + "/" + encodeURIComponent(manual + ".pdf");
     const esAndroid = /Android/i.test(navigator.userAgent);
 
     if (esAndroid) {
-        // Android Chrome no tiene visor PDF nativo en window.open.
-        // Google Docs Viewer carga el PDF como página web sin intentar descargarlo,
-        // funciona bien con PDFs grandes. No soporta #page pero al menos abre.
-        const viewer = "https://docs.google.com/viewer?url=" + encodeURIComponent(pdfUrl) + "&embedded=false";
-        window.open(viewer, "_blank");
+        // Android: descarga directa — simple y funciona con cualquier tamaño
+        // El usuario abre el PDF con su app instalada (Adobe, Drive, etc.)
+        toast("⬇️ Descargando PDF — pág. " + page, "ok");
+        const a = document.createElement("a");
+        a.href     = pdfUrl;
+        a.download = manual + ".pdf";
+        a.target   = "_blank";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
     } else {
-        // iOS Safari y Desktop: visor nativo soporta #page directamente
+        // iOS y Desktop: visor nativo con #page
+        toast("📄 Abriendo pág. " + page + " — puede tardar unos segundos", "ok");
         window.open(pdfUrl + "#page=" + page, "_blank");
     }
 }
