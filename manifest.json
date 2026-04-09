@@ -1,6 +1,6 @@
 {
-  "name": "Interlocks — Buscador Técnico",
-  "short_name": "Interlocks",
+  "name": "SOLVI — Buscador Técnico",
+  "short_name": "SOLVI",
   "description": "Buscador de manuales técnicos para aceleradores lineales Elekta",
   "start_url": "/",
   "scope": "/",
@@ -10,7 +10,7 @@
   "theme_color": "#0b0f1a",
   "orientation": "portrait-primary",
   "lang": "es",
-  "categories": ["medical", "utilities"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/static/icon-192.png",
@@ -24,7 +24,5 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ],
-  "screenshots": [],
-  "prefer_related_applications": false
+  ]
 }
