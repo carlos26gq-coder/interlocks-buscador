@@ -70,7 +70,12 @@ function cargarPdfJs(cb) {
 function verPDF(manual, page) {
     if (!_r2url) { toast("⚠️ PDFs no configurados","err"); return; }
     const pdfUrl = _r2url + "/" + encodeURIComponent(manual + ".pdf");
-    toast("📄 Cargando PDF...", "ok");
+    if (!navigator.onLine) {
+        // Sin internet: PDF.js debe estar en caché del SW
+        toast("📴 Modo offline — cargando desde caché", "ok");
+    } else {
+        toast("📄 Cargando PDF...", "ok");
+    }
     cargarPdfJs(function() {
         abrirVisorPDF(pdfUrl, page, manual);
     });
@@ -88,11 +93,13 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
     }
     modal.innerHTML =
         '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#111827;border-bottom:1px solid #1e293b;flex-shrink:0;gap:8px;flex-wrap:wrap;">' +
-            '<div style="font-size:.75rem;color:#00d4ff;font-family:monospace;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55vw">📘 ' + esc(manual) + '</div>' +
-            '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">' +
+            '<div style="font-size:.75rem;color:#00d4ff;font-family:monospace;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:45vw">📘 ' + esc(manual) + '</div>' +
+            '<div style="display:flex;align-items:center;gap:5px;flex-shrink:0;flex-wrap:wrap;">' +
                 '<button onclick="pdfPagAnterior()" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">◀</button>' +
                 '<span id="pdfPagInfo" style="font-size:.75rem;color:#94a3b8;font-family:monospace;min-width:70px;text-align:center">Pág. ' + pageNum + '</span>' +
                 '<button onclick="pdfPagSiguiente()" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">▶</button>' +
+                '<a href="' + pdfUrl + '" target="_blank" style="background:#0077ff;border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.75rem;text-decoration:none;white-space:nowrap;">🌐 Web</a>' +
+                '<a href="' + pdfUrl + '" download style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.75rem;text-decoration:none;white-space:nowrap;">⬇ PDF</a>' +
                 '<button onclick="cerrarVisorPDF()" style="background:#ef4444;border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">✕</button>' +
             '</div>' +
         '</div>' +
