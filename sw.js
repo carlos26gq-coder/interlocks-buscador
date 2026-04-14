@@ -34,11 +34,13 @@ self.addEventListener("activate", e => {
 self.addEventListener("fetch", e => {
     const url = new URL(e.request.url);
 
-    // Nunca interceptar: API calls y reset
+    // Nunca interceptar: API calls, reset y PDFs externos (Cloudflare R2)
     if (url.pathname.startsWith("/search") ||
         url.pathname.startsWith("/notes")  ||
         url.pathname.startsWith("/admin")  ||
-        url.pathname.startsWith("/reset")) {
+        url.pathname.startsWith("/reset")  ||
+        url.hostname.includes("r2.dev")    ||
+        url.pathname.endsWith(".pdf")) {
         return;
     }
 
