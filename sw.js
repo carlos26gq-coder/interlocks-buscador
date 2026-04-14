@@ -1,7 +1,7 @@
-// SOLVI SW v19
-// Offline completo: cachea HTML shell, app.js, JSON manuales y PDF.js
+// SOLVI SW v20
+// Offline robusto: Caché individual y manejo seguro de errores de red
 
-const CACHE = "solvi-v19";
+const CACHE = "solvi-v20";
 
 const PRECACHE = [
     "/",
@@ -15,9 +15,15 @@ const PRECACHE = [
 
 self.addEventListener("install", e => {
     e.waitUntil(
-        caches.open(CACHE)
-            .then(c => c.addAll(PRECACHE))
-            .then(() => self.skipWaiting())
+        caches.open(CACHE).then(cache => {
+            // MEJORA 1: Instalación resiliente (uno por uno).
+            // Si el internet parpadea y un ícono falla, el JSON y la App sí se guardan.
+            return Promise.all(
+                PRECACHE.map(url => {
+                    return cache.add(url).catch(err => console.warn("SW: Omitido por red ->", url));
+                })
+            );
+        }).then(() => self.skipWaiting())
     );
 });
 
@@ -63,14 +69,22 @@ self.addEventListener("fetch", e => {
     // Todo lo demás: caché primero, luego red, guardar en caché
     e.respondWith(
         caches.match(e.request).then(cached => {
-            if (cached) return cached;
+            if (cached) return cached; // Si está en caché, lo devuelve instantáneo
+            
             return fetch(e.request).then(res => {
                 if (res && res.ok) {
                     const clone = res.clone();
                     caches.open(CACHE).then(c => c.put(e.request, clone));
                 }
                 return res;
-            }).catch(() => caches.match(e.request));
+            }).catch(() => {
+                // MEJORA 2: Respuesta de seguridad en caso de Offline extremo
+                // Evita que la app colapse mostrando un "Failed to fetch" rojo en consola
+                if (url.pathname.endsWith(".json")) {
+                    return new Response("[]", { headers: { "Content-Type": "application/json" } });
+                }
+                return new Response("Offline", { status: 503, statusText: "Offline" });
+            });
         })
     );
 });
