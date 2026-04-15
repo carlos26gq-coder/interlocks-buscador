@@ -188,17 +188,22 @@ function cerrarVisorPDF() {
     window._pdfDoc = null;
 }
 
-// ─── LÓGICA DE ZOOM (Scroll Libre Nativo) ──────────────────────
+// ─── LÓGICA DE ZOOM (Zoom Focal Optimizado) ──────────────────────
 function activarZoomCanvas() {
     const canvas = document.getElementById("pdfCanvas");
-    if (!canvas) return;
+    const container = document.getElementById("pdfScroll");
+    if (!canvas || !container) return;
 
     let currentZoom = 1;
     let initialDistance = null;
+    let isPinching = false;
+    let animationFrameId = null; // Válvula de seguridad para el procesador
+
     canvas.dataset.currentZoom = 1;
 
     canvas.addEventListener('touchstart', (e) => {
         if (e.touches.length === 2) {
+            isPinching = true;
             initialDistance = Math.hypot(
                 e.touches[0].pageX - e.touches[1].pageX,
                 e.touches[0].pageY - e.touches[1].pageY
@@ -207,28 +212,65 @@ function activarZoomCanvas() {
     }, { passive: false });
 
     canvas.addEventListener('touchmove', (e) => {
-        if (e.touches.length === 2 && initialDistance) {
-            e.preventDefault(); 
-            const currentDistance = Math.hypot(
-                e.touches[0].pageX - e.touches[1].pageX,
-                e.touches[0].pageY - e.touches[1].pageY
-            );
+        if (e.touches.length === 2 && isPinching && initialDistance) {
+            e.preventDefault(); // Evita scroll brusco nativo
             
-            const scaleChange = currentDistance / initialDistance;
-            let newZoom = currentZoom * scaleChange;
-            
-            newZoom = Math.max(1, Math.min(newZoom, 3));
-            canvas.dataset.currentZoom = newZoom;
-            
-            const baseWidth = parseFloat(canvas.dataset.baseWidth || window.innerWidth);
-            canvas.style.width = (baseWidth * newZoom) + "px";
+            // OPTIMIZACIÓN: Si el celular aún está dibujando el cuadro anterior, ignoramos este cálculo
+            if (animationFrameId) return; 
+
+            // Extraemos la posición actual de los dedos
+            const touch1 = e.touches[0];
+            const touch2 = e.touches[1];
+
+            // Sincronizamos con el motor gráfico del navegador (60 fps estables)
+            animationFrameId = requestAnimationFrame(() => {
+                const currentDistance = Math.hypot(
+                    touch1.pageX - touch2.pageX,
+                    touch1.pageY - touch2.pageY
+                );
+                
+                const pinchX = (touch1.clientX + touch2.clientX) / 2;
+                const pinchY = (touch1.clientY + touch2.clientY) / 2;
+                
+                const scaleChange = currentDistance / initialDistance;
+                let newZoom = currentZoom * scaleChange;
+                
+                // Límite de seguridad
+                newZoom = Math.max(1, Math.min(newZoom, 3));
+                const actualScaleRatio = newZoom / currentZoom;
+                
+                if (actualScaleRatio !== 1) {
+                    const rect = canvas.getBoundingClientRect();
+                    const pointX = pinchX - rect.left;
+                    const pointY = pinchY - rect.top;
+                    
+                    const baseWidth = parseFloat(canvas.dataset.baseWidth || window.innerWidth);
+                    canvas.style.width = (baseWidth * newZoom) + "px";
+                    
+                    // Ajuste milimétrico del scroll hacia el punto central
+                    container.scrollLeft += pointX * (actualScaleRatio - 1);
+                    container.scrollTop += pointY * (actualScaleRatio - 1);
+                    
+                    currentZoom = newZoom;
+                    canvas.dataset.currentZoom = newZoom;
+                    initialDistance = currentDistance;
+                }
+                
+                // Liberamos la válvula para el siguiente cálculo
+                animationFrameId = null; 
+            });
         }
     }, { passive: false });
 
     canvas.addEventListener('touchend', (e) => {
         if (e.touches.length < 2) {
+            isPinching = false;
             initialDistance = null;
-            currentZoom = parseFloat(canvas.dataset.currentZoom || 1);
+            // Limpieza de memoria si el usuario suelta la pantalla de golpe
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
         }
     });
 }
