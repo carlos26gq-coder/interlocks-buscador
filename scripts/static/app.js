@@ -71,11 +71,9 @@ function verPDF(manual, page) {
     if (!_r2url) { toast("⚠️ PDFs no configurados","err"); return; }
     const pdfUrl = _r2url + "/" + encodeURIComponent(manual + ".pdf");
     
-    // CORRECCIÓN: Obligamos a que la página sea un número matemático exacto
     const pageInt = parseInt(page, 10) || 1;
 
     if (!navigator.onLine) {
-        // CONTROL OFFLINE: Muestra el aviso y detiene la función para evitar el error "Failed to fetch"
         alert("📴 Sin conexión a internet.\n\nPara ver este documento, busca el archivo '" + manual + ".pdf' que descargaste previamente en tu carpeta de Descargas.");
         return; 
     } else {
@@ -97,8 +95,8 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
         document.body.appendChild(modal);
     }
     
-    // MEJORA: Se eliminó el 'max-width:100%' y el 'transform' del canvas.
-    // Esto permite que el contenedor genere barras de scroll nativas al hacer zoom.
+    // CORRECCIÓN ZOOM: Se cambió align-items a flex-start para no cortar el lado izquierdo.
+    // Se añadió margin: 0 auto al canvas para mantenerlo centrado de forma segura.
     modal.innerHTML =
         '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#111827;border-bottom:1px solid #1e293b;flex-shrink:0;gap:8px;flex-wrap:wrap;">' +
             '<div style="font-size:.75rem;color:#00d4ff;font-family:monospace;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:45vw">📘 ' + esc(manual) + '</div>' +
@@ -111,8 +109,8 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
                 '<button onclick="cerrarVisorPDF()" style="background:#ef4444;border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">✕</button>' +
             '</div>' +
         '</div>' +
-        '<div id="pdfScroll" style="flex:1;overflow-y:auto;overflow-x:auto;display:flex;flex-direction:column;align-items:center;padding:10px 0;background:#1a1a2e;">' +
-            '<canvas id="pdfCanvas" style="box-shadow:0 2px 12px rgba(0,0,0,.5); touch-action: pan-x pan-y;"></canvas>' +
+        '<div id="pdfScroll" style="flex:1;overflow-y:auto;overflow-x:auto;display:flex;flex-direction:column;align-items:flex-start;padding:10px 0;background:#1a1a2e;">' +
+            '<canvas id="pdfCanvas" style="box-shadow:0 2px 12px rgba(0,0,0,.5); touch-action: pan-x pan-y; margin: 0 auto;"></canvas>' +
         '</div>';
     modal.style.display = "flex";
 
@@ -148,14 +146,12 @@ function renderPdfPagina(num) {
         const vp0     = page.getViewport({ scale: 1 });
         const baseScale = vw / vp0.width;
         
-        // CUIDAMOS LA RAM: Ajuste dinámico según el equipo (máx x2)
         const ratioInteligente = Math.min(window.devicePixelRatio || 1.5, 2);
         const vp = page.getViewport({ scale: baseScale * ratioInteligente });
         
         canvas.width  = vp.width;
         canvas.height = vp.height;
         
-        // MEJORA: Guardamos el ancho base en la memoria del canvas para el cálculo del zoom
         canvas.dataset.baseWidth = vw; 
         canvas.style.width = vw + "px"; 
 
@@ -175,6 +171,21 @@ function renderPdfPagina(num) {
             document.getElementById("pdfScroll").scrollTop = 0;
         });
     });
+}
+
+// CORRECCIÓN: Funciones restauradas para controlar el visor
+function pdfPagAnterior() {
+    if (!window._pdfDoc || window._pdfPage <= 1) return;
+    renderPdfPagina(window._pdfPage - 1);
+}
+function pdfPagSiguiente() {
+    if (!window._pdfDoc || window._pdfPage >= window._pdfDoc.numPages) return;
+    renderPdfPagina(window._pdfPage + 1);
+}
+function cerrarVisorPDF() {
+    const m = document.getElementById("pdfModal");
+    if (m) m.style.display = "none";
+    window._pdfDoc = null;
 }
 
 // ─── LÓGICA DE ZOOM (Scroll Libre Nativo) ──────────────────────
@@ -209,8 +220,6 @@ function activarZoomCanvas() {
             newZoom = Math.max(1, Math.min(newZoom, 3));
             canvas.dataset.currentZoom = newZoom;
             
-            // MEJORA: Expandimos físicamente el canvas en lugar de usar ilusiones ópticas.
-            // Esto le avisa a Android que habilite el desplazamiento hacia todos los lados.
             const baseWidth = parseFloat(canvas.dataset.baseWidth || window.innerWidth);
             canvas.style.width = (baseWidth * newZoom) + "px";
         }
