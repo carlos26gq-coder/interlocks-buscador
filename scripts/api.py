@@ -1,16 +1,27 @@
 """
-api.py — Interlocks Buscador Técnico v7
+api.py — Interlocks Buscador Técnico v7 (Seguridad Mejorada)
 """
 from flask import Flask, request, jsonify, render_template, send_from_directory, make_response
 from flask_cors import CORS
+from flask_limiter import Limiter # 🛡️ Nuevo import para el límite de peticiones
+from flask_limiter.util import get_remote_address # 🛡️ Nuevo import
 from pathlib import Path
-import json, os, uuid, time
+import json, os, uuid, time, secrets # 🛡️ Se añadió 'secrets'
 from action_extractor import extract_action
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 CORS(app)
 
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "elekta2025").strip()
+# 🛡️ ESCUDO 1: Inicializar el limitador para evitar ataques de fuerza bruta
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
+
+# 🛡️ ESCUDO 2: Fallback seguro. Si no configuras la clave en Render, crea una indescifrable temporal.
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", secrets.token_hex(16)).strip()
 R2_PUBLIC_URL  = os.environ.get("R2_PUBLIC_URL", "").strip().rstrip("/")
 
 # Timestamp de cuando arrancó el servidor — cambia con cada deploy
@@ -25,7 +36,7 @@ with open(DATA_PATH, "r", encoding="utf-8") as f:
     manuals = json.load(f)
 
 print(f"✅ {len(manuals)} páginas | build: {BUILD_TIME}")
-print(f"🔑 Password: {'env' if os.environ.get('ADMIN_PASSWORD') else 'default'}")
+print(f"🔑 Password: {'env' if os.environ.get('ADMIN_PASSWORD') else 'generada_segura'}")
 print(f"☁️  R2: {R2_PUBLIC_URL or 'no configurada'}")
 
 # ── HELPERS ──────────────────────────────────────────────
@@ -180,6 +191,7 @@ def delete_note(nid):
 # ── ADMIN ────────────────────────────────────────────────
 
 @app.route("/admin/check", methods=["POST"])
+@limiter.limit("5 per minute") # 🛡️ ESCUDO 3: Solo 5 intentos por minuto por IP
 def admin_check():
     d  = request.get_json(force=True)
     pw = d.get("password","").strip()

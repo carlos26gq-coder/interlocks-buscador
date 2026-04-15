@@ -75,10 +75,13 @@ function verPDF(manual, page) {
     const pageInt = parseInt(page, 10) || 1;
 
     if (!navigator.onLine) {
-        toast("📴 Modo offline — cargando desde caché", "ok");
+        // CONTROL OFFLINE: Muestra el aviso y detiene la función para evitar el error "Failed to fetch"
+        alert("📴 Sin conexión a internet.\n\nPara ver este documento, busca el archivo '" + manual + ".pdf' que descargaste previamente en tu carpeta de Descargas.");
+        return; 
     } else {
         toast("📄 Cargando PDF...", "ok");
     }
+    
     cargarPdfJs(function() {
         abrirVisorPDF(pdfUrl, pageInt, manual);
     });

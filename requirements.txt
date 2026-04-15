@@ -3,3 +3,4 @@ flask-cors==4.0.1
 pdfplumber==0.11.4
 supabase==2.5.3
 gunicorn==22.0.0
+Flask-Limiter==3.7.0
