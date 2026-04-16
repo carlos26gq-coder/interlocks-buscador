@@ -120,14 +120,32 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
 
     activarZoomCanvas();
 
-    pdfjsLib.getDocument({ url: pdfUrl, cMapUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/", cMapPacked: true })
+    // MEJORA INTELIGENTE: Detectamos Android para esquivar el proxy agresivo de las operadoras móviles
+    const isAndroid = /Android/i.test(navigator.userAgent);
+
+    pdfjsLib.getDocument({ 
+        url: pdfUrl, 
+        disableRange: isAndroid, // Salvavidas: descarga en bloque solo en Android
+        disableStream: isAndroid,
+        cMapUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/", 
+        cMapPacked: true 
+    })
         .promise.then(function(doc) {
             window._pdfDoc = doc;
             document.getElementById("pdfPagInfo").textContent = "Pág. " + pageNum + " / " + doc.numPages;
             renderPdfPagina(pageNum);
         }).catch(function(err) {
+            let errorMsg = err.message;
+            if (errorMsg.includes("Failed to fetch") || errorMsg.includes("Network")) {
+                errorMsg = "La conexión móvil es inestable o la operadora bloqueó la descarga.";
+            }
             document.getElementById("pdfScroll").innerHTML =
-                '<p style="color:#ef4444;padding:20px;text-align:center">❌ Error al cargar el PDF.<br><small style="color:#64748b">' + err.message + '</small></p>';
+                '<div style="padding:40px 20px;text-align:center;display:flex;flex-direction:column;align-items:center;">' +
+                    '<div style="font-size:3.5rem;margin-bottom:10px;">📡</div>' +
+                    '<p style="color:#ef4444;font-weight:bold;font-size:1.2rem;margin:0 0 10px 0;">Error de Red</p>' +
+                    '<p style="color:#94a3b8;font-size:0.95rem;max-width:320px;margin:0 0 20px 0;">' + errorMsg + '</p>' +
+                    '<a href="' + pdfUrl + '" target="_blank" style="background:#00d4ff;color:#0b0f1a;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:bold;box-shadow:0 4px 6px rgba(0,0,0,0.3);">👁️ Intentar Visor Nativo del Celular</a>' +
+                '</div>';
         });
 }
 
