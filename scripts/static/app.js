@@ -1,27 +1,4 @@
-console.log("✅ app.js v15 (Sincronización de Contexto Visual y Limpieza)");
-
-// ─── SEGURIDAD GLOBAL (PANTALLA DE BLOQUEO) ────────────────
-function verificarAccesoGlobal() {
-    const input = document.getElementById("teamAccessInput");
-    const errorMsg = document.getElementById("lockErrorMsg");
-    
-    // 🛡️ OFUSCACIÓN: La clave "Dat#2026" codificada en Base64.
-    const claveOfuscada = "RGF0IzIwMjY=";
-
-    if (input && btoa(input.value) === claveOfuscada) {
-        localStorage.setItem("dat_access", "true");
-        document.getElementById("globalLockScreen").style.display = "none";
-        document.body.classList.remove("locked");
-        errorMsg.style.display = "none";
-    } else {
-        if (errorMsg) errorMsg.style.display = "block";
-        if (input) {
-            input.style.borderColor = "var(--danger)";
-            input.value = "";
-            setTimeout(() => input.style.borderColor = "var(--border)", 1500);
-        }
-    }
-}
+console.log("✅ SOLVI app.js v16 — búsqueda indexada y diagnóstico");
 
 // ─── RED ──────────────────────────────────────────────────
 function actualizarRed() {
@@ -41,15 +18,38 @@ window.addEventListener("offline", actualizarRed);
 actualizarRed();
 
 // ─── DATOS ───────────────────────────────────────────────
-let _data  = null;
 let _r2url = localStorage.getItem("r2url") || "";
+let _workerSequence = 0;
+const _workerPending = new Map();
+const _searchWorker = new Worker("/static/search-worker.js");
+let _searchState = { query:"", manual:"", offset:0, limit:25, total:0, hasMore:false, mode:"offline" };
 
-async function getData() {
-    if (_data) return _data;
-    const r = await fetch("/data/all_manuals.json");
-    if (!r.ok) throw new Error("No se pudo cargar all_manuals.json");
-    _data = await r.json();
-    return _data;
+_searchWorker.onmessage = event => {
+    const pending = _workerPending.get(event.data.id);
+    if (!pending) return;
+    _workerPending.delete(event.data.id);
+    if (event.data.ok) pending.resolve(event.data.data);
+    else pending.reject(new Error(event.data.error || "Error en la búsqueda offline"));
+};
+
+function workerRequest(type, payload) {
+    return new Promise((resolve, reject) => {
+        const id = ++_workerSequence;
+        _workerPending.set(id, {resolve, reject});
+        _searchWorker.postMessage({id, type, payload});
+    });
+}
+
+async function apiRequest(url, options = {}) {
+    const response = await fetch(url, options);
+    let data = null;
+    try { data = await response.json(); } catch { data = null; }
+    if (!response.ok) {
+        const error = new Error((data && data.error) || `Error HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
+    }
+    return data;
 }
 
 // ─── HELPERS ─────────────────────────────────────────────
@@ -59,7 +59,11 @@ function esc(s) {
 }
 function hi(txt, kw) {
     if (!kw) return esc(txt);
-    const re = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"gi");
+    const terms = [...new Set(String(kw).trim().split(/\s+/).filter(Boolean))]
+        .sort((a,b) => b.length-a.length)
+        .map(term => term.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"));
+    if (!terms.length) return esc(txt);
+    const re = new RegExp(terms.join("|"),"gi");
     return esc(txt).replace(re, m => "<mark>"+m+"</mark>");
 }
 function toast(msg, tipo) {
@@ -312,10 +316,11 @@ async function verNotaEnGrande(id) {
     let nota = notasLocal().find(n => n.id === id);
     if (!nota && navigator.onLine) {
         try {
-            const r = await fetch("/notes");
-            const notas = await r.json();
-            notasGuardar(notas);
-            nota = notas.find(n => n.id === id);
+            const notas = await apiRequest("/notes");
+            if (Array.isArray(notas)) {
+                notasGuardar(notas);
+                nota = notas.find(n => n.id === id);
+            }
         } catch(e) {}
     }
     
@@ -342,120 +347,133 @@ function cerrarVisorNota() {
     document.getElementById("noteViewer").style.display = "none";
 }
 
-// ─── RENDER RESULTADOS ───────────────────────────────────
-function renderResultados(results, kw, modo) {
-    const lista = document.getElementById("resultsList");
-    lista.innerHTML = "";
-    if (!results || !results.length) { uiState("empty"); return; }
-    document.getElementById("countNum").textContent = results.length;
-    document.getElementById("modeTag").textContent  = modo === "online" ? "ONLINE" : "OFFLINE";
+// ─── RESULTADOS Y PAGINACIÓN ─────────────────────────────
+function crearTarjetaResultado(result, keyword, index) {
+    const isNote = result.type === "note";
+    const card = document.createElement("article");
+    card.className = "result-card" + (isNote ? " note-card" : "");
+    card.style.animationDelay = (Math.min(index, 10) * 25) + "ms";
+
+    const tags = isNote && Array.isArray(result.tags) && result.tags.length
+        ? '<div class="card-tags">' + result.tags.map(tag => '<span class="tag">'+esc(tag)+'</span>').join("") + "</div>"
+        : "";
+    const manualLabel = isNote ? "📝 Apunte" : esc(result.manual);
+    const pageLabel = isNote ? esc(result.page) : "Página " + Number(result.page);
+    card.innerHTML =
+        '<div class="card-header"><span class="card-manual '+(isNote ? "note-badge" : "manual-badge")+'">'+manualLabel+'</span>'+
+        '<span class="card-page">📄 '+pageLabel+'</span></div>'+
+        '<div class="card-ctx">'+hi(result.context, keyword)+'</div>'+tags;
+
+    const footer = document.createElement("div");
+    footer.className = "card-footer";
+    footer.style.justifyContent = "flex-end";
+    if (isNote) {
+        const button = document.createElement("button");
+        button.className = "btn-pdf note-open";
+        button.textContent = "📖 Leer apunte";
+        button.addEventListener("click", () => verNotaEnGrande(result.id));
+        footer.appendChild(button);
+    } else if (_r2url) {
+        const button = document.createElement("button");
+        button.className = "btn-pdf";
+        button.textContent = `📖 Ver pág. ${result.page}`;
+        button.addEventListener("click", () => verPDF(result.manual, result.page));
+        footer.appendChild(button);
+    }
+    card.appendChild(footer);
+    return card;
+}
+
+function renderResultados(data, keyword, mode, append = false) {
+    const list = document.getElementById("resultsList");
+    const results = Array.isArray(data.results) ? data.results : [];
+    if (!append) list.innerHTML = "";
+    if (!results.length && !append) {
+        document.getElementById("btnMasResultados").style.display = "none";
+        uiState("empty");
+        return;
+    }
+
+    results.forEach((result, index) => list.appendChild(crearTarjetaResultado(result, keyword, index)));
+    _searchState.total = Number(data.total) || 0;
+    _searchState.hasMore = Boolean(data.has_more);
+    _searchState.mode = mode;
+    const shown = Math.min(_searchState.offset + results.length, _searchState.total);
+    document.getElementById("countNum").textContent = `${shown} de ${_searchState.total}`;
+    document.getElementById("modeTag").textContent = mode === "online" ? "ONLINE" : "OFFLINE";
+    document.getElementById("btnMasResultados").style.display = _searchState.hasMore ? "block" : "none";
     uiState("results");
-    
-    results.forEach((r, i) => {
-        const nota = r.type === "note";
-        const card = document.createElement("div");
-        card.className = "result-card" + (nota ? " note-card" : "");
-        card.style.animationDelay = (i * 30) + "ms";
-        
-        const badge  = nota ? "note-badge" : "manual-badge";
-        const mLabel = nota ? "📝 Apunte" : esc(r.manual);
-        const pLabel = nota ? esc(r.page)  : "Página " + r.page;
-        const tags   = nota && r.tags && r.tags.length
-            ? '<div class="card-tags">' + r.tags.map(t => '<span class="tag">'+esc(t)+'</span>').join("") + "</div>" : "";
-            
-        const pdfBtn = (!nota && _r2url)
-            ? '<button class="btn-pdf" onclick="verPDF(\''+esc(r.manual)+'\','+r.page+')">📖 Ver Pág. '+r.page+'</button>' 
-            : (nota ? '<button class="btn-pdf" style="color:var(--note); border-color:rgba(167,139,250,.3); background:rgba(167,139,250,.07);" onclick="verNotaEnGrande(\''+r.id+'\')">📖 Leer Apunte</button>' : "");
-            
-        // 🔧 MODIFICACIÓN: Eliminamos el contenedor de "card-action" inútil y alineamos el botón PDF a la derecha
-        card.innerHTML =
-            '<div class="card-header"><span class="card-manual '+badge+'">'+mLabel+'</span><span class="card-page">📄 '+pLabel+'</span></div>'+
-            '<div class="card-ctx">'+hi(r.context, kw)+'</div>'+
-            '<div class="card-footer" style="justify-content: flex-end;">'+pdfBtn+'</div>'+tags;
-        lista.appendChild(card);
+}
+
+async function buscarOffline(keyword, manual, offset) {
+    return workerRequest("search", {
+        query: keyword,
+        manual,
+        offset,
+        limit: _searchState.limit,
+        notes: notasLocal()
     });
 }
 
-// ─── BÚSQUEDA OFFLINE (Sincronizada con Python) ──────────
-async function buscarOffline(kw, mf) {
-    const res  = [];
-    const kwl  = kw.toLowerCase();
-    const mfl  = mf.toLowerCase();
-    
-    if (mfl !== "apuntes") {
-        const data = await getData();
-        for (const p of data) {
-            if (mfl && p.manual.toLowerCase() !== mfl) continue;
-            const tl = p.text.toLowerCase();
-            if (!tl.includes(kwl)) continue;
-            const pos = tl.indexOf(kwl);
-            
-            // 🔧 MODIFICACIÓN: Matemática de contexto idéntica al servidor (120 prev, 180 post)
-            const startPos = Math.max(0, pos - 120);
-            const endPos = Math.min(p.text.length, pos + 180);
-            let ctx = p.text.substring(startPos, endPos).replace(/\n+/g," ").trim();
-            
-            if (startPos > 0) ctx = "... " + ctx;
-            if (endPos < p.text.length) ctx = ctx + " ...";
-            
-            res.push({ type:"manual", manual:p.manual, page:p.page, context:ctx });
-        }
+async function buscarOnline(keyword, manual, offset) {
+    const params = new URLSearchParams({q: keyword, offset: String(offset), limit: String(_searchState.limit)});
+    if (manual) params.set("manual", manual);
+    const data = await apiRequest("/search?" + params.toString());
+    if (data.r2_url) {
+        _r2url = data.r2_url;
+        localStorage.setItem("r2url", _r2url);
     }
-
-    if (!mfl || mfl === "apuntes") {
-        notasLocal().forEach(n => {
-            const b = (n.title+" "+n.text+" "+(n.tags||[]).join(" ")).toLowerCase();
-            if (b.includes(kwl)) {
-                // 🔧 MODIFICACIÓN: Contexto estandarizado a 250 caracteres para apuntes
-                let ctx = n.text.substring(0, 250);
-                if (n.text.length > 250) ctx += "...";
-                res.push({ type:"note", id:n.id, manual:"apuntes", page:n.title, context:ctx, tags:n.tags||[] });
-            }
-        });
-    }
-    return res;
+    return data;
 }
 
-// ─── BÚSQUEDA ONLINE ─────────────────────────────────────
-async function buscarOnline(kw, mf) {
-    let url = "/search?q=" + encodeURIComponent(kw);
-    if (mf) url += "&manual=" + encodeURIComponent(mf);
-    const r = await fetch(url);
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const d = await r.json();
-    if (d.r2_url) { _r2url = d.r2_url; localStorage.setItem("r2url", _r2url); }
-    return d.results || [];
-}
-
-// ─── BUSCAR ──────────────────────────────────────────────
-async function buscar() {
-    const kw  = (document.getElementById("q").value || "").trim();
-    const mf  = (document.getElementById("manual").value || "").trim();
-    const btn = document.getElementById("btnBuscar");
-    if (!kw) {
-        const el = document.getElementById("q");
-        el.style.borderColor = "var(--danger)";
-        setTimeout(() => el.style.borderColor = "", 1200);
+async function buscar(loadMore = false) {
+    const keyword = (document.getElementById("q").value || "").trim();
+    const manual = (document.getElementById("manual").value || "").trim();
+    const button = loadMore ? document.getElementById("btnMasResultados") : document.getElementById("btnBuscar");
+    if (!keyword) {
+        const input = document.getElementById("q");
+        input.style.borderColor = "var(--danger)";
+        setTimeout(() => input.style.borderColor = "", 1200);
         return;
     }
-    uiState("loading");
-    if (btn) { btn.textContent = "Buscando..."; btn.disabled = true; }
+    if (keyword.length > 200) { toast("La búsqueda admite hasta 200 caracteres", "err"); return; }
+
+    if (!loadMore) {
+        _searchState = {..._searchState, query:keyword, manual, offset:0, total:0, hasMore:false};
+        uiState("loading");
+    } else {
+        _searchState.offset += _searchState.limit;
+    }
+    const originalText = button ? button.textContent : "";
+    if (button) { button.textContent = loadMore ? "Cargando..." : "Buscando..."; button.disabled = true; }
+
     try {
-        let res, modo;
+        let data;
+        let mode = "offline";
         if (navigator.onLine) {
-            try   { res = await buscarOnline(kw, mf); modo = "online"; }
-            catch { res = await buscarOffline(kw, mf); modo = "offline"; }
+            try {
+                data = await buscarOnline(keyword, manual, _searchState.offset);
+                mode = "online";
+            } catch (onlineError) {
+                console.warn("Búsqueda online no disponible; usando índice local", onlineError);
+                data = await buscarOffline(keyword, manual, _searchState.offset);
+            }
         } else {
-            res = await buscarOffline(kw, mf); modo = "offline";
+            data = await buscarOffline(keyword, manual, _searchState.offset);
         }
-        renderResultados(res, kw, modo);
-    } catch(e) {
-        console.error(e);
-        document.getElementById("resultsList").innerHTML = '<div class="result-card"><span style="color:var(--danger)">❌ '+esc(e.message)+'</span></div>';
+        renderResultados(data, keyword, mode, loadMore);
+    } catch(error) {
+        console.error(error);
+        if (loadMore) _searchState.offset = Math.max(0, _searchState.offset - _searchState.limit);
+        document.getElementById("resultsList").innerHTML = '<div class="result-card"><span style="color:var(--danger)">❌ '+esc(error.message)+'</span></div>';
         uiState("results");
     } finally {
-        if (btn) { btn.textContent = "Buscar"; btn.disabled = false; }
+        if (button) { button.textContent = originalText || (loadMore ? "Ver más" : "Buscar"); button.disabled = false; }
     }
+}
+
+function cargarMasResultados() {
+    if (_searchState.hasMore) buscar(true);
 }
 
 // ─── MENSAJE DE BIENVENIDA ────────────────────────────────
@@ -470,11 +488,121 @@ function mostrarBienvenida() {
     modal.innerHTML = 
         '<div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:24px;text-align:center;max-width:80%;box-shadow:0 10px 25px rgba(0,0,0,0.5);">' +
             '<div style="font-size:2.5rem;margin-bottom:12px;">👋</div>' +
-            '<p style="color:#e2e8f0;font-size:1.1rem;font-weight:bold;margin:0 0 20px 0;line-height:1.4;">Hola, descarga tus manuales necesarios!</p>' +
+            '<p style="color:#e2e8f0;font-size:1.1rem;font-weight:bold;margin:0 0 20px 0;line-height:1.4;">Buscador técnico disponible online y offline</p>' +
             '<button onclick="document.getElementById(\'modalBienvenida\').remove()" style="background:#00d4ff;color:#0b0f1a;border:none;padding:10px 24px;border-radius:8px;font-weight:bold;font-size:1rem;cursor:pointer;">OK</button>' +
         '</div>';
     
     document.body.appendChild(modal);
+}
+
+// ─── CATÁLOGO Y DIAGNÓSTICO ──────────────────────────────
+async function cargarCatalogoManuales() {
+    try {
+        const catalog = await workerRequest("catalog", {});
+        const select = document.getElementById("manual");
+        const current = select.value;
+        select.innerHTML = '<option value="">Todos los manuales</option>' +
+            (catalog.manuals || []).map(item => '<option value="'+esc(item.name)+'">'+esc(item.name)+' ('+item.pages+')</option>').join("") +
+            '<option value="apuntes">📝 Apuntes</option>';
+        if ([...select.options].some(option => option.value === current)) select.value = current;
+        const offlineInfo = document.getElementById("offlineInfo");
+        if (offlineInfo) offlineInfo.textContent = `${catalog.documents} páginas · ${catalog.manuals.length} manuales · índice ${catalog.version}`;
+    } catch(error) {
+        console.warn("Catálogo offline no disponible", error);
+    }
+}
+
+function diagnosticoSignals() {
+    return {
+        interlock: (document.getElementById("diagInterlock").value || "").trim(),
+        error: (document.getElementById("diagError").value || "").trim(),
+        message: (document.getElementById("diagMessage").value || "").trim(),
+        observations: (document.getElementById("diagObservations").value || "").trim()
+    };
+}
+
+function renderDiagnostico(data, mode) {
+    const list = document.getElementById("diagResults");
+    const empty = document.getElementById("diagEmpty");
+    const meta = document.getElementById("diagMeta");
+    const notice = document.getElementById("diagNotice");
+    list.innerHTML = "";
+    const results = Array.isArray(data.results) ? data.results : [];
+    meta.textContent = `${mode === "online" ? "ONLINE" : "OFFLINE"} · ${results.length} hipótesis con evidencia`;
+    notice.textContent = data.message || "";
+    notice.style.display = data.message && results.length ? "block" : "none";
+    if (!results.length) {
+        empty.style.display = "flex";
+        empty.querySelector("p").textContent = data.message || "No se encontraron relaciones suficientes.";
+        return;
+    }
+    empty.style.display = "none";
+
+    results.forEach((result, index) => {
+        const card = document.createElement("article");
+        card.className = "diagnostic-card";
+        const matches = (result.matched_signals || []).map(item =>
+            '<span class="diag-chip">'+esc(item.value)+' · '+Math.round((item.coverage || 0) * 100)+'%</span>'
+        ).join("");
+        card.innerHTML =
+            '<div class="diag-rank"><span>HIPÓTESIS '+(index + 1)+'</span><b>'+Number(result.relative_match || 0)+'% · '+Number(result.matched_count || 0)+'/'+Number(result.signal_count || 0)+' señales</b></div>'+
+            '<h3>'+esc(result.title || "Evidencia relacionada")+'</h3>'+
+            '<div class="card-header"><span class="card-manual manual-badge">'+esc(result.manual)+'</span><span class="card-page">Página '+Number(result.page)+'</span></div>'+
+            '<div class="diag-chips">'+matches+'</div>'+
+            '<div class="card-ctx">'+esc(result.context)+'</div>';
+        if (_r2url) {
+            const footer = document.createElement("div");
+            footer.className = "card-footer";
+            const button = document.createElement("button");
+            button.className = "btn-pdf";
+            button.textContent = `📖 Ver evidencia · pág. ${result.page}`;
+            button.addEventListener("click", () => verPDF(result.manual, result.page));
+            footer.appendChild(button);
+            card.appendChild(footer);
+        }
+        list.appendChild(card);
+    });
+}
+
+async function analizarDiagnostico() {
+    const signals = diagnosticoSignals();
+    if (!Object.values(signals).some(Boolean)) {
+        toast("Ingresa al menos un interlock, error o síntoma", "err");
+        return;
+    }
+    const button = document.getElementById("btnDiagnose");
+    const list = document.getElementById("diagResults");
+    const empty = document.getElementById("diagEmpty");
+    empty.style.display = "none";
+    list.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div><p>Relacionando síntomas con los manuales...</p></div>';
+    button.disabled = true;
+    button.textContent = "Analizando...";
+    try {
+        let data;
+        let mode = "offline";
+        if (navigator.onLine) {
+            try {
+                data = await apiRequest("/diagnose", {
+                    method: "POST",
+                    headers: {"Content-Type":"application/json"},
+                    body: JSON.stringify(signals)
+                });
+                mode = "online";
+                if (data.r2_url) { _r2url = data.r2_url; localStorage.setItem("r2url", _r2url); }
+            } catch (onlineError) {
+                console.warn("Diagnóstico online no disponible; usando índice local", onlineError);
+                data = await workerRequest("diagnose", {signals});
+            }
+        } else {
+            data = await workerRequest("diagnose", {signals});
+        }
+        renderDiagnostico(data, mode);
+    } catch(error) {
+        list.innerHTML = '<div class="result-card"><span style="color:var(--danger)">❌ '+esc(error.message)+'</span></div>';
+    } finally {
+        button.disabled = false;
+        button.textContent = "Relacionar errores";
+    }
 }
 
 // ─── INIT ────────────────────────────────────────────────
@@ -490,39 +618,64 @@ document.addEventListener("DOMContentLoaded", function() {
         m.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();buscar();} });
     }
     
-    document.getElementById("teamAccessInput")?.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();verificarAccesoGlobal();} });
-    
     document.getElementById("adminPw")?.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();adminEntrar();} });
     document.getElementById("notaTit")?.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();guardarNota();} });
     
     uiState("welcome");
-    mostrarBienvenida(); 
+    mostrarBienvenida();
+    cargarCatalogoManuales();
     
     if (navigator.onLine) {
         syncPendientes();
-        fetch("/notes").then(r=>r.json()).then(notasGuardar).catch(e=>{});
+        apiRequest("/notes").then(data => { if (Array.isArray(data)) notasGuardar(data); }).catch(()=>{});
     }
 });
 
 // ─── NOTAS localStorage ──────────────────────────────────
-function notasLocal() { try { return JSON.parse(localStorage.getItem("interlocks_notas")||"[]"); } catch { return []; } }
-function notasGuardar(ns) { localStorage.setItem("interlocks_notas", JSON.stringify(ns)); }
+function notasLocal() { try { const value=JSON.parse(localStorage.getItem("interlocks_notas")||"[]"); return Array.isArray(value)?value:[]; } catch { return []; } }
+function notasGuardar(ns) { localStorage.setItem("interlocks_notas", JSON.stringify(Array.isArray(ns)?ns:[])); }
 function notaSync(n) { const t = notasLocal().filter(x=>x.id!==n.id); t.push(n); notasGuardar(t); }
 function notaBorrar(id) { notasGuardar(notasLocal().filter(n=>n.id!==id)); }
-function pendLoad()    { try { return JSON.parse(localStorage.getItem("interlocks_pend")||"[]"); } catch { return []; } }
+function pendLoad()    {
+    try {
+        const value=JSON.parse(localStorage.getItem("interlocks_pend")||"[]");
+        if (!Array.isArray(value)) return [];
+        return value.map(item => item.op ? item : {op:"create", id:item.id, payload:item});
+    } catch { return []; }
+}
 function pendSave(p)   { localStorage.setItem("interlocks_pend", JSON.stringify(p)); }
-function pendAdd(n)    { const p=pendLoad(); p.push(n); pendSave(p); }
+function pendAdd(n)    { const p=pendLoad().filter(item=>item.id!==n.id); p.push({op:"create",id:n.id,payload:n}); pendSave(p); }
 function pendDel(id)   { pendSave(pendLoad().filter(n=>n.id!==id)); }
+
+function mergeCloudNotes(cloudNotes) {
+    const merged = Array.isArray(cloudNotes) ? cloudNotes.slice() : [];
+    for (const pending of pendLoad()) {
+        if (pending.op === "create" && !merged.some(note => note.id === pending.id)) merged.push(pending.payload);
+    }
+    notasGuardar(merged);
+    return merged;
+}
 
 async function syncPendientes() {
     const pend = pendLoad();
     if (!pend.length) return;
     let ok = 0;
-    for (const n of pend) {
+    for (const item of pend) {
         try {
-            await fetch("/notes", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(n) });
-            pendDel(n.id); ok++;
-        } catch { break; }
+            if (item.op !== "create") { pendDel(item.id); continue; }
+            const created = await apiRequest("/notes", {
+                method:"POST",
+                headers:{"Content-Type":"application/json"},
+                body:JSON.stringify(item.payload)
+            });
+            notaBorrar(item.id);
+            notaSync(created);
+            pendDel(item.id);
+            ok++;
+        } catch(error) {
+            console.warn("Sincronización pendiente", error);
+            break;
+        }
     }
     if (ok > 0) toast("☁️ " + ok + " apunte(s) sincronizado(s)");
 }
@@ -539,7 +692,7 @@ async function cargarNotas() {
     if (empty) empty.style.display = "none";
     let notas = [];
     if (navigator.onLine) {
-        try { const r = await fetch("/notes"); notas = await r.json(); notasGuardar(notas); }
+        try { notas = mergeCloudNotes(await apiRequest("/notes")); }
         catch { notas = notasLocal(); }
     } else { notas = notasLocal(); }
     lista.innerHTML = "";
@@ -604,26 +757,47 @@ async function guardarNota() {
     const tags  = document.getElementById("notaTags").value.split(",").map(t=>t.trim()).filter(Boolean);
     
     if (!title) { toast("El título es obligatorio","err"); return; }
-    
-    const nota = { id: id || crypto.randomUUID(), title, text, tags };
-    
-    if (id) {
-        nota.password = _adminPw;
+    if (title.length > 200 || text.length > 20000 || tags.length > 20 || tags.some(tag => tag.length > 50)) {
+        toast("El apunte supera los límites permitidos", "err");
+        return;
     }
-    
+    if (id && !navigator.onLine) {
+        toast("La edición administrativa requiere conexión para evitar conflictos", "err");
+        return;
+    }
+    const nota = { id: id || crypto.randomUUID(), title, text, tags };
+    let savedAsPending = false;
+
     if (navigator.onLine) {
         try {
             const method = id ? "PUT" : "POST";
             const url    = id ? "/notes/"+id : "/notes";
-            await fetch(url, { method, headers:{"Content-Type":"application/json"}, body:JSON.stringify(nota) });
+            const headers = {"Content-Type":"application/json"};
+            if (id) headers["X-Admin-Password"] = _adminPw;
+            const saved = await apiRequest(url, {method, headers, body:JSON.stringify(nota)});
+            notaSync(saved);
             pendDel(nota.id);
-        } catch { if(!id) pendAdd(nota); }
-    } else { if(!id) pendAdd(nota); toast("⚠️ Sin internet — se sincronizará al conectarte"); }
-    
-    notaSync(nota);
+        } catch(error) {
+            if (!id && (!error.status || error.status >= 500)) {
+                pendAdd(nota);
+                notaSync(nota);
+                savedAsPending = true;
+                toast("⚠️ Servidor no disponible — el apunte quedó pendiente");
+            } else {
+                toast(error.message, "err");
+                return;
+            }
+        }
+    } else {
+        pendAdd(nota);
+        notaSync(nota);
+        savedAsPending = true;
+        toast("⚠️ Sin internet — se sincronizará al conectarte");
+    }
+
     cerrarFormNota();
     cargarNotas();
-    toast(id ? "✅ Apunte actualizado" : "✅ Apunte guardado");
+    if (!savedAsPending) toast(id ? "✅ Apunte actualizado" : "✅ Apunte guardado");
 }
 
 async function eliminarNota(id) {
@@ -632,14 +806,15 @@ async function eliminarNota(id) {
         return; 
     }
     
+    if (!navigator.onLine) { toast("La eliminación requiere conexión", "err"); return; }
     if (!confirm("¿Eliminar este apunte de forma permanente?")) return;
-    
-    if (navigator.onLine) { 
-        try { 
-            await fetch("/notes/"+id+"?password="+encodeURIComponent(_adminPw), {method:"DELETE"}); 
-        } catch {} 
+    try {
+        await apiRequest("/notes/"+id, {method:"DELETE", headers:{"X-Admin-Password":_adminPw}});
+    } catch(error) {
+        toast(error.message, "err");
+        return;
     }
-    
+
     notaBorrar(id); pendDel(id);
     document.getElementById("ni-"+id)?.remove();
     const lista = document.getElementById("listaNotas");
@@ -651,15 +826,13 @@ async function adminEntrar() {
     const pw = (document.getElementById("adminPw").value || "").trim();
     if (!pw) { toast("Ingresa la contraseña","err"); return; }
     try {
-        const r = await fetch("/admin/check", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({password:pw}) });
-        if (r.ok) {
-            _adminPw = pw;
-            document.getElementById("adminLock").style.display    = "none";
-            document.getElementById("adminCont").style.display    = "block";
-            cargarCfg(); cargarListaManuales();
-            toast("🔓 Modo Administrador Activado", "ok");
-        } else { toast("❌ Contraseña incorrecta","err"); }
-    } catch { toast("❌ Sin conexión al servidor","err"); }
+        await apiRequest("/admin/check", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({password:pw}) });
+        _adminPw = pw;
+        document.getElementById("adminLock").style.display    = "none";
+        document.getElementById("adminCont").style.display    = "block";
+        cargarCfg(); cargarListaManuales();
+        toast("🔓 Modo Administrador Activado", "ok");
+    } catch(error) { toast("❌ "+error.message,"err"); }
 }
 
 function adminSalir() {
@@ -673,8 +846,7 @@ function adminSalir() {
 async function cargarCfg() {
     const el = document.getElementById("cfgInfo"); if(!el) return;
     try {
-        const r = await fetch("/admin/config?password="+encodeURIComponent(_adminPw));
-        const d = await r.json(); if(!r.ok) return;
+        const d = await apiRequest("/admin/config", {headers:{"X-Admin-Password":_adminPw}});
         if (d.r2_url && d.r2_url!=="No configurada") { _r2url=d.r2_url; localStorage.setItem("r2url",_r2url); }
         el.innerHTML =
             '<div class="config-row"><span>📚 Total páginas</span><span>'+d.total_pages+'</span></div>'+
@@ -689,9 +861,7 @@ async function cargarListaManuales() {
     const div = document.getElementById("listaManuales"); if(!div) return;
     div.innerHTML='<div class="spinner-wrap" style="padding:10px 0"><div class="spinner"></div></div>';
     try {
-        const r = await fetch("/admin/manuals?password="+encodeURIComponent(_adminPw));
-        const d = await r.json();
-        if (!r.ok) { div.innerHTML='<p style="color:var(--danger)">'+d.error+'</p>'; return; }
+        const d = await apiRequest("/admin/manuals", {headers:{"X-Admin-Password":_adminPw}});
         div.innerHTML = d.map(m=>'<div class="manual-row"><span style="color:var(--text)">'+esc(m.manual)+'</span><span>'+m.pages+' págs.</span></div>').join("");
-    } catch(e) { div.innerHTML='<p style="color:var(--danger)">Error: '+e.message+'</p>'; }
+    } catch(e) { div.innerHTML='<p style="color:var(--danger)">Error: '+esc(e.message)+'</p>'; }
 }

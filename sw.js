@@ -1,99 +1,107 @@
-// SOLVI SW v22
-// Arquitectura Híbrida: Network-First para lógica/datos, Cache-First para recursos estáticos.
-
-const CACHE = "solvi-v22";
-
-const PRECACHE = [
+// SOLVI Service Worker v23 — aplicación e índices offline por manual.
+const CACHE = "solvi-v23";
+const CORE = [
     "/",
+    "/manifest.json",
     "/static/app.js",
+    "/static/search-worker.js",
     "/static/icon-192.png",
     "/static/icon-512.png",
-    "/data/all_manuals.json",
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"
+    "/data/search/catalog.json"
 ];
 
-self.addEventListener("install", e => {
-    e.waitUntil(
-        caches.open(CACHE).then(cache => {
-            // Instalación resiliente: Un fallo de red no detiene el caché de los demás archivos
-            return Promise.all(
-                PRECACHE.map(url => {
-                    return cache.add(url).catch(err => console.warn("SW: Omitido por red ->", url));
-                })
-            );
-        }).then(() => self.skipWaiting())
-    );
+async function addResilient(cache, url) {
+    try {
+        const response = await fetch(url, {cache: "no-cache"});
+        if (response.ok) await cache.put(url, response);
+    } catch (error) {
+        console.warn("SW: recurso no disponible", url);
+    }
+}
+
+async function cacheOfflineManuals(cache) {
+    try {
+        const response = await fetch("/data/search/catalog.json", {cache: "no-cache"});
+        if (!response.ok) return;
+        const catalog = await response.clone().json();
+        await cache.put("/data/search/catalog.json", response);
+        await Promise.allSettled((catalog.manuals || []).map(item => addResilient(cache, item.file)));
+    } catch (error) {
+        console.warn("SW: no se pudo preparar el catálogo offline", error);
+    }
+}
+
+self.addEventListener("install", event => {
+    event.waitUntil((async () => {
+        const cache = await caches.open(CACHE);
+        await Promise.allSettled(CORE.map(url => addResilient(cache, url)));
+        await cacheOfflineManuals(cache);
+        await self.skipWaiting();
+    })());
 });
 
-self.addEventListener("activate", e => {
-    e.waitUntil(
-        caches.keys()
-            .then(keys => Promise.all(
-                keys.filter(k => k !== CACHE).map(k => caches.delete(k))
-            ))
-            .then(() => self.clients.claim())
-    );
+self.addEventListener("activate", event => {
+    event.waitUntil((async () => {
+        const keys = await caches.keys();
+        await Promise.all(keys.filter(key => key.startsWith("solvi-") && key !== CACHE).map(key => caches.delete(key)));
+        await self.clients.claim();
+    })());
 });
 
-self.addEventListener("fetch", e => {
-    // 1. Reglas de Seguridad Base
-    if (e.request.method !== "GET") return; // NUNCA interceptar POST/PUT/DELETE
+async function networkFirst(request) {
+    const cache = await caches.open(CACHE);
+    try {
+        const response = await fetch(request);
+        if (response && response.ok) await cache.put(request, response.clone());
+        return response;
+    } catch (error) {
+        const cached = await cache.match(request, {ignoreSearch: true});
+        if (cached) return cached;
+        if (request.mode === "navigate") return cache.match("/");
+        throw error;
+    }
+}
 
-    const url = new URL(e.request.url);
+async function cacheFirst(request) {
+    const cache = await caches.open(CACHE);
+    const cached = await cache.match(request, {ignoreSearch: true});
+    if (cached) return cached;
+    const response = await fetch(request);
+    if (response && response.ok) await cache.put(request, response.clone());
+    return response;
+}
 
-    // 2. Bypass Absoluto (Rutas estrictamente de nube)
+self.addEventListener("fetch", event => {
+    if (event.request.method !== "GET") return;
+    const url = new URL(event.request.url);
+
     if (url.pathname.startsWith("/search") ||
-        url.pathname.startsWith("/notes")  ||
-        url.pathname.startsWith("/admin")  ||
-        url.pathname.startsWith("/reset")  ||
-        url.hostname.includes("r2.dev")    ||
+        url.pathname.startsWith("/diagnose") ||
+        url.pathname.startsWith("/notes") ||
+        url.pathname.startsWith("/admin") ||
+        url.pathname.startsWith("/health") ||
+        url.pathname.startsWith("/reset") ||
+        url.hostname.includes("r2.dev") ||
         url.hostname.includes("supabase.co") ||
         url.pathname.endsWith(".pdf")) {
         return;
     }
 
-    // 3. Estrategia A: NETWORK FIRST (Primero Internet, Fallback Caché)
-    // Aplicado a: HTML, JS, JSON. Garantiza la última versión si hay red, offline seguro sin ella.
-    if (e.request.mode === "navigate" || url.pathname === "/" || url.pathname.endsWith(".js") || url.pathname.endsWith(".json")) {
-        e.respondWith(
-            fetch(e.request)
-                .then(res => {
-                    if (res.ok) {
-                        const clone = res.clone();
-                        caches.open(CACHE).then(c => c.put(e.request, clone));
-                    }
-                    return res;
-                })
-                .catch(() => {
-                    // IMPORTANTE: { ignoreSearch: true } es vital para no fallar por variables como ?v=123
-                    return caches.match(e.request, { ignoreSearch: true }).then(cached => {
-                        if (cached) return cached;
-                        // Salvavidas final de navegación
-                        if (e.request.mode === "navigate") return caches.match("/", { ignoreSearch: true });
-                        // Salvavidas JSON
-                        if (url.pathname.endsWith(".json")) return new Response("[]", { headers: { "Content-Type": "application/json" } });
-                    });
-                })
-        );
+    // Los fragmentos incluyen un hash en el nombre: son inmutables y solo se
+    // descarga un archivo nuevo cuando cambia ese manual. El catálogo sí se
+    // consulta primero en red para descubrir nuevas versiones.
+    if (url.pathname.startsWith("/data/search/") && !url.pathname.endsWith("/catalog.json")) {
+        event.respondWith(cacheFirst(event.request).catch(() => new Response("Offline", {status: 503})));
         return;
     }
 
-    // 4. Estrategia B: CACHE FIRST (Primero Caché, Fallback Internet)
-    // Aplicado a: Íconos, imágenes, pdf.js (Archivos estáticos pesados)
-    e.respondWith(
-        caches.match(e.request, { ignoreSearch: true }).then(cached => {
-            if (cached) return cached; // Respuesta instantánea (0ms)
-            
-            return fetch(e.request).then(res => {
-                if (res && res.ok) {
-                    const clone = res.clone();
-                    caches.open(CACHE).then(c => c.put(e.request, clone));
-                }
-                return res;
-            }).catch(() => {
-                return new Response("Offline", { status: 503, statusText: "Offline" });
-            });
-        })
+    const isFreshContent = event.request.mode === "navigate" ||
+        url.pathname === "/" ||
+        url.pathname.endsWith(".js") ||
+        url.pathname.endsWith(".json");
+
+    event.respondWith(
+        (isFreshContent ? networkFirst(event.request) : cacheFirst(event.request))
+            .catch(() => new Response("Offline", {status: 503, statusText: "Offline"}))
     );
 });

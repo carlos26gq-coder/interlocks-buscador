@@ -1,37 +1,27 @@
-..\venv\Scripts\activate
-scripts/search_manuals.py
-streamlit run app/app.py
-http://127.0.0.1:5000/
----
+SOLVI - comandos rápidos
+========================
 
-cd Desktop\proyecto_interlocks\scripts
-..\venv\Scripts\activate
+Instalar dependencias en un entorno nuevo:
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+
+Ejecutar localmente:
+cd scripts
 python api.py
+Abrir http://127.0.0.1:5000/
 
------
-EN ADMIN CMD
-C:
-cd C:\Users\CGutierrez\Desktop\proyecto_interlocks\scripts
+Agregar un manual:
+python scripts\extract_pages.py --pdf "manuals\nuevo manual.pdf"
+python scripts\build_index.py
+python -m unittest discover -s tests -v
 
----
-ngrok.exe http 5000 ( EN LA CARPETA DEL NGROK - DESCARGAS)
+Despliegue:
+- Configurar ADMIN_PASSWORD, R2_PUBLIC_URL, SUPABASE_URL y SUPABASE_KEY en Render.
+- Nunca escribir contraseñas o claves reales en este archivo ni en Git.
+- Subir los PDF al bucket R2 con el mismo nombre del manual.
+- Subir a GitHub data/pages, data/search y data/all_manuals.json.
 
---
+Si una instalación conserva una versión antigua, abrir /reset una sola vez.
 
-a veces se queda grabado worker anterior, para eso buscar el worker del gnrok o el link, eliminar entrando en:
-chrome://serviceworker-internals/
-
----
-pdf almacenados link en cloudflare
-https://pub-ec13dffb5c7246359cd9109c52d257f5.r2.dev
----
-dir /S /B | findstr /V /I "venv __pycache__ .git node_modules"
-para ver el árbol de las carpetas
-
-----
-git remote set-url origin http...
-subir el nuevo url de GitHub para cambiar el enlace a GitHub
-…
-supabase contraseña de proyecto solvi-db: fHxoGwskDDGq7NnE
-en api keys SUPABASE_KEY - publishable key: sb_publishable_701uRp0jjt5_QP8ghymr_Q_dpUp8Kne
-en integrations data api - SUPABASE_URL - https://geftqowxpiyjwgrbohel.supabase.co/rest/v1/
+La documentación completa está en README.md.

@@ -117,26 +117,29 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .terr{border-color:rgba(239,68,68,.4);color:var(--danger)}
 #pdfModal{display:none}
 #pdfCanvas{border-radius:4px}
-
-/* CSS para forzar que el main content se oculte si el bloqueo está activo */
-body.locked { overflow: hidden; }
-body.locked header, body.locked .screen, body.locked .bottom-nav { display: none !important; }
+.load-more{display:none;margin:14px auto 4px;min-width:150px}
+.offline-info{font-size:.67rem;color:var(--muted);font-family:var(--mono);margin-top:8px;text-align:center}
+.diagnostic-intro{background:linear-gradient(135deg,rgba(0,119,255,.09),rgba(0,212,255,.04));border:1px solid rgba(0,212,255,.2);border-radius:10px;padding:14px;margin-bottom:12px}
+.diagnostic-intro h2{font-size:1rem;color:var(--accent);margin-bottom:5px}
+.diagnostic-intro p{font-size:.8rem;color:#94a3b8;line-height:1.55}
+.diag-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:9px}
+.diag-grid .field{margin:0}
+.diag-grid input{padding-left:10px}
+.diag-wide{grid-column:1/-1}
+.diag-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+#diagMeta{font-size:.68rem;color:var(--muted);font-family:var(--mono)}
+.diagnostic-card{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--warn);border-radius:10px;padding:14px;margin-bottom:9px;animation:fadeIn .3s ease both}
+.diagnostic-card h3{font-size:.9rem;line-height:1.4;color:var(--text);margin:8px 0}
+.diag-rank{display:flex;align-items:center;justify-content:space-between;gap:8px;font-family:var(--mono);font-size:.65rem;color:var(--warn)}
+.diag-rank b{font-weight:500;color:var(--green)}
+.diag-chips{display:flex;gap:4px;flex-wrap:wrap;margin:8px 0}
+.diag-chip{font-size:.62rem;font-family:var(--mono);padding:2px 6px;border-radius:10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);color:#fcd34d}
+.diag-disclaimer{font-size:.7rem;line-height:1.5;color:var(--muted);border-left:2px solid var(--warn);padding-left:8px;margin:10px 0 14px}
+.note-open{color:var(--note);border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.07)}
+@media(max-width:520px){.diag-grid{grid-template-columns:1fr}.diag-wide{grid-column:auto}.nav-btn{font-size:.56rem;padding-left:1px;padding-right:1px}}
 </style>
 </head>
 <body>
-
-<div id="globalLockScreen" style="display:flex; position:fixed; inset:0; background:var(--bg); z-index:99999; flex-direction:column; align-items:center; justify-content:center; padding:20px; text-align:center;">
-  <div style="background:var(--surface); border:1px solid var(--border); border-top:4px solid var(--accent); border-radius:12px; padding:40px 30px; box-shadow:0 15px 50px rgba(0,0,0,0.8); max-width:350px; width:100%;">
-    <div style="font-size:3rem; margin-bottom:15px;">🔒</div>
-    <h2 style="color:var(--text); font-family:var(--sans); margin-bottom:10px; font-size:1.4rem;">Acceso Restringido</h2>
-    <p style="color:var(--muted); font-size:0.85rem; line-height:1.5; margin-bottom:25px;">Por seguridad, ingrese la clave de acceso del Equipo DAT para consultar los manuales.</p>
-    
-    <input id="teamAccessInput" type="password" placeholder="Código de Acceso" autocomplete="off" style="width:100%; padding:14px; margin-bottom:15px; border-radius:8px; border:1px solid var(--border); background:rgba(0,0,0,0.3); color:var(--text); text-align:center; font-size:1.1rem; letter-spacing:2px; outline:none;">
-    
-    <button class="btn btn-primary" style="width:100%; padding:12px; font-size:1rem;" onclick="verificarAccesoGlobal()">Desbloquear</button>
-    <p id="lockErrorMsg" style="color:var(--danger); font-size:0.8rem; margin-top:15px; display:none; font-family:var(--mono);">❌ Código incorrecto</p>
-  </div>
-</div>
 
 <header>
   <div class="hrow">
@@ -157,22 +160,7 @@ body.locked header, body.locked .screen, body.locked .bottom-nav { display: none
     <div class="input-wrap" style="flex:1;min-width:110px">
       <span class="iicon">📘</span>
       <select id="manual">
-        <option value="">Todos</option>
-        <option value="accessory">Accessory</option>
-        <option value="beam physics">Beam Physics</option>
-        <option value="catalogue">Catalogue</option>
-        <option value="communications">Communications</option>
-        <option value="corrective">Corrective</option>
-        <option value="covers">Covers</option>
-        <option value="dosimetry">Dosimetry</option>
-        <option value="ht_rf">HT / RF</option>
-        <option value="item part">Item Part</option>
-        <option value="movement">Movement</option>
-        <option value="power_supplies">Power Supplies</option>
-        <option value="table">Table</option>
-        <option value="technical">Technical</option>
-        <option value="vacuum">Vacuum</option>
-        <option value="xvi">XVI</option>
+        <option value="">Todos los manuales</option>
         <option value="apuntes">📝 Apuntes</option>
       </select>
     </div>
@@ -198,6 +186,43 @@ body.locked header, body.locked .screen, body.locked .bottom-nav { display: none
     <div class="icon">🔎</div><p>No se encontraron resultados.<br>Intenta con otra palabra clave.</p>
   </div>
   <div id="resultsList"></div>
+  <button id="btnMasResultados" class="btn btn-ghost load-more" onclick="cargarMasResultados()">Ver más resultados</button>
+  <div id="offlineInfo" class="offline-info">Preparando catálogo offline...</div>
+</div>
+
+<div id="screenDiagnose" class="screen">
+  <div class="diagnostic-intro">
+    <h2>🧭 Relacionar errores</h2>
+    <p>Combina códigos, interlocks y síntomas. SOLVI buscará relaciones dentro de todos los manuales y mostrará hasta seis hipótesis ordenadas con su evidencia.</p>
+  </div>
+  <div class="diag-grid">
+    <div class="field">
+      <label for="diagInterlock">Interlock</label>
+      <input id="diagInterlock" type="text" maxlength="100" placeholder="Ej: 283 o Interlock 283">
+    </div>
+    <div class="field">
+      <label for="diagError">Código de error</label>
+      <input id="diagError" type="text" maxlength="100" placeholder="Ej: Error 66">
+    </div>
+    <div class="field diag-wide">
+      <label for="diagMessage">Mensaje o síntoma</label>
+      <input id="diagMessage" type="text" maxlength="300" placeholder="Ej: reset motors, leaf missing">
+    </div>
+    <div class="field diag-wide">
+      <label for="diagObservations">Otros síntomas u observaciones</label>
+      <textarea id="diagObservations" maxlength="500" placeholder="Ej: sucede al mover el gantry y desaparece después de reiniciar"></textarea>
+    </div>
+  </div>
+  <div class="diag-actions">
+    <button id="btnDiagnose" class="btn btn-primary" onclick="analizarDiagnostico()">Relacionar errores</button>
+    <span id="diagMeta">Máximo 6 resultados</span>
+  </div>
+  <p class="diag-disclaimer">La coincidencia es relativa a la evidencia encontrada; no sustituye los procedimientos de seguridad, diagnóstico ni calibración indicados por el fabricante.</p>
+  <div id="diagNotice" class="info-box" style="display:none;margin-bottom:10px"></div>
+  <div id="diagEmpty" class="state-box">
+    <div class="icon">🧩</div><p>Completa uno o más campos para buscar relaciones técnicas.</p>
+  </div>
+  <div id="diagResults"></div>
 </div>
 
 <div id="screenNotes" class="screen">
@@ -242,9 +267,11 @@ body.locked header, body.locked .screen, body.locked .bottom-nav { display: none
     </div>
     <div class="admin-section"><h3>➕ AGREGAR NUEVO MANUAL</h3>
       <div class="info-box">
-        <b>1.</b> Extrae el JSON del PDF en tu laptop y sube a GitHub:<br>
-        <code>git add data/pages/</code> → <code>git commit</code> → <code>git push</code><br><br>
-        <b>2.</b> Sube el PDF a Cloudflare R2 → bucket <code>interlocks-manuals</code>
+        <b>1.</b> Copia el PDF en <code>manuals/</code>.<br>
+        <b>2.</b> Ejecuta <code>python scripts/extract_pages.py --pdf "manuals/nuevo.pdf"</code>.<br>
+        <b>3.</b> Ejecuta <code>python scripts/build_index.py</code> para regenerar búsqueda y modo offline.<br>
+        <b>4.</b> Sube el PDF con el mismo nombre a Cloudflare R2.<br>
+        <b>5.</b> Agrega <code>data/</code> y el código a GitHub, luego despliega.
       </div>
     </div>
     <div class="admin-section"><h3>☁️ APUNTES EN LA NUBE</h3>
@@ -289,22 +316,16 @@ body.locked header, body.locked .screen, body.locked .bottom-nav { display: none
 
 <nav class="bottom-nav">
   <button class="nav-btn active" id="navS" onclick="irA('Search')"><span class="icon">🔍</span>Buscar</button>
+  <button class="nav-btn" id="navD" onclick="irA('Diagnose')"><span class="icon">🧭</span>Relacionar</button>
   <button class="nav-btn" id="navN" onclick="irA('Notes')"><span class="icon">📝</span>Apuntes</button>
   <button class="nav-btn" id="navA" onclick="irA('Admin')"><span class="icon">⚙️</span>Admin</button>
 </nav>
 
 <script src="/static/app.js?v={{ build_time }}"></script>
 <script>
-// Manejo de la visibilidad inicial de la pantalla de bloqueo
-if (localStorage.getItem("dat_access") !== "true") {
-    document.body.classList.add("locked");
-} else {
-    document.getElementById("globalLockScreen").style.display = "none";
-}
-
 // Navegación entre pantallas
 function irA(name) {
-    ['Search','Notes','Admin'].forEach(n => {
+    ['Search','Diagnose','Notes','Admin'].forEach(n => {
         document.getElementById('screen'+n).classList.toggle('active', n===name);
         document.getElementById('nav'+n[0]).classList.toggle('active', n===name);
     });

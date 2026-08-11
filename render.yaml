@@ -5,10 +5,13 @@ services:
     # Render buscará api.py en la carpeta scripts/
     rootDir: scripts
     buildCommand: pip install -r ../requirements.txt
-    startCommand: gunicorn api:app --bind 0.0.0.0:$PORT --workers 2
+    startCommand: gunicorn api:app --bind 0.0.0.0:$PORT --workers 2 --threads 2 --timeout 120 --preload
+    healthCheckPath: /health
     envVars:
       - key: ADMIN_PASSWORD
         sync: false          # lo ingresas manualmente en el dashboard de Render
+      - key: R2_PUBLIC_URL
+        sync: false          # URL pública base del bucket de manuales
       - key: SUPABASE_URL
         sync: false          # opcional — para notas persistentes
       - key: SUPABASE_KEY

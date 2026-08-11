@@ -1,13 +1,13 @@
+"""Comprobación manual rápida; las pruebas automatizadas están en tests/."""
+
 from search_manuals import search_manuals
 
-results = search_manuals(
-    query="dose rate mon",
-    manual_filter="dosimetry"
-)
 
-print("Resultados encontrados:", len(results))
-for r in results[:3]:
-    print("-" * 50)
-    print("Manual:", r["manual"])
-    print("Página:", r["page"])
-    print("Contexto:", r["context"])
+if __name__ == "__main__":
+    results = search_manuals("dose rate mon", "dosimetry", limit=3)
+    print("Resultados encontrados:", len(results))
+    for result in results:
+        print("-" * 50)
+        print("Manual:", result["manual"])
+        print("Página:", result["page"])
+        print("Contexto:", result["context"])
