@@ -96,7 +96,7 @@ function queryMatchInfo(text, query) {
     return {matched:Boolean(matches.length), position:matches.length ? matches[0].index : -1, occurrences:matches.length};
 }
 
-function makeContext(text, query, before = 140, after = 260) {
+function makeContext(text, query, before = 180, after = 380) {
     const normalizedText = normalize(text);
     const normalizedQuery = normalize(query);
     let position = normalizedText.indexOf(normalizedQuery);
@@ -191,9 +191,123 @@ function codeNearLabel(text, field, valueTokens) {
     });
 }
 
+function codeNearAnyLabel(text, valueTokens) {
+    const codes = [...valueTokens].filter(token => /^\d+$/.test(token));
+    if (!codes.length) return false;
+    const labels = "(?:interlock|inhibit|error|fault|alarm|code)";
+    return codes.some(code => {
+        const escapedCode = code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const codePattern = `(?:i|e)?\\s*${escapedCode}`;
+        return new RegExp(`\\b${labels}\\b[\\W_]{0,25}\\b${codePattern}\\b`).test(text) ||
+            new RegExp(`\\b${codePattern}\\b[\\W_]{0,25}\\b(?:interlock|inhibit|error|fault|alarm)\\b`).test(text);
+    });
+}
+
+// ─── DIAGNOSE OFFLINE ─────────────────────────────────────
 async function diagnoseOffline(payload) {
     await ensureManuals("");
     const rawSignals = payload.signals || {};
+
+    // Detect new format: {symptoms: [...]} vs legacy: {interlock, error, message, observations}
+    if (Array.isArray(rawSignals.symptoms)) {
+        return _diagnoseSymptomsOffline(rawSignals.symptoms);
+    }
+    return _diagnoseLegacyOffline(rawSignals);
+}
+
+async function _diagnoseSymptomsOffline(symptomList) {
+    const weightsByPosition = [1.4, 1.3, 1.2, 1.1];
+    const prepared = [];
+    const allSignalTokens = new Set();
+    const candidates = new Set();
+
+    for (let i = 0; i < Math.min(symptomList.length, 4); i++) {
+        const value = String(symptomList[i] || "").trim();
+        if (!value) continue;
+        const valueTokens = new Set(queryTokens(value));
+        if (!valueTokens.size) continue;
+        prepared.push({
+            name: `symptom_${i + 1}`,
+            value,
+            normalizedValue: normalize(value),
+            valueTokens,
+            weight: weightsByPosition[i] || 1.0
+        });
+        for (const token of valueTokens) {
+            allSignalTokens.add(token);
+            for (const id of postings.get(token) || []) candidates.add(id);
+        }
+    }
+    if (!prepared.length) return { results: [], signals: [], message: "Ingresa al menos un síntoma." };
+
+    const ranked = [];
+    for (const id of candidates) {
+        const doc = documents[id];
+        let score = 0;
+        const matchedSignals = [];
+        const matchedTokens = new Set();
+
+        for (const signal of prepared) {
+            const hits = [...signal.valueTokens].filter(t => doc.tokenSet.has(t));
+            if (!hits.length) continue;
+            const coverage = hits.length / signal.valueTokens.size;
+            const exactPhrase = doc.normalized.includes(signal.normalizedValue);
+            const hasNumeric = [...signal.valueTokens].some(t => /^\d+$/.test(t));
+            const codeMatch = hasNumeric ? codeNearAnyLabel(doc.normalized, signal.valueTokens) : false;
+
+            if (hasNumeric && signal.valueTokens.size <= 3) {
+                if (!exactPhrase && !codeMatch) continue;
+            } else if (signal.valueTokens.size > 2 && coverage < 0.4) {
+                continue;
+            }
+            let signalScore = hits.length * 4 + coverage * 12;
+            if (exactPhrase) signalScore += 35;
+            else if (codeMatch) signalScore += 28;
+            score += signalScore * signal.weight;
+            matchedSignals.push({ field: signal.name, value: signal.value, coverage: Math.round(coverage * 100) / 100 });
+            hits.forEach(t => matchedTokens.add(t));
+        }
+        if (!matchedSignals.length) continue;
+        score += Math.max(0, matchedSignals.length - 1) * 28;
+        score += Math.min([...ACTION_WORDS].filter(w => doc.tokenSet.has(w)).length, 5) * 1.5;
+        if ((doc.text.match(/\. \. \./g) || []).length >= 5 || doc.normalized.substring(0, 500).includes("table of contents")) score *= 0.35;
+        ranked.push({ score, document: doc, matchedSignals, matchedTokens });
+    }
+    ranked.sort((a, b) => b.score - a.score || b.matchedSignals.length - a.matchedSignals.length || a.document.page - b.document.page);
+
+    const selected = [];
+    const seen = new Set();
+    for (const item of ranked) {
+        const title = bestLine(item.document.text, allSignalTokens);
+        const key = item.document.manual + "|" + normalize(title).substring(0, 90);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        selected.push({ ...item, title });
+        if (selected.length >= 6) break;
+    }
+    const maxScore = selected.length ? selected[0].score : 1;
+    const totalSignals = prepared.length;
+    const bestMatchedCount = selected.reduce((best, item) => Math.max(best, item.matchedSignals.length), 0);
+    return {
+        results: selected.map(item => ({
+            type: "manual",
+            title: item.title,
+            manual: item.document.manual,
+            page: item.document.page,
+            context: makeContext(item.document.text, [...item.matchedTokens].join(" "), 260, 480),
+            matched_signals: item.matchedSignals,
+            relative_match: Math.max(1, Math.min(99, Math.round(item.score / maxScore * (45 + 54 * item.matchedSignals.length / totalSignals)))),
+            matched_count: item.matchedSignals.length,
+            signal_count: totalSignals
+        })),
+        signals: prepared.map(item => item.value),
+        message: selected.length && bestMatchedCount === totalSignals ? ""
+            : selected.length ? "No se encontró una página que reúna todos los síntomas; se muestran coincidencias parciales."
+            : "No se encontró una relación suficiente en los manuales para estos síntomas."
+    };
+}
+
+async function _diagnoseLegacyOffline(rawSignals) {
     const weights = { interlock: 1.5, error: 1.5, message: 1.15, observations: 0.8 };
     const prepared = [];
     const allSignalTokens = new Set();
@@ -269,7 +383,7 @@ async function diagnoseOffline(payload) {
             title: item.title,
             manual: item.document.manual,
             page: item.document.page,
-            context: makeContext(item.document.text, [...item.matchedTokens].join(" "), 220, 420),
+            context: makeContext(item.document.text, [...item.matchedTokens].join(" "), 260, 480),
             matched_signals: item.matchedSignals,
             relative_match: Math.max(1, Math.min(99, Math.round(item.score / maxScore * (45 + 54 * item.matchedSignals.length / totalSignals)))),
             matched_count: item.matchedSignals.length,

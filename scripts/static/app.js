@@ -1,4 +1,4 @@
-console.log("✅ SOLVI app.js v16 — búsqueda indexada y diagnóstico");
+console.log("✅ SOLVI app.js v17 — búsqueda indexada, diagnóstico y diagrama de relaciones");
 
 // ─── RED ──────────────────────────────────────────────────
 function actualizarRed() {
@@ -23,6 +23,7 @@ let _workerSequence = 0;
 const _workerPending = new Map();
 const _searchWorker = new Worker("/static/search-worker.js");
 let _searchState = { query:"", manual:"", offset:0, limit:25, total:0, hasMore:false, mode:"offline" };
+let _highlightQuery = "";  // palabra/s buscada/s para resaltar en el visor PDF
 
 _searchWorker.onmessage = event => {
     const pending = _workerPending.get(event.data.id);
@@ -94,8 +95,9 @@ function cargarPdfJs(cb) {
     document.head.appendChild(s);
 }
 
-function verPDF(manual, page) {
+function verPDF(manual, page, keyword) {
     if (!_r2url) { toast("⚠️ PDFs no configurados","err"); return; }
+    _highlightQuery = (keyword || "").trim();
     const pdfUrl = _r2url + "/" + encodeURIComponent(manual + ".pdf");
     
     const pageInt = parseInt(page, 10) || 1;
@@ -206,8 +208,47 @@ function renderPdfPagina(num) {
             }
 
             document.getElementById("pdfScroll").scrollTop = 0;
+
+            // Resaltar términos buscados (no bloquea ni rompe la visualización si falla)
+            resaltarEnPdf(page, vp, canvas);
         });
     });
+}
+
+// ─── RESALTADO EN PDF ─────────────────────────────────────
+function resaltarEnPdf(pdfPage, viewport, canvas) {
+    if (!_highlightQuery || !window.pdfjsLib) return;
+    const terms = _highlightQuery.toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .split(/\s+/)
+        .filter(t => t.length >= 3);
+    if (!terms.length) return;
+
+    pdfPage.getTextContent().then(function(textContent) {
+        try {
+            const ctx = canvas.getContext("2d");
+            ctx.save();
+            ctx.fillStyle = "rgba(255, 210, 0, 0.36)";
+            for (const item of textContent.items) {
+                if (!item.str || item.str.trim().length < 2) continue;
+                const itemNorm = item.str.toLowerCase()
+                    .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                if (!terms.some(t => itemNorm.includes(t))) continue;
+                const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+                const x = tx[4];
+                const y = tx[5];
+                // Estimate font height in canvas pixels from transform scale
+                const fontSize = Math.sqrt(item.transform[0] * item.transform[0] +
+                                           item.transform[1] * item.transform[1]);
+                const h = fontSize * viewport.scale;
+                const w = (item.width || 0) * viewport.scale;
+                if (w > 2 && h > 2) {
+                    ctx.fillRect(x, y - h * 0.9, w, h * 1.1);
+                }
+            }
+            ctx.restore();
+        } catch (_e) { /* silencioso: PDF sigue visible */ }
+    }).catch(function() { /* silencioso */ });
 }
 
 function pdfPagAnterior() {
@@ -377,7 +418,7 @@ function crearTarjetaResultado(result, keyword, index) {
         const button = document.createElement("button");
         button.className = "btn-pdf";
         button.textContent = `📖 Ver pág. ${result.page}`;
-        button.addEventListener("click", () => verPDF(result.manual, result.page));
+        button.addEventListener("click", () => verPDF(result.manual, result.page, keyword));
         footer.appendChild(button);
     }
     card.appendChild(footer);
@@ -512,25 +553,127 @@ async function cargarCatalogoManuales() {
     }
 }
 
-function diagnosticoSignals() {
-    return {
-        interlock: (document.getElementById("diagInterlock").value || "").trim(),
-        error: (document.getElementById("diagError").value || "").trim(),
-        message: (document.getElementById("diagMessage").value || "").trim(),
-        observations: (document.getElementById("diagObservations").value || "").trim()
-    };
+// ─── GESTIÓN DE SÍNTOMAS (PESTAÑA RELACIONAR) ────────────
+const SYMPTOM_NUMS = ["①","②","③","④"];
+const SYMPTOM_HINTS = [
+    "Ej: Interlock 283",
+    "Ej: Error 66",
+    "Ej: Leaf missing",
+    "Ej: Gantry movement issue"
+];
+
+function _setupSymptomEnter(input) {
+    input.addEventListener("keydown", e => {
+        if (e.key === "Enter") { e.preventDefault(); analizarDiagnostico(); }
+    });
 }
 
-function renderDiagnostico(data, mode) {
-    const list = document.getElementById("diagResults");
-    const empty = document.getElementById("diagEmpty");
-    const meta = document.getElementById("diagMeta");
-    const notice = document.getElementById("diagNotice");
+function agregarSintoma() {
+    const container = document.getElementById("symptomsContainer");
+    const rows = container.querySelectorAll(".symptom-row");
+    if (rows.length >= 4) { toast("Máximo 4 síntomas", "err"); return; }
+    const idx = rows.length;
+    const row = document.createElement("div");
+    row.className = "symptom-row";
+    row.dataset.index = idx;
+    row.innerHTML =
+        '<span class="symptom-num">' + SYMPTOM_NUMS[idx] + '</span>' +
+        '<input type="text" class="symptom-input" maxlength="200" placeholder="' + SYMPTOM_HINTS[idx] + '" autocomplete="off" autocorrect="off" autocapitalize="off">' +
+        '<button class="sym-del-btn" onclick="quitarSintoma(this)" aria-label="Eliminar">✕</button>';
+    container.appendChild(row);
+    // Show delete buttons on all rows now that there are more than 2
+    container.querySelectorAll(".sym-del-btn").forEach(b => b.style.display = "");
+    _setupSymptomEnter(row.querySelector(".symptom-input"));
+    row.querySelector(".symptom-input").focus();
+    if (container.querySelectorAll(".symptom-row").length >= 4) {
+        document.getElementById("btnAddSym").style.display = "none";
+    }
+}
+
+function quitarSintoma(btn) {
+    const container = document.getElementById("symptomsContainer");
+    if (container.querySelectorAll(".symptom-row").length <= 2) return;
+    btn.closest(".symptom-row").remove();
+    // Renumber
+    container.querySelectorAll(".symptom-row").forEach((row, i) => {
+        row.dataset.index = i;
+        row.querySelector(".symptom-num").textContent = SYMPTOM_NUMS[i];
+    });
+    document.getElementById("btnAddSym").style.display = "";
+    if (container.querySelectorAll(".symptom-row").length <= 2) {
+        container.querySelectorAll(".sym-del-btn").forEach(b => b.style.display = "none");
+    }
+}
+
+function diagnosticoSymptoms() {
+    return [...document.querySelectorAll(".symptom-input")]
+        .map(inp => inp.value.trim())
+        .filter(Boolean);
+}
+
+// ─── DIAGRAMA DE RELACIONES ───────────────────────────────
+function renderDiagrama(results, symptoms) {
+    const container = document.getElementById("diagDiagram");
+    if (!results.length) { container.style.display = "none"; return; }
+    const main   = results[0];
+    const others = results.slice(1, 4);
+
+    const symsHtml = symptoms.slice(0, 4).map(s =>
+        '<div class="diag-sym-node" title="' + esc(s) + '">' +
+        esc(s.length > 22 ? s.slice(0, 20) + "…" : s) + '</div>'
+    ).join("");
+
+    const mainClickable = _r2url
+        ? 'onclick="verPDF(\'' + esc(main.manual) + '\',' + main.page + ',\'' + esc(symptoms.join(" ")) + '\')"'
+        : "";
+    const mainClass = _r2url ? "diag-main-node" : "diag-main-node no-link";
+
+    const othersHtml = others.map(r => {
+        const t = (r.title || r.manual || "");
+        const short = t.length > 24 ? t.slice(0, 22) + "…" : t;
+        const click = _r2url
+            ? 'onclick="verPDF(\'' + esc(r.manual) + '\',' + r.page + ',\'' + esc(symptoms.join(" ")) + '\')"'
+            : "";
+        return '<div class="diag-other-node" ' + click + '>' +
+            '<span class="diag-other-title" title="' + esc(t) + '">' + esc(short) + '</span>' +
+            '<span class="diag-other-meta">' + esc(r.manual) + ' · pág.' + r.page + ' · ' + r.relative_match + '%</span>' +
+            '</div>';
+    }).join("");
+
+    container.innerHTML =
+        '<div class="diag-diagram-wrap">' +
+            '<div style="font-size:.58rem;font-family:var(--mono);color:var(--muted);text-align:center;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Síntomas ingresados</div>' +
+            '<div class="diag-sym-row">' + symsHtml + '</div>' +
+            '<div class="diag-connector"></div>' +
+            '<div class="' + mainClass + '" ' + mainClickable + '>' +
+                '<div class="diag-main-label">⚡ Causa más probable</div>' +
+                '<div class="diag-main-title">' + esc(main.title || "Evidencia relacionada") + '</div>' +
+                '<div class="diag-main-meta">' + esc(main.manual) + ' · pág. ' + main.page + ' · <b>' + main.relative_match + '%</b></div>' +
+            '</div>' +
+            (others.length
+                ? '<div class="diag-connector-fan"></div>' +
+                  '<div style="font-size:.58rem;font-family:var(--mono);color:var(--muted);text-align:center;margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em">Otras hipótesis</div>' +
+                  '<div class="diag-others-row">' + othersHtml + '</div>'
+                : "") +
+        '</div>';
+    container.style.display = "block";
+}
+
+// ─── RENDER DIAGNÓSTICO ───────────────────────────────────
+function renderDiagnostico(data, mode, symptoms) {
+    const list    = document.getElementById("diagResults");
+    const empty   = document.getElementById("diagEmpty");
+    const meta    = document.getElementById("diagMeta");
+    const notice  = document.getElementById("diagNotice");
+    const diagram = document.getElementById("diagDiagram");
     list.innerHTML = "";
+    diagram.style.display = "none";
+
     const results = Array.isArray(data.results) ? data.results : [];
-    meta.textContent = `${mode === "online" ? "ONLINE" : "OFFLINE"} · ${results.length} hipótesis con evidencia`;
+    meta.textContent = (mode === "online" ? "ONLINE" : "OFFLINE") + " · " + results.length + " hipótesis";
     notice.textContent = data.message || "";
-    notice.style.display = data.message && results.length ? "block" : "none";
+    notice.style.display = (data.message && results.length) ? "block" : "none";
+
     if (!results.length) {
         empty.style.display = "flex";
         empty.querySelector("p").textContent = data.message || "No se encontraron relaciones suficientes.";
@@ -538,25 +681,31 @@ function renderDiagnostico(data, mode) {
     }
     empty.style.display = "none";
 
+    const allSymptoms = symptoms || (Array.isArray(data.signals) ? data.signals : []);
+    renderDiagrama(results, allSymptoms);
+
     results.forEach((result, index) => {
         const card = document.createElement("article");
         card.className = "diagnostic-card";
         const matches = (result.matched_signals || []).map(item =>
-            '<span class="diag-chip">'+esc(item.value)+' · '+Math.round((item.coverage || 0) * 100)+'%</span>'
+            '<span class="diag-chip">' + esc(item.value) + " · " + Math.round((item.coverage || 0) * 100) + "%</span>"
         ).join("");
         card.innerHTML =
-            '<div class="diag-rank"><span>HIPÓTESIS '+(index + 1)+'</span><b>'+Number(result.relative_match || 0)+'% · '+Number(result.matched_count || 0)+'/'+Number(result.signal_count || 0)+' señales</b></div>'+
-            '<h3>'+esc(result.title || "Evidencia relacionada")+'</h3>'+
-            '<div class="card-header"><span class="card-manual manual-badge">'+esc(result.manual)+'</span><span class="card-page">Página '+Number(result.page)+'</span></div>'+
-            '<div class="diag-chips">'+matches+'</div>'+
-            '<div class="card-ctx">'+esc(result.context)+'</div>';
+            '<div class="diag-rank"><span>HIPÓTESIS ' + (index + 1) + '</span>' +
+            '<b>' + Number(result.relative_match || 0) + "% · " + Number(result.matched_count || 0) + "/" + Number(result.signal_count || 0) + " síntomas</b></div>" +
+            "<h3>" + esc(result.title || "Evidencia relacionada") + "</h3>" +
+            '<div class="card-header"><span class="card-manual manual-badge">' + esc(result.manual) + "</span>" +
+            '<span class="card-page">Página ' + Number(result.page) + "</span></div>" +
+            '<div class="diag-chips">' + matches + "</div>" +
+            '<div class="card-ctx">' + esc(result.context) + "</div>";
         if (_r2url) {
             const footer = document.createElement("div");
             footer.className = "card-footer";
             const button = document.createElement("button");
             button.className = "btn-pdf";
-            button.textContent = `📖 Ver evidencia · pág. ${result.page}`;
-            button.addEventListener("click", () => verPDF(result.manual, result.page));
+            button.textContent = "📖 Ver evidencia · pág. " + result.page;
+            const kw = allSymptoms.join(" ");
+            button.addEventListener("click", () => verPDF(result.manual, result.page, kw));
             footer.appendChild(button);
             card.appendChild(footer);
         }
@@ -565,43 +714,45 @@ function renderDiagnostico(data, mode) {
 }
 
 async function analizarDiagnostico() {
-    const signals = diagnosticoSignals();
-    if (!Object.values(signals).some(Boolean)) {
-        toast("Ingresa al menos un interlock, error o síntoma", "err");
+    const symptoms = diagnosticoSymptoms();
+    if (!symptoms.length) {
+        toast("Ingresa al menos un síntoma o error", "err");
         return;
     }
-    const button = document.getElementById("btnDiagnose");
-    const list = document.getElementById("diagResults");
-    const empty = document.getElementById("diagEmpty");
-    empty.style.display = "none";
-    list.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div><p>Relacionando síntomas con los manuales...</p></div>';
-    button.disabled = true;
+    const button  = document.getElementById("btnDiagnose");
+    const list    = document.getElementById("diagResults");
+    const empty   = document.getElementById("diagEmpty");
+    const diagram = document.getElementById("diagDiagram");
+    empty.style.display   = "none";
+    diagram.style.display = "none";
+    list.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div>' +
+        '<p style="font-size:.8rem;color:var(--muted);margin-top:10px">Relacionando síntomas...</p></div>';
+    button.disabled    = true;
     button.textContent = "Analizando...";
     try {
-        let data;
-        let mode = "offline";
+        let data, mode = "offline";
         if (navigator.onLine) {
             try {
                 data = await apiRequest("/diagnose", {
-                    method: "POST",
-                    headers: {"Content-Type":"application/json"},
-                    body: JSON.stringify(signals)
+                    method:  "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body:    JSON.stringify({symptoms})
                 });
                 mode = "online";
                 if (data.r2_url) { _r2url = data.r2_url; localStorage.setItem("r2url", _r2url); }
             } catch (onlineError) {
                 console.warn("Diagnóstico online no disponible; usando índice local", onlineError);
-                data = await workerRequest("diagnose", {signals});
+                data = await workerRequest("diagnose", {signals: {symptoms}});
             }
         } else {
-            data = await workerRequest("diagnose", {signals});
+            data = await workerRequest("diagnose", {signals: {symptoms}});
         }
-        renderDiagnostico(data, mode);
+        renderDiagnostico(data, mode, symptoms);
     } catch(error) {
-        list.innerHTML = '<div class="result-card"><span style="color:var(--danger)">❌ '+esc(error.message)+'</span></div>';
+        list.innerHTML = '<div class="result-card"><span style="color:var(--danger)">❌ ' + esc(error.message) + "</span></div>";
     } finally {
-        button.disabled = false;
-        button.textContent = "Relacionar errores";
+        button.disabled    = false;
+        button.textContent = "Relacionar";
     }
 }
 
@@ -617,14 +768,16 @@ document.addEventListener("DOMContentLoaded", function() {
         m.disabled = false;
         m.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();buscar();} });
     }
-    
     document.getElementById("adminPw")?.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();adminEntrar();} });
     document.getElementById("notaTit")?.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();guardarNota();} });
-    
+
+    // Symptom inputs — Enter triggers analysis
+    document.querySelectorAll(".symptom-input").forEach(_setupSymptomEnter);
+
     uiState("welcome");
     mostrarBienvenida();
     cargarCatalogoManuales();
-    
+
     if (navigator.onLine) {
         syncPendientes();
         apiRequest("/notes").then(data => { if (Array.isArray(data)) notasGuardar(data); }).catch(()=>{});

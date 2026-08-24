@@ -56,7 +56,7 @@ def _phrase_pattern(value: object) -> re.Pattern | None:
     return re.compile(r"\b" + r"[\W_]+".join(re.escape(part) for part in parts) + r"\b")
 
 
-def _context(text: str, query: str, before: int = 140, after: int = 260) -> str:
+def _context(text: str, query: str, before: int = 180, after: int = 380) -> str:
     normalized_text = normalize(text)
     normalized_query = normalize(query)
     position = normalized_text.find(normalized_query)
@@ -91,6 +91,7 @@ def _best_line(text: str, signal_tokens: set[str]) -> str:
 
 
 def _code_near_label(text: str, field: str, value_tokens: set[str]) -> bool:
+    """Check if a numeric code appears near a specific type label (interlock/error)."""
     numeric_codes = [token for token in value_tokens if token.isdigit()]
     if not numeric_codes or field not in {"interlock", "error"}:
         return False
@@ -100,6 +101,21 @@ def _code_near_label(text: str, field: str, value_tokens: set[str]) -> bool:
         if re.search(rf"\b(?:{labels})\b[\W_]{{0,20}}\b{code_pattern}\b", text):
             return True
         if re.search(rf"\b{code_pattern}\b[\W_]{{0,20}}\b(?:{labels})\b", text):
+            return True
+    return False
+
+
+def _code_near_any_label(text: str, value_tokens: set[str]) -> bool:
+    """Check if a numeric code appears near ANY technical label (for free-form symptoms)."""
+    numeric_codes = [token for token in value_tokens if token.isdigit()]
+    if not numeric_codes:
+        return False
+    labels = r"interlock|inhibit|error|fault|alarm|code|i\d{1,4}|e\d{1,4}"
+    for code in numeric_codes:
+        code_pattern = rf"(?:i|e)?\s*{re.escape(code)}"
+        if re.search(rf"\b(?:{labels})\b[\W_]{{0,25}}\b{code_pattern}\b", text):
+            return True
+        if re.search(rf"\b{code_pattern}\b[\W_]{{0,25}}\b(?:interlock|inhibit|error|fault|alarm)\b", text):
             return True
     return False
 
@@ -138,9 +154,8 @@ class SearchEngine:
 
     def _candidate_ids(self, query: str, manual: str = "") -> set[int]:
         query_terms = _query_tokens(query)
-        # La búsqueda histórica acepta palabras incompletas ("dose rate mon").
-        # El primer término reduce candidatos sin exigir que el último sea un
-        # token completo; la comprobación textual posterior decide el resultado.
+        # The first term reduces candidates without requiring the last term to be complete;
+        # the textual check decides the final result.
         first_pool = self.postings.get(query_terms[0]) if query_terms else None
         candidate_ids = set(first_pool) if first_pool is not None else set(range(len(self.documents)))
 
@@ -186,6 +201,7 @@ class SearchEngine:
         }
 
     def diagnose(self, signals: dict[str, str], limit: int = 6) -> dict:
+        """Legacy diagnose: accepts named fields (interlock, error, message, observations)."""
         weights = {"interlock": 1.5, "error": 1.5, "message": 1.15, "observations": 0.8}
         prepared = []
         all_signal_tokens: set[str] = set()
@@ -278,7 +294,7 @@ class SearchEngine:
                 "title": title,
                 "manual": document.manual,
                 "page": document.page,
-                "context": _context(document.text, query_for_context, before=220, after=420),
+                "context": _context(document.text, query_for_context, before=260, after=480),
                 "matched_signals": matched_signals,
                 "relative_match": relative,
                 "matched_count": len(matched_signals),
@@ -294,5 +310,125 @@ class SearchEngine:
                 else "No se encontró una página que reúna todos los datos; se muestran coincidencias parciales."
                 if results
                 else "No se encontró una relación suficiente en los manuales."
+            ),
+        }
+
+    def diagnose_symptoms(self, symptoms: list[str], limit: int = 6) -> dict:
+        """Diagnose based on a free-form list of symptom/error strings (up to 4).
+
+        Each symptom is treated with near-equal importance. Numeric codes are matched
+        near any technical label (interlock, error, fault, alarm, code).
+        """
+        weights_by_position = [1.4, 1.3, 1.2, 1.1]
+        prepared = []
+        all_signal_tokens: set[str] = set()
+        candidate_ids: set[int] = set()
+
+        for i, raw_value in enumerate(symptoms[:4]):
+            value = str(raw_value or "").strip()
+            if not value:
+                continue
+            value_tokens = set(_query_tokens(value))
+            if not value_tokens:
+                continue
+            weight = weights_by_position[i] if i < len(weights_by_position) else 1.0
+            label = f"symptom_{i + 1}"
+            prepared.append((label, value, normalize(value), value_tokens, weight))
+            all_signal_tokens.update(value_tokens)
+            for token in value_tokens:
+                candidate_ids.update(self.postings.get(token, set()))
+
+        if not prepared:
+            return {"results": [], "signals": [], "message": "Ingresa al menos un síntoma."}
+
+        ranked = []
+        for document_id in candidate_ids:
+            document = self.documents[document_id]
+            score = 0.0
+            matched_signals = []
+            matched_tokens: set[str] = set()
+
+            for name, value, normalized_value, value_tokens, weight in prepared:
+                hits = value_tokens & document.token_set
+                if not hits:
+                    continue
+
+                coverage = len(hits) / len(value_tokens)
+                exact_phrase = normalized_value in document.normalized
+                has_numeric = any(t.isdigit() for t in value_tokens)
+                code_match = _code_near_any_label(document.normalized, value_tokens) if has_numeric else False
+
+                # For symptoms with numeric codes (short): require exact phrase or code proximity
+                if has_numeric and len(value_tokens) <= 3:
+                    if not (exact_phrase or code_match):
+                        continue
+                # For longer symptom strings: require minimum coverage
+                elif len(value_tokens) > 2 and coverage < 0.4:
+                    continue
+
+                signal_score = len(hits) * 4 + coverage * 12
+                if exact_phrase:
+                    signal_score += 35
+                elif code_match:
+                    signal_score += 28
+                score += signal_score * weight
+                matched_signals.append({
+                    "field": name,
+                    "value": value,
+                    "coverage": round(coverage, 2),
+                })
+                matched_tokens.update(hits)
+
+            if not matched_signals:
+                continue
+
+            score += max(0, len(matched_signals) - 1) * 28
+            action_hits = ACTION_WORDS & document.token_set
+            score += min(len(action_hits), 5) * 1.5
+            if document.text.count(". . .") >= 5 or "table of contents" in document.normalized[:500]:
+                score *= 0.35
+            ranked.append((score, document, matched_signals, matched_tokens))
+
+        ranked.sort(key=lambda item: (-item[0], -len(item[2]), item[1].manual, item[1].page))
+        selected = []
+        seen = set()
+        for score, document, matched_signals, matched_tokens in ranked:
+            title = _best_line(document.text, all_signal_tokens)
+            dedupe_key = (document.manual, normalize(title)[:90])
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            selected.append((score, document, matched_signals, matched_tokens, title))
+            if len(selected) >= limit:
+                break
+
+        max_score = selected[0][0] if selected else 1
+        total_signals = len(prepared)
+        results = []
+        for score, document, matched_signals, matched_tokens, title in selected:
+            query_for_context = " ".join(matched_tokens) or next(iter(all_signal_tokens), "")
+            completeness = len(matched_signals) / total_signals
+            relative = max(1, min(99, round((score / max_score) * (45 + 54 * completeness))))
+            results.append({
+                "type": "manual",
+                "title": title,
+                "manual": document.manual,
+                "page": document.page,
+                "context": _context(document.text, query_for_context, before=260, after=480),
+                "matched_signals": matched_signals,
+                "relative_match": relative,
+                "matched_count": len(matched_signals),
+                "signal_count": total_signals,
+            })
+
+        best_matched_count = max((len(item[2]) for item in selected), default=0)
+        return {
+            "results": results,
+            "signals": [item[1] for item in prepared],
+            "message": (
+                "" if results and best_matched_count == total_signals
+                else "No se encontró una página que reúna todos los síntomas; se muestran coincidencias parciales."
+                if results
+                else "No se encontró una relación suficiente en los manuales para estos síntomas."
             ),
         }

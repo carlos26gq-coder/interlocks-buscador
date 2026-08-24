@@ -122,10 +122,6 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .diagnostic-intro{background:linear-gradient(135deg,rgba(0,119,255,.09),rgba(0,212,255,.04));border:1px solid rgba(0,212,255,.2);border-radius:10px;padding:14px;margin-bottom:12px}
 .diagnostic-intro h2{font-size:1rem;color:var(--accent);margin-bottom:5px}
 .diagnostic-intro p{font-size:.8rem;color:#94a3b8;line-height:1.55}
-.diag-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:9px}
-.diag-grid .field{margin:0}
-.diag-grid input{padding-left:10px}
-.diag-wide{grid-column:1/-1}
 .diag-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 #diagMeta{font-size:.68rem;color:var(--muted);font-family:var(--mono)}
 .diagnostic-card{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--warn);border-radius:10px;padding:14px;margin-bottom:9px;animation:fadeIn .3s ease both}
@@ -136,7 +132,36 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .diag-chip{font-size:.62rem;font-family:var(--mono);padding:2px 6px;border-radius:10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);color:#fcd34d}
 .diag-disclaimer{font-size:.7rem;line-height:1.5;color:var(--muted);border-left:2px solid var(--warn);padding-left:8px;margin:10px 0 14px}
 .note-open{color:var(--note);border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.07)}
-@media(max-width:520px){.diag-grid{grid-template-columns:1fr}.diag-wide{grid-column:auto}.nav-btn{font-size:.56rem;padding-left:1px;padding-right:1px}}
+/* ── Symptom inputs ── */
+.symptom-row{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.symptom-num{font-family:var(--mono);font-size:1rem;color:var(--accent);width:22px;flex-shrink:0;text-align:center}
+.symptom-input{flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:var(--sans);font-size:.88rem;padding:10px;border-radius:8px;outline:none;transition:border-color .2s;-webkit-appearance:none}
+.symptom-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,255,.12)}
+.symptom-input::placeholder{color:var(--muted)}
+.sym-del-btn{background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;width:28px;height:28px;cursor:pointer;flex-shrink:0;font-size:.78rem;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
+.sym-del-btn:active{border-color:var(--danger);color:var(--danger)}
+/* ── Relationship diagram ── */
+.diag-diagram-wrap{background:var(--surface);border:1px solid rgba(0,212,255,.2);border-radius:12px;padding:14px 12px;margin-bottom:12px}
+.diag-sym-row{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:8px}
+.diag-sym-node{background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.28);color:var(--accent);border-radius:8px;padding:4px 9px;font-size:.68rem;font-family:var(--mono);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.diag-connector{display:flex;justify-content:center;height:20px;align-items:center}
+.diag-connector::before{content:'';display:block;width:2px;height:100%;background:linear-gradient(to bottom,rgba(0,212,255,.5),rgba(245,158,11,.45))}
+.diag-connector-fan{display:flex;justify-content:center;height:18px;align-items:center}
+.diag-connector-fan::before{content:'';display:block;width:2px;height:100%;background:rgba(100,116,139,.35)}
+.diag-main-node{background:linear-gradient(135deg,rgba(0,119,255,.14),rgba(0,212,255,.06));border:2px solid rgba(0,212,255,.38);border-radius:10px;padding:13px;text-align:center;cursor:pointer;transition:border-color .2s;-webkit-tap-highlight-color:transparent}
+.diag-main-node:active{border-color:var(--accent)}
+.diag-main-node.no-link{cursor:default}
+.diag-main-label{font-size:.58rem;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}
+.diag-main-title{font-size:.87rem;font-weight:700;color:var(--text);margin-bottom:5px;line-height:1.3}
+.diag-main-meta{font-size:.68rem;font-family:var(--mono);color:var(--accent)}
+.diag-main-meta b{color:var(--green)}
+.diag-others-row{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:6px}
+.diag-other-node{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;cursor:pointer;-webkit-tap-highlight-color:transparent;max-width:168px;text-align:center}
+.diag-other-node:active{border-color:rgba(245,158,11,.5)}
+.diag-other-title{display:block;font-size:.73rem;font-weight:600;color:var(--text);margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.diag-other-meta{display:block;font-size:.63rem;font-family:var(--mono);color:var(--warn)}
+@media(max-width:520px){.nav-btn{font-size:.56rem;padding-left:1px;padding-right:1px}}
+
 </style>
 </head>
 <body>
@@ -192,35 +217,34 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 
 <div id="screenDiagnose" class="screen">
   <div class="diagnostic-intro">
-    <h2>🧭 Relacionar errores</h2>
-    <p>Combina códigos, interlocks y síntomas. SOLVI buscará relaciones dentro de todos los manuales y mostrará hasta seis hipótesis ordenadas con su evidencia.</p>
+    <h2>🧭 Relacionar síntomas</h2>
+    <p>Escribe hasta 4 errores, interlocks o síntomas. SOLVI buscará las causas más probables y mostrará las relaciones encontradas en los manuales.</p>
   </div>
-  <div class="diag-grid">
-    <div class="field">
-      <label for="diagInterlock">Interlock</label>
-      <input id="diagInterlock" type="text" maxlength="100" placeholder="Ej: 283 o Interlock 283">
+  <div id="symptomsContainer">
+    <div class="symptom-row" data-index="0">
+      <span class="symptom-num">①</span>
+      <input type="text" class="symptom-input" maxlength="200" placeholder="Ej: Interlock 283" autocomplete="off" autocorrect="off" autocapitalize="off">
+      <button class="sym-del-btn" onclick="quitarSintoma(this)" aria-label="Eliminar" style="display:none">✕</button>
     </div>
-    <div class="field">
-      <label for="diagError">Código de error</label>
-      <input id="diagError" type="text" maxlength="100" placeholder="Ej: Error 66">
+    <div class="symptom-row" data-index="1">
+      <span class="symptom-num">②</span>
+      <input type="text" class="symptom-input" maxlength="200" placeholder="Ej: Error 66" autocomplete="off" autocorrect="off" autocapitalize="off">
+      <button class="sym-del-btn" onclick="quitarSintoma(this)" aria-label="Eliminar" style="display:none">✕</button>
     </div>
-    <div class="field diag-wide">
-      <label for="diagMessage">Mensaje o síntoma</label>
-      <input id="diagMessage" type="text" maxlength="300" placeholder="Ej: reset motors, leaf missing">
-    </div>
-    <div class="field diag-wide">
-      <label for="diagObservations">Otros síntomas u observaciones</label>
-      <textarea id="diagObservations" maxlength="500" placeholder="Ej: sucede al mover el gantry y desaparece después de reiniciar"></textarea>
-    </div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+    <button id="btnAddSym" class="btn btn-ghost btn-sm" onclick="agregarSintoma()">+ Síntoma</button>
+    <span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Máx. 4 síntomas</span>
   </div>
   <div class="diag-actions">
-    <button id="btnDiagnose" class="btn btn-primary" onclick="analizarDiagnostico()">Relacionar errores</button>
-    <span id="diagMeta">Máximo 6 resultados</span>
+    <button id="btnDiagnose" class="btn btn-primary" onclick="analizarDiagnostico()">Relacionar</button>
+    <span id="diagMeta">Hasta 6 hipótesis</span>
   </div>
   <p class="diag-disclaimer">La coincidencia es relativa a la evidencia encontrada; no sustituye los procedimientos de seguridad, diagnóstico ni calibración indicados por el fabricante.</p>
   <div id="diagNotice" class="info-box" style="display:none;margin-bottom:10px"></div>
+  <div id="diagDiagram" style="display:none"></div>
   <div id="diagEmpty" class="state-box">
-    <div class="icon">🧩</div><p>Completa uno o más campos para buscar relaciones técnicas.</p>
+    <div class="icon">🧩</div><p>Completa uno o más síntomas para buscar relaciones técnicas.</p>
   </div>
   <div id="diagResults"></div>
 </div>
@@ -265,18 +289,21 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
       <button class="btn btn-ghost btn-sm" onclick="cargarListaManuales()">🔄 Actualizar</button>
       <div id="listaManuales" class="manual-list" style="margin-top:9px"><p style="font-size:.78rem;color:var(--muted)">Toca "Actualizar".</p></div>
     </div>
-    <div class="admin-section"><h3>➕ AGREGAR NUEVO MANUAL</h3>
+    <div class="admin-section"><h3>➕ AGREGAR MANUAL RÁPIDO</h3>
       <div class="info-box">
-        <b>1.</b> Copia el PDF en <code>manuals/</code>.<br>
-        <b>2.</b> Ejecuta <code>python scripts/extract_pages.py --pdf "manuals/nuevo.pdf"</code>.<br>
-        <b>3.</b> Ejecuta <code>python scripts/build_index.py</code> para regenerar búsqueda y modo offline.<br>
-        <b>4.</b> Sube el PDF con el mismo nombre a Cloudflare R2.<br>
-        <b>5.</b> Agrega <code>data/</code> y el código a GitHub, luego despliega.
+        <b>Método rápido (recomendado):</b><br>
+        <code>python scripts/add_manual.py --pdf "manuals/nuevo.pdf"</code><br>
+        Extrae, indexa y da instrucciones automáticamente.<br><br>
+        <b>Método manual:</b><br>
+        <b>1.</b> <code>python scripts/extract_pages.py --pdf "manuals/nuevo.pdf"</code><br>
+        <b>2.</b> <code>python scripts/build_index.py</code><br>
+        <b>3.</b> Sube el PDF a Cloudflare R2.<br>
+        <b>4.</b> <code>git add data/ &amp;&amp; git push</code>
       </div>
     </div>
     <div class="admin-section"><h3>☁️ APUNTES EN LA NUBE</h3>
       <div class="info-box">
-        Los apuntes de todo el equipo ahora se guardan de forma segura y centralizada en <b>Supabase</b>. No requieren copias locales ni reinicios.
+        Los apuntes del equipo se guardan de forma segura y centralizada en <b>Supabase</b>. No requieren copias locales ni reinicios.
       </div>
     </div>
     <div style="text-align:center;margin-top:4px">

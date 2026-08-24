@@ -253,6 +253,9 @@ def service_worker():
 
 @app.route("/data/<path:filename>")
 def serve_data(filename):
+    target = DATA_DIR / filename
+    if not target.is_file():
+        return jsonify({"error": "Archivo no encontrado."}), 404
     return send_from_directory(DATA_DIR, filename)
 
 
@@ -318,13 +321,28 @@ def search():
 @limiter.limit("60 per hour")
 def diagnose():
     data = json_body()
-    signals = {
-        "interlock": bounded_text(data, "interlock", 100),
-        "error": bounded_text(data, "error", 100),
-        "message": bounded_text(data, "message", 300),
-        "observations": bounded_text(data, "observations", 500),
-    }
-    result = search_engine.diagnose(signals, limit=6)
+    # New format: {"symptoms": ["...", "...", ...]} — up to 4 free-form symptom strings
+    symptoms_raw = data.get("symptoms")
+    if isinstance(symptoms_raw, list):
+        symptoms = []
+        for item in symptoms_raw[:4]:
+            if not isinstance(item, str):
+                raise ValidationError("Cada síntoma debe ser texto.")
+            cleaned = item.strip()
+            if len(cleaned) > 200:
+                raise ValidationError("Cada síntoma admite hasta 200 caracteres.")
+            if cleaned:
+                symptoms.append(cleaned)
+        result = search_engine.diagnose_symptoms(symptoms, limit=6)
+    else:
+        # Legacy named-fields format (backward compatibility)
+        signals = {
+            "interlock": bounded_text(data, "interlock", 100),
+            "error": bounded_text(data, "error", 100),
+            "message": bounded_text(data, "message", 300),
+            "observations": bounded_text(data, "observations", 500),
+        }
+        result = search_engine.diagnose(signals, limit=6)
     result["r2_url"] = R2_PUBLIC_URL
     return jsonify(result)
 

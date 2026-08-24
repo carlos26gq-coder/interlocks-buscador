@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import time
 
 import pdfplumber
@@ -36,6 +37,68 @@ def compact_write(path: Path, value: object) -> None:
     temporary.replace(path)
 
 
+def clean_text(raw: str) -> str:
+    """Post-process extracted text: join hyphenated line-breaks, normalize whitespace."""
+    # Rejoin words split at end of line with a hyphen (e.g., "inter-\nlock" → "interlock")
+    text = re.sub(r"-\s*\n\s*", "", raw)
+    # Collapse tabs and multiple spaces to a single space
+    text = re.sub(r"[ \t]+", " ", text)
+    # Collapse more than 2 consecutive newlines to a paragraph break
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def extract_page_text(page) -> str:
+    """Try multiple extraction strategies and return the best result.
+
+    Strategy 1 — Standard extraction with fine tolerances.
+    Strategy 2 — Layout-aware extraction (better for multi-column/complex pages).
+    Strategy 3 — Table cell extraction (appended if it adds significant content).
+    Pages with fewer than 20 useful chars are considered image-only and return "".
+    """
+    # Strategy 1: standard
+    try:
+        text1 = page.extract_text(x_tolerance=3, y_tolerance=4) or ""
+    except Exception:
+        text1 = ""
+
+    # Strategy 2: layout-aware (only if strategy 1 yielded little text)
+    text2 = ""
+    if len(text1.strip()) < 50:
+        try:
+            text2 = page.extract_text(layout=True, x_tolerance=3, y_tolerance=4) or ""
+        except Exception:
+            pass
+
+    # Strategy 3: table cells (concatenated as supplementary text)
+    table_text = ""
+    try:
+        tables = page.extract_tables()
+        if tables:
+            cells = [
+                str(cell).strip()
+                for table in tables
+                for row in table
+                for cell in row
+                if cell and str(cell).strip()
+            ]
+            table_text = " ".join(cells)
+    except Exception:
+        pass
+
+    # Choose the richer of strategy 1 and 2
+    raw = text1 if len(text1) >= len(text2) else text2
+
+    # Append table text if it carries significant extra content
+    if table_text and len(table_text) > 30:
+        raw = (raw + "\n" + table_text).strip() if raw else table_text
+
+    cleaned = clean_text(raw)
+    # Discard pages with too little useful content (likely image-only or blank)
+    useful_chars = len(cleaned.replace(" ", "").replace("\n", ""))
+    return cleaned if useful_chars >= 20 else ""
+
+
 def extract_pdf(pdf_path: Path, output_dir: Path) -> dict:
     manual_name = pdf_path.stem.lower().strip()
     pages = []
@@ -48,8 +111,7 @@ def extract_pdf(pdf_path: Path, output_dir: Path) -> dict:
         total_pages = len(pdf.pages)
         for index, page in tqdm(enumerate(pdf.pages, start=1), total=total_pages):
             try:
-                text = page.extract_text(x_tolerance=2, y_tolerance=3) or ""
-                text = text.strip()
+                text = extract_page_text(page)
             except Exception as error:
                 text = ""
                 extraction_errors.append({"page": index, "error": type(error).__name__})
