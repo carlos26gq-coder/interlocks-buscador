@@ -1,8 +1,14 @@
-"""Motor de búsqueda y diagnóstico compartido por la API.
+"""Motor de búsqueda y diagnóstico para SOLVI.
 
-El índice se construye una sola vez al iniciar el proceso. Las coincidencias siguen
-siendo textuales, pero se usa un índice invertido para reducir los documentos que
-hay que revisar y se normalizan mayúsculas y tildes.
+El índice se construye una vez al iniciar. Las coincidencias son textuales con
+índice invertido, normalización de acentos y diferenciación clara entre
+búsqueda general (Search) y diagnóstico técnico (Relacionar).
+
+En el diagnóstico:
+- Se exige que los tokens de cada síntoma sean específicos (no comunes).
+- Se extraen frases de acción/solución para mostrar qué hacer.
+- Se asigna un nivel de confianza que determina si el PDF es relevante.
+- Se filtran resultados de baja calidad (tablas de contenido, índices, etc.).
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ STOP_WORDS = {
     "el", "en", "es", "for", "from", "in", "is", "la", "las", "los", "of",
     "on", "or", "para", "por", "que", "se", "the", "to", "un", "una", "y",
 }
+# Palabras de acción/solución — indican páginas diagnósticas reales
 ACTION_WORDS = {
     "adjust", "calibrate", "check", "connect", "correct", "disconnect", "ensure",
     "examine", "inspect", "install", "measure", "remove", "replace", "reset",
@@ -26,6 +33,26 @@ ACTION_WORDS = {
     "corregir", "desconectar", "examinar", "inspeccionar", "reemplazar", "reiniciar",
     "restablecer", "verificar",
 }
+# Patrón para detectar frases con instrucciones/diagnóstico
+_ACTION_PATTERN = re.compile(
+    r"\b(?:check|verify|replace|reset|calibrate|inspect|ensure|adjust|connect|"
+    r"disconnect|remove|install|measure|restore|comprobar|verificar|reemplazar|"
+    r"reiniciar|calibrar|inspeccionar|ajustar|revisar|cambiar|limpiar|corregir|"
+    r"ensure|should|must|cause[ds]?|due to|result[s]? from|indicates?|suggest[s]?)\b",
+    re.IGNORECASE,
+)
+# Palabras técnicas de diagnóstico — tokens con alto valor diagnóstico
+DIAGNOSTIC_WORDS = {
+    "interlock", "inhibit", "error", "fault", "alarm", "failure", "failed",
+    "calibration", "encoder", "motor", "beam", "dose", "mlc", "leaf", "gantry",
+    "collimator", "monitor", "sensor", "cable", "board", "driver", "power",
+    "supply", "voltage", "current", "temperature", "pressure", "vacuum",
+    "rf", "klystron", "modulator", "gun", "dose1", "dose2",
+}
+# Umbral mínimo de confianza para considerar un resultado útil
+MIN_RELATIVE_MATCH_DIAGNOSE = 28
+# Si relative_match >= este valor, el PDF es definitivamente relevante
+PDF_CONFIDENCE_THRESHOLD = 52
 
 
 def normalize(value: object) -> str:
@@ -90,8 +117,74 @@ def _best_line(text: str, signal_tokens: set[str]) -> str:
     return best[:140]
 
 
+def _extract_action_sentences(text: str, signal_tokens: set[str], max_sentences: int = 2) -> str:
+    """Extrae las frases más relevantes con instrucciones/diagnóstico del texto.
+
+    Prioriza frases que contengan palabras de acción Y tokens del síntoma.
+    Retorna un resumen de hasta `max_sentences` frases separadas por espacio.
+    """
+    # Dividir en oraciones usando puntuación
+    raw_sentences = re.split(r"(?<=[.!?])\s+|\n", text)
+    sentences = [re.sub(r"\s+", " ", s).strip() for s in raw_sentences]
+    sentences = [s for s in sentences if 18 <= len(s) <= 320]
+
+    scored: list[tuple[int, str]] = []
+    for sentence in sentences:
+        sentence_tokens = set(tokens(sentence))
+        token_hits = len(signal_tokens & sentence_tokens)
+        action_hits = len(_ACTION_PATTERN.findall(sentence))
+        diagnostic_hits = len(DIAGNOSTIC_WORDS & sentence_tokens)
+        total = token_hits * 4 + action_hits * 3 + diagnostic_hits * 2
+        if total >= 4:  # Solo frases con suficiente densidad diagnóstica
+            scored.append((total, sentence))
+
+    scored.sort(key=lambda x: -x[0])
+    if scored:
+        # Evitar duplicados muy similares (primeros 40 chars)
+        seen_starts: set[str] = set()
+        unique: list[str] = []
+        for _, s in scored:
+            key = normalize(s[:40])
+            if key not in seen_starts:
+                seen_starts.add(key)
+                unique.append(s)
+            if len(unique) >= max_sentences:
+                break
+        return " ".join(unique)
+    return ""
+
+
+def _is_noise_page(document_normalized: str) -> bool:
+    """Detecta páginas que son índice, tabla de contenidos, listas de partes, etc."""
+    if "table of contents" in document_normalized[:500]:
+        return True
+    if document_normalized[:300].count(". . .") >= 3:
+        return True
+    # Páginas con muchos números aislados (listas de partes)
+    digit_only_lines = len(re.findall(r"(?:^|\n)\s*[\d\s\-\.]+\s*(?:\n|$)", document_normalized[:400]))
+    if digit_only_lines >= 5:
+        return True
+    return False
+
+
+def _token_specificity(token: str, postings: dict, total_docs: int) -> float:
+    """Qué tan específico es un token: 1.0 = muy raro, 0.0 = muy común."""
+    doc_freq = len(postings.get(token, set()))
+    if doc_freq == 0:
+        return 1.0
+    # IDF simplificado
+    ratio = doc_freq / max(total_docs, 1)
+    if ratio > 0.60:
+        return 0.0   # Aparece en >60% de docs → token sin valor diagnóstico
+    if ratio > 0.35:
+        return 0.3
+    if ratio > 0.15:
+        return 0.6
+    return 1.0
+
+
 def _code_near_label(text: str, field: str, value_tokens: set[str]) -> bool:
-    """Check if a numeric code appears near a specific type label (interlock/error)."""
+    """Verifica si un código numérico aparece cerca de su etiqueta (interlock/error)."""
     numeric_codes = [token for token in value_tokens if token.isdigit()]
     if not numeric_codes or field not in {"interlock", "error"}:
         return False
@@ -106,7 +199,7 @@ def _code_near_label(text: str, field: str, value_tokens: set[str]) -> bool:
 
 
 def _code_near_any_label(text: str, value_tokens: set[str]) -> bool:
-    """Check if a numeric code appears near ANY technical label (for free-form symptoms)."""
+    """Verifica si un código numérico aparece cerca de cualquier etiqueta técnica."""
     numeric_codes = [token for token in value_tokens if token.isdigit()]
     if not numeric_codes:
         return False
@@ -154,15 +247,14 @@ class SearchEngine:
 
     def _candidate_ids(self, query: str, manual: str = "") -> set[int]:
         query_terms = _query_tokens(query)
-        # The first term reduces candidates without requiring the last term to be complete;
-        # the textual check decides the final result.
         first_pool = self.postings.get(query_terms[0]) if query_terms else None
         candidate_ids = set(first_pool) if first_pool is not None else set(range(len(self.documents)))
-
         manual = normalize(manual).strip()
         if manual:
             candidate_ids.intersection_update(self.manuals.get(manual, []))
         return candidate_ids
+
+    # ─── BÚSQUEDA GENERAL ────────────────────────────────────────────────────
 
     def search(self, query: str, manual: str = "", offset: int = 0, limit: int = 25) -> dict:
         normalized_query = normalize(query).strip()
@@ -200,8 +292,10 @@ class SearchEngine:
             "has_more": offset + limit < total,
         }
 
+    # ─── DIAGNÓSTICO LEGACY (campos nombrados) ───────────────────────────────
+
     def diagnose(self, signals: dict[str, str], limit: int = 6) -> dict:
-        """Legacy diagnose: accepts named fields (interlock, error, message, observations)."""
+        """Legacy diagnose: acepta campos nombrados (interlock, error, message, observations)."""
         weights = {"interlock": 1.5, "error": 1.5, "message": 1.15, "observations": 0.8}
         prepared = []
         all_signal_tokens: set[str] = set()
@@ -230,6 +324,8 @@ class SearchEngine:
         ranked = []
         for document_id in candidate_ids:
             document = self.documents[document_id]
+            if _is_noise_page(document.normalized):
+                continue
             score = 0.0
             matched_signals = []
             matched_tokens: set[str] = set()
@@ -265,8 +361,6 @@ class SearchEngine:
             score += max(0, len(matched_signals) - 1) * 28
             action_hits = ACTION_WORDS & document.token_set
             score += min(len(action_hits), 5) * 1.5
-            if document.text.count(". . .") >= 5 or "table of contents" in document.normalized[:500]:
-                score *= 0.35
             ranked.append((score, document, matched_signals, matched_tokens))
 
         ranked.sort(key=lambda item: (-item[0], -len(item[2]), item[1].manual, item[1].page))
@@ -299,6 +393,7 @@ class SearchEngine:
                 "relative_match": relative,
                 "matched_count": len(matched_signals),
                 "signal_count": total_signals,
+                "pdf_relevant": relative >= PDF_CONFIDENCE_THRESHOLD,
             })
 
         best_matched_count = max((len(item[2]) for item in selected), default=0)
@@ -313,16 +408,24 @@ class SearchEngine:
             ),
         }
 
-    def diagnose_symptoms(self, symptoms: list[str], limit: int = 6) -> dict:
-        """Diagnose based on a free-form list of symptom/error strings (up to 4).
+    # ─── DIAGNÓSTICO POR SÍNTOMAS LIBRES ─────────────────────────────────────
 
-        Each symptom is treated with near-equal importance. Numeric codes are matched
-        near any technical label (interlock, error, fault, alarm, code).
+    def diagnose_symptoms(self, symptoms: list[str], limit: int = 6) -> dict:
+        """Diagnóstico por lista libre de síntomas/errores (hasta 4).
+
+        A diferencia de la búsqueda general:
+        - Exige que los tokens sean específicos (no muy comunes en el índice).
+        - Para códigos numéricos: requiere proximidad con etiqueta técnica.
+        - Para texto: requiere cobertura mínima del 55%.
+        - Extrae frases de acción/solución para cada resultado.
+        - Asigna nivel de confianza y decide si el PDF es relevante.
+        - Filtra páginas de índice, tabla de contenidos, listas de partes.
         """
         weights_by_position = [1.4, 1.3, 1.2, 1.1]
         prepared = []
         all_signal_tokens: set[str] = set()
         candidate_ids: set[int] = set()
+        total_docs = len(self.documents)
 
         for i, raw_value in enumerate(symptoms[:4]):
             value = str(raw_value or "").strip()
@@ -331,67 +434,108 @@ class SearchEngine:
             value_tokens = set(_query_tokens(value))
             if not value_tokens:
                 continue
+
+            # Filtrar tokens demasiado comunes (aparecen en >60% de páginas)
+            specific_tokens = {
+                t for t in value_tokens
+                if _token_specificity(t, self.postings, total_docs) > 0.0
+            }
+            if not specific_tokens:
+                continue  # Todos los tokens son ruido — síntoma demasiado genérico
+
             weight = weights_by_position[i] if i < len(weights_by_position) else 1.0
             label = f"symptom_{i + 1}"
-            prepared.append((label, value, normalize(value), value_tokens, weight))
-            all_signal_tokens.update(value_tokens)
-            for token in value_tokens:
+            prepared.append((label, value, normalize(value), value_tokens, specific_tokens, weight))
+            all_signal_tokens.update(specific_tokens)
+
+            # Usar solo tokens específicos para buscar candidatos
+            for token in specific_tokens:
                 candidate_ids.update(self.postings.get(token, set()))
 
         if not prepared:
-            return {"results": [], "signals": [], "message": "Ingresa al menos un síntoma."}
+            return {
+                "results": [],
+                "signals": [],
+                "message": "Los síntomas ingresados son demasiado genéricos. Ingresa códigos de error, interlocks o términos técnicos específicos.",
+            }
 
         ranked = []
         for document_id in candidate_ids:
             document = self.documents[document_id]
+
+            # Descartar páginas de baja calidad diagnóstica
+            if _is_noise_page(document.normalized):
+                continue
+
             score = 0.0
             matched_signals = []
             matched_tokens: set[str] = set()
 
-            for name, value, normalized_value, value_tokens, weight in prepared:
-                hits = value_tokens & document.token_set
-                if not hits:
-                    continue
+            for name, value, normalized_value, value_tokens, specific_tokens, weight in prepared:
+                hits_all = value_tokens & document.token_set
+                hits_specific = specific_tokens & document.token_set
+                if not hits_specific:
+                    continue  # Ningún token específico del síntoma aparece aquí
 
-                coverage = len(hits) / len(value_tokens)
+                coverage_specific = len(hits_specific) / len(specific_tokens)
+                coverage_all = len(hits_all) / max(len(value_tokens), 1)
                 exact_phrase = normalized_value in document.normalized
-                has_numeric = any(t.isdigit() for t in value_tokens)
-                code_match = _code_near_any_label(document.normalized, value_tokens) if has_numeric else False
+                has_numeric = any(t.isdigit() for t in specific_tokens)
+                code_match = _code_near_any_label(document.normalized, specific_tokens) if has_numeric else False
 
-                # For symptoms with numeric codes (short): require exact phrase or code proximity
-                if has_numeric and len(value_tokens) <= 3:
+                # Reglas de aceptación estrictas:
+                if has_numeric and len(specific_tokens) <= 3:
+                    # Código corto (ej. "Interlock 283") — REQUIERE proximidad exacta
                     if not (exact_phrase or code_match):
                         continue
-                # For longer symptom strings: require minimum coverage
-                elif len(value_tokens) > 2 and coverage < 0.4:
-                    continue
+                elif has_numeric and len(specific_tokens) > 3:
+                    # Código + descripción — requiere el código próximo O alta cobertura
+                    if not (exact_phrase or code_match) and coverage_specific < 0.55:
+                        continue
+                else:
+                    # Solo texto — requiere cobertura significativa de tokens específicos
+                    if coverage_specific < 0.55:
+                        continue
 
-                signal_score = len(hits) * 4 + coverage * 12
+                # Penalizar si los tokens específicos son comunes en este corpus
+                specificity_bonus = sum(
+                    _token_specificity(t, self.postings, total_docs)
+                    for t in hits_specific
+                ) / max(len(hits_specific), 1)
+
+                signal_score = len(hits_specific) * 5 + coverage_specific * 15 + specificity_bonus * 8
                 if exact_phrase:
-                    signal_score += 35
+                    signal_score += 40
                 elif code_match:
-                    signal_score += 28
+                    signal_score += 32
+
                 score += signal_score * weight
                 matched_signals.append({
                     "field": name,
                     "value": value,
-                    "coverage": round(coverage, 2),
+                    "coverage": round(coverage_specific, 2),
                 })
-                matched_tokens.update(hits)
+                matched_tokens.update(hits_specific)
 
             if not matched_signals:
                 continue
 
-            score += max(0, len(matched_signals) - 1) * 28
+            score += max(0, len(matched_signals) - 1) * 30
+            # Bonificación fuerte por densidad de palabras de acción (páginas de diagnóstico/reparación)
             action_hits = ACTION_WORDS & document.token_set
-            score += min(len(action_hits), 5) * 1.5
-            if document.text.count(". . .") >= 5 or "table of contents" in document.normalized[:500]:
-                score *= 0.35
+            action_bonus = min(len(action_hits), 8) * 2.5
+            score += action_bonus
+            # Bonificación por palabras técnicas de diagnóstico
+            diagnostic_hit_count = len(DIAGNOSTIC_WORDS & document.token_set)
+            score += min(diagnostic_hit_count, 6) * 1.8
+
             ranked.append((score, document, matched_signals, matched_tokens))
 
         ranked.sort(key=lambda item: (-item[0], -len(item[2]), item[1].manual, item[1].page))
+
+        # Seleccionar los mejores sin duplicados
         selected = []
-        seen = set()
+        seen: set[tuple] = set()
         for score, document, matched_signals, matched_tokens in ranked:
             title = _best_line(document.text, all_signal_tokens)
             dedupe_key = (document.manual, normalize(title)[:90])
@@ -402,33 +546,70 @@ class SearchEngine:
             if len(selected) >= limit:
                 break
 
-        max_score = selected[0][0] if selected else 1
+        if not selected:
+            return {
+                "results": [],
+                "signals": [item[1] for item in prepared],
+                "message": "No se encontró evidencia suficientemente específica en los manuales para estos síntomas.",
+            }
+
+        max_score = selected[0][0]
         total_signals = len(prepared)
         results = []
+
         for score, document, matched_signals, matched_tokens, title in selected:
             query_for_context = " ".join(matched_tokens) or next(iter(all_signal_tokens), "")
             completeness = len(matched_signals) / total_signals
             relative = max(1, min(99, round((score / max_score) * (45 + 54 * completeness))))
+
+            # Extraer frases con acción/solución (el valor añadido clave)
+            action_summary = _extract_action_sentences(document.text, all_signal_tokens, max_sentences=2)
+
+            # Nivel de confianza claro
+            if relative >= 75:
+                confidence = "alta"
+            elif relative >= PDF_CONFIDENCE_THRESHOLD:
+                confidence = "media"
+            else:
+                confidence = "baja"
+
+            # El PDF solo se muestra si la confianza es media o alta
+            pdf_relevant = relative >= MIN_RELATIVE_MATCH_DIAGNOSE and confidence in {"alta", "media"}
+
+            # Filtro final: descartar resultados de confianza muy baja
+            if relative < MIN_RELATIVE_MATCH_DIAGNOSE:
+                continue
+
             results.append({
                 "type": "manual",
                 "title": title,
                 "manual": document.manual,
                 "page": document.page,
                 "context": _context(document.text, query_for_context, before=260, after=480),
+                "action_summary": action_summary,  # Frases de acción/solución
                 "matched_signals": matched_signals,
                 "relative_match": relative,
+                "confidence": confidence,
+                "pdf_relevant": pdf_relevant,
                 "matched_count": len(matched_signals),
                 "signal_count": total_signals,
             })
 
-        best_matched_count = max((len(item[2]) for item in selected), default=0)
+        if not results:
+            return {
+                "results": [],
+                "signals": [item[1] for item in prepared],
+                "message": "Las coincidencias encontradas no tienen suficiente relevancia diagnóstica. Intenta con códigos de error más específicos.",
+            }
+
+        best_matched_count = max(r["matched_count"] for r in results)
         return {
             "results": results,
             "signals": [item[1] for item in prepared],
             "message": (
-                "" if results and best_matched_count == total_signals
-                else "No se encontró una página que reúna todos los síntomas; se muestran coincidencias parciales."
-                if results
-                else "No se encontró una relación suficiente en los manuales para estos síntomas."
+                "" if best_matched_count == total_signals
+                else "No todas las páginas reúnen todos los síntomas; se muestran las más relevantes."
+                if len(results) > 1
+                else ""
             ),
         }

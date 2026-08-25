@@ -623,18 +623,25 @@ function renderDiagrama(results, symptoms) {
         esc(s.length > 22 ? s.slice(0, 20) + "…" : s) + '</div>'
     ).join("");
 
-    const mainClickable = _r2url
+    // Nodo principal — solo clickable si el PDF es realmente relevante
+    const mainPdfOk = _r2url && main.pdf_relevant !== false;
+    const mainClickable = mainPdfOk
         ? 'onclick="verPDF(\'' + esc(main.manual) + '\',' + main.page + ',\'' + esc(symptoms.join(" ")) + '\')"'
         : "";
-    const mainClass = _r2url ? "diag-main-node" : "diag-main-node no-link";
+    const mainClass = mainPdfOk ? "diag-main-node" : "diag-main-node no-link";
+
+    // Badge de confianza
+    const confMap = { alta: { color: "var(--green)", label: "Alta confianza" }, media: { color: "var(--warn)", label: "Confianza media" }, baja: { color: "var(--muted)", label: "Baja confianza" } };
+    const mainConf = confMap[main.confidence] || confMap.media;
 
     const othersHtml = others.map(r => {
         const t = (r.title || r.manual || "");
         const short = t.length > 24 ? t.slice(0, 22) + "…" : t;
-        const click = _r2url
+        const otherPdfOk = _r2url && r.pdf_relevant !== false;
+        const click = otherPdfOk
             ? 'onclick="verPDF(\'' + esc(r.manual) + '\',' + r.page + ',\'' + esc(symptoms.join(" ")) + '\')"'
             : "";
-        return '<div class="diag-other-node" ' + click + '>' +
+        return '<div class="diag-other-node" ' + click + (otherPdfOk ? '' : ' style="opacity:.65"') + '>' +
             '<span class="diag-other-title" title="' + esc(t) + '">' + esc(short) + '</span>' +
             '<span class="diag-other-meta">' + esc(r.manual) + ' · pág.' + r.page + ' · ' + r.relative_match + '%</span>' +
             '</div>';
@@ -648,7 +655,10 @@ function renderDiagrama(results, symptoms) {
             '<div class="' + mainClass + '" ' + mainClickable + '>' +
                 '<div class="diag-main-label">⚡ Causa más probable</div>' +
                 '<div class="diag-main-title">' + esc(main.title || "Evidencia relacionada") + '</div>' +
-                '<div class="diag-main-meta">' + esc(main.manual) + ' · pág. ' + main.page + ' · <b>' + main.relative_match + '%</b></div>' +
+                '<div class="diag-main-meta">' + esc(main.manual) + ' · pág. ' + main.page +
+                ' · <b>' + main.relative_match + '%</b>' +
+                ' · <span style="color:' + mainConf.color + '">' + mainConf.label + '</span></div>' +
+                (mainPdfOk ? '<div style="font-size:.6rem;color:var(--muted);margin-top:3px">Toca para ver evidencia en PDF</div>' : '') +
             '</div>' +
             (others.length
                 ? '<div class="diag-connector-fan"></div>' +
@@ -684,31 +694,59 @@ function renderDiagnostico(data, mode, symptoms) {
     const allSymptoms = symptoms || (Array.isArray(data.signals) ? data.signals : []);
     renderDiagrama(results, allSymptoms);
 
+    const confColors = { alta: "var(--green)", media: "var(--warn)", baja: "var(--muted)" };
+    const confLabels = { alta: "⬤ Alta confianza", media: "⬤ Confianza media", baja: "⬤ Baja confianza" };
+
     results.forEach((result, index) => {
+        const conf     = result.confidence || "media";
+        const confColor = confColors[conf] || "var(--muted)";
+        const confLabel = confLabels[conf] || "Confianza media";
+        const pdfOk   = result.pdf_relevant !== false && !!_r2url;
+
         const card = document.createElement("article");
-        card.className = "diagnostic-card";
+        card.className = "diagnostic-card" + (conf === "baja" ? " diag-card-low" : "");
+
         const matches = (result.matched_signals || []).map(item =>
             '<span class="diag-chip">' + esc(item.value) + " · " + Math.round((item.coverage || 0) * 100) + "%</span>"
         ).join("");
+
+        // Sección de acción recomendada (si existe)
+        const actionHtml = result.action_summary
+            ? '<div class="diag-action-box"><span class="diag-action-label">🔧 Acción sugerida</span>' +
+              esc(result.action_summary) + '</div>'
+            : "";
+
         card.innerHTML =
-            '<div class="diag-rank"><span>HIPÓTESIS ' + (index + 1) + '</span>' +
-            '<b>' + Number(result.relative_match || 0) + "% · " + Number(result.matched_count || 0) + "/" + Number(result.signal_count || 0) + " síntomas</b></div>" +
+            '<div class="diag-rank">' +
+                '<span>HIPÓTESIS ' + (index + 1) + '</span>' +
+                '<span style="color:' + confColor + ';font-size:.65rem">' + confLabel + '</span>' +
+                '<b>' + Number(result.relative_match || 0) + "% · " + Number(result.matched_count || 0) + "/" + Number(result.signal_count || 0) + " síntomas</b>" +
+            "</div>" +
             "<h3>" + esc(result.title || "Evidencia relacionada") + "</h3>" +
             '<div class="card-header"><span class="card-manual manual-badge">' + esc(result.manual) + "</span>" +
             '<span class="card-page">Página ' + Number(result.page) + "</span></div>" +
             '<div class="diag-chips">' + matches + "</div>" +
+            actionHtml +
             '<div class="card-ctx">' + esc(result.context) + "</div>";
-        if (_r2url) {
-            const footer = document.createElement("div");
-            footer.className = "card-footer";
+
+        const footer = document.createElement("div");
+        footer.className = "card-footer";
+
+        if (pdfOk) {
             const button = document.createElement("button");
             button.className = "btn-pdf";
             button.textContent = "📖 Ver evidencia · pág. " + result.page;
             const kw = allSymptoms.join(" ");
             button.addEventListener("click", () => verPDF(result.manual, result.page, kw));
             footer.appendChild(button);
-            card.appendChild(footer);
+        } else if (conf === "baja") {
+            const note = document.createElement("span");
+            note.style.cssText = "font-size:.65rem;color:var(--muted);font-family:var(--mono)";
+            note.textContent = "Sin evidencia directa en PDF para este caso";
+            footer.appendChild(note);
         }
+
+        card.appendChild(footer);
         list.appendChild(card);
     });
 }

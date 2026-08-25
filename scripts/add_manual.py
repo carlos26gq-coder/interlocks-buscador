@@ -1,10 +1,13 @@
-"""add_manual.py — Incorpora PDFs nuevos o actualizados al índice de SOLVI.
+"""add_manual.py — Incorpora, indexa y optimiza PDFs para SOLVI.
 
-Detecta qué PDFs son nuevos o han cambiado comparando hashes MD5. Solo reprocesa
-los necesarios. Al terminar reconstruye el índice online y offline automáticamente.
+Detecta qué PDFs son nuevos o han cambiado (hash MD5). Solo reprocesa los necesarios.
+Automáticamente:
+1. Extrae el texto y genera el índice de búsqueda (online + offline).
+2. Genera el PDF con "Fast Web View" (linearizado) en manuals/Comprimidos/ListosParaWeb/
+   listo para subir a Cloudflare R2 sin configuraciones adicionales.
 
 Uso:
-    python scripts/add_manual.py                              # Nuevos/cambiados en manuals/
+    python scripts/add_manual.py                              # Procesa nuevos/cambiados
     python scripts/add_manual.py --pdf "manuals/nuevo.pdf"   # Un PDF específico
     python scripts/add_manual.py --folder "C:/mis_pdfs"      # Carpeta externa
     python scripts/add_manual.py --force                     # Reprocesa todos
@@ -24,13 +27,34 @@ from pathlib import Path
 import pdfplumber
 from tqdm import tqdm
 
+try:
+    import pikepdf
+    PIKEPDF_OK = True
+except ImportError:
+    PIKEPDF_OK = False
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-MANUALS_DIR = BASE_DIR / "manuals"
-PAGES_DIR = BASE_DIR / "data" / "pages"
-HASH_CACHE = BASE_DIR / "data" / "pdf_hashes.json"
-REPORT_PATH = BASE_DIR / "data" / "extraction_report.json"
+try:
+    import pymupdf as fitz
+    PYMUPDF_OK = True
+except ImportError:
+    try:
+        import fitz
+        PYMUPDF_OK = True
+    except ImportError:
+        PYMUPDF_OK = False
+
+
+BASE_DIR     = Path(__file__).resolve().parent.parent
+MANUALS_DIR  = BASE_DIR / "manuals"
+COMPRESS_DIR = MANUALS_DIR / "Comprimidos"
+LISTOS_DIR   = COMPRESS_DIR / "ListosParaWeb"
+PAGES_DIR    = BASE_DIR / "data" / "pages"
+HASH_CACHE   = BASE_DIR / "data" / "pdf_hashes.json"
+REPORT_PATH  = BASE_DIR / "data" / "extraction_report.json"
+
 PAGES_DIR.mkdir(parents=True, exist_ok=True)
+COMPRESS_DIR.mkdir(parents=True, exist_ok=True)
+LISTOS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ─── TEXT UTILITIES ──────────────────────────────────────────────────────────
@@ -43,7 +67,7 @@ def clean_text(raw: str) -> str:
 
 
 def extract_page_text(page) -> str:
-    """Multi-strategy text extraction. Returns cleaned text or empty string."""
+    """Extracción multi-estrategia de texto."""
     try:
         text1 = page.extract_text(x_tolerance=3, y_tolerance=4) or ""
     except Exception:
@@ -116,6 +140,21 @@ def compact_write(path: Path, value: object) -> None:
     tmp.replace(path)
 
 
+# ─── FAST WEB VIEW (LINEARIZACIÓN) ───────────────────────────────────────────
+
+def linearize_pdf(source: Path, dest: Path) -> bool:
+    """Estructura el PDF con Fast Web View (linearizado) para carga instantánea."""
+    if not PIKEPDF_OK:
+        return False
+    try:
+        with pikepdf.open(str(source)) as pdf:
+            pdf.save(str(dest), linearize=True)
+        return True
+    except Exception as exc:
+        print(f"      [!] Error linearizando {source.name}: {exc}")
+        return False
+
+
 # ─── EXTRACTION ──────────────────────────────────────────────────────────────
 
 def extract_pdf(pdf_path: Path) -> dict:
@@ -125,11 +164,11 @@ def extract_pdf(pdf_path: Path) -> dict:
     errors: list[dict] = []
     started = time.perf_counter()
 
-    print(f"\n  📄 {pdf_path.name}")
+    print(f"\n  [PDF] {pdf_path.name}")
     try:
         with pdfplumber.open(pdf_path) as pdf:
             total = len(pdf.pages)
-            for i, page in tqdm(enumerate(pdf.pages, start=1), total=total, unit="pág", ncols=72):
+            for i, page in tqdm(enumerate(pdf.pages, start=1), total=total, unit="pag", ncols=72):
                 try:
                     text = extract_page_text(page)
                 except Exception as exc:
@@ -140,7 +179,7 @@ def extract_pdf(pdf_path: Path) -> dict:
                 else:
                     empty_pages.append(i)
     except Exception as exc:
-        print(f"  ⛔ Error abriendo el PDF: {exc}")
+        print(f"  [ERR] Error abriendo el PDF: {exc}")
         return {
             "manual": manual_name,
             "source": pdf_path.name,
@@ -157,12 +196,8 @@ def extract_pdf(pdf_path: Path) -> dict:
 
     pct = round(len(pages) / max(total, 1) * 100)
     elapsed = round(time.perf_counter() - started, 1)
-    status = "✅" if pct >= 60 else "⚠️"
-    print(f"  {status}  {len(pages)}/{total} páginas ({pct}%) con texto · {len(empty_pages)} sin texto · {elapsed}s")
-    if empty_pages and len(empty_pages) <= 8:
-        print(f"     Sin texto (imágenes/diagramas): {empty_pages}")
-    elif empty_pages:
-        print(f"     {len(empty_pages)} páginas sin texto → revisar o usar OCR externo")
+    status = "[OK]" if pct >= 60 else "[!]"
+    print(f"  {status}  {len(pages)}/{total} paginas ({pct}%) con texto · {len(empty_pages)} sin texto · {elapsed}s")
 
     return {
         "manual": manual_name,
@@ -182,20 +217,21 @@ def find_pdfs(args: argparse.Namespace) -> list[Path]:
     if args.pdf:
         p = Path(args.pdf).resolve()
         if not p.exists():
-            raise SystemExit(f"⛔ No se encontró el archivo: {p}")
+            raise SystemExit(f"[ERR] No se encontro el archivo: {p}")
         return [p]
     folder = Path(args.folder).resolve() if args.folder else MANUALS_DIR
     if not folder.exists():
-        raise SystemExit(f"⛔ La carpeta no existe: {folder}")
-    pdfs = sorted(folder.glob("*.pdf"))
+        raise SystemExit(f"[ERR] La carpeta no existe: {folder}")
+    # Excluir subcarpetas
+    pdfs = sorted(p for p in folder.glob("*.pdf") if p.parent == folder)
     if not pdfs:
-        raise SystemExit(f"⛔ No hay archivos PDF en: {folder}")
+        raise SystemExit(f"[ERR] No hay archivos PDF en: {folder}")
     return pdfs
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Incorpora PDFs al índice de SOLVI. Solo reprocesa archivos nuevos o modificados.",
+        description="Incorpora, indexa y optimiza PDFs para SOLVI.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Ejemplos:\n"
@@ -205,15 +241,15 @@ def main() -> None:
             "  python scripts/add_manual.py --force\n"
         ),
     )
-    parser.add_argument("--pdf", type=Path, metavar="ARCHIVO", help="Procesa un solo PDF")
+    parser.add_argument("--pdf",    type=Path, metavar="ARCHIVO", help="Procesa un solo PDF")
     parser.add_argument("--folder", type=Path, metavar="CARPETA", help="Carpeta con PDFs (alternativa a manuals/)")
-    parser.add_argument("--force", action="store_true", help="Reprocesa todos los PDFs aunque no hayan cambiado")
+    parser.add_argument("--force",  action="store_true",          help="Reprocesa todos los PDFs aunque no hayan cambiado")
     args = parser.parse_args()
 
-    pdf_files = find_pdfs(args)
+    pdf_files  = find_pdfs(args)
     hash_cache = load_hash_cache()
     to_process: list[tuple[Path, str]] = []
-    skipped: list[str] = []
+    skipped:    list[str] = []
 
     for pdf in pdf_files:
         current_hash = md5_file(pdf)
@@ -222,7 +258,7 @@ def main() -> None:
         else:
             to_process.append((pdf, current_hash))
 
-    print(f"\n🔎  SOLVI — Incorporador de manuales")
+    print(f"\n[SOLVI] Incorporador de manuales")
     print(f"    PDFs encontrados  : {len(pdf_files)}")
     print(f"    Sin cambios       : {len(skipped)}")
     print(f"    A procesar        : {len(to_process)}")
@@ -230,10 +266,10 @@ def main() -> None:
         print(f"    (usa --force para reprocesar todos)")
 
     if not to_process:
-        print("\n✅  Nada que procesar. El índice ya está actualizado.\n")
+        print("\n[OK]  Nada que procesar. El indice ya esta actualizado.\n")
         return
 
-    # Load previous extraction reports to update incrementally
+    # Load previous extraction reports
     prev_reports: dict[str, dict] = {}
     if REPORT_PATH.exists():
         try:
@@ -244,18 +280,36 @@ def main() -> None:
         except Exception:
             pass
 
-    total_start = time.perf_counter()
+    total_start  = time.perf_counter()
     processed_ok = 0
+    ready_for_r2: list[Path] = []
 
     for pdf_path, pdf_hash in to_process:
+        # 1. Extraer texto para el índice
         report = extract_pdf(pdf_path)
         prev_reports[report["manual"]] = report
         if report.get("ok", True):
             hash_cache[pdf_path.name] = pdf_hash
             processed_ok += 1
         else:
-            # Don't cache failed extractions — retry next run
             hash_cache.pop(pdf_path.name, None)
+            continue
+
+        # 2. Generar versión optimizada para web (Fast Web View)
+        # Si el usuario colocó una versión comprimida en manuals/Comprimidos/, usamos esa.
+        # De lo contrario, linearizamos el original de manuals/.
+        compressed_source = COMPRESS_DIR / pdf_path.name
+        source_for_web = compressed_source if compressed_source.exists() else pdf_path
+        dest_web = LISTOS_DIR / pdf_path.name
+
+        print(f"  [WEB] Optimizando para web (Fast Web View): {pdf_path.name}...")
+        ok_linear = linearize_pdf(source_for_web, dest_web)
+        if ok_linear:
+            mb = round(dest_web.stat().st_size / 1048576, 1)
+            print(f"        -> manuals/Comprimidos/ListosParaWeb/{dest_web.name} ({mb} MB)")
+            ready_for_r2.append(dest_web)
+        else:
+            print(f"        [!] No se pudo linearizar. Sube {source_for_web.name} directamente.")
 
     save_hash_cache(hash_cache)
     compact_write(
@@ -264,35 +318,46 @@ def main() -> None:
     )
 
     total_elapsed = round(time.perf_counter() - total_start, 1)
-    print(f"\n  ⏱  Extracción completa: {total_elapsed}s · {processed_ok}/{len(to_process)} procesados")
+    print(f"\n  [T]  Procesamiento completo: {total_elapsed}s · {processed_ok}/{len(to_process)} OK")
 
     if processed_ok == 0:
-        print("  ⛔ No se pudo procesar ningún PDF. Revisa data/extraction_report.json")
+        print("  [ERR] No se pudo procesar ningun PDF. Revisa data/extraction_report.json")
         sys.exit(1)
 
-    # Auto-rebuild index
-    print("\n  🔨  Reconstruyendo índice (online + offline)...")
+    # 3. Reconstruir índice online + offline
+    print("\n  [BUILD]  Reconstruyendo indice (online + offline)...")
     try:
         result = subprocess.run(
             [sys.executable, str(BASE_DIR / "scripts" / "build_index.py")],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         for line in result.stdout.strip().splitlines():
             print(f"      {line}")
         if result.returncode != 0:
-            print(f"  ⚠️  build_index.py terminó con error:\n{result.stderr.strip()}")
+            print(f"  [!]  build_index.py termino con error:\n{result.stderr.strip()}")
             sys.exit(1)
     except Exception as exc:
-        print(f"  ⚠️  No se pudo ejecutar build_index.py: {exc}")
+        print(f"  [!]  No se pudo ejecutar build_index.py: {exc}")
         print("      Ejecuta manualmente: python scripts/build_index.py")
         sys.exit(1)
 
-    print("\n  🚀  Próximos pasos:")
-    for pdf_path, _ in to_process:
-        print(f"      → Sube '{pdf_path.name}' a Cloudflare R2 (si es nuevo o actualizado)")
-    print("      → git add data/ && git commit -m 'Actualizar manuales' && git push")
-    print("      → Render desplegará automáticamente.\n")
+    # 4. Instrucciones finales
+    print("\n" + "=" * 60)
+    print("  PROXIMOS PASOS:")
+    print("=" * 60)
+    if ready_for_r2:
+        print("  1. SUBIR A CLOUDFLARE R2:")
+        print("     Sube los archivos de la carpeta 'manuals/Comprimidos/ListosParaWeb/':")
+        for r in ready_for_r2:
+            print(f"       -> {r.name} ({round(r.stat().st_size / 1048576, 1)} MB)")
+    print("\n  2. ACTUALIZAR EN GITHUB / RENDER:")
+    print("     git add data/ scripts/")
+    print("     git commit -m 'Actualizar manuales'")
+    print("     git push")
+    print("=" * 60 + "\n")
 
 
 if __name__ == "__main__":
