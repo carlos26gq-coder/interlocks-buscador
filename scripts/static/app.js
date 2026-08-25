@@ -215,35 +215,49 @@ function renderPdfPagina(num) {
     });
 }
 
-// ─── RESALTADO EN PDF ─────────────────────────────────────
 function resaltarEnPdf(pdfPage, viewport, canvas) {
     if (!_highlightQuery || !window.pdfjsLib) return;
-    const terms = _highlightQuery.toLowerCase()
-        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-        .split(/\s+/)
-        .filter(t => t.length >= 3);
-    if (!terms.length) return;
+    const rawQuery = _highlightQuery.trim().toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (!rawQuery) return;
+
+    const stopWords = new Set(["a", "al", "and", "con", "de", "del", "el", "en", "es", "for", "in", "is", "la", "las", "los", "of", "on", "or", "para", "por", "que", "se", "the", "to", "un", "una", "y"]);
+    const genericWords = new Set(["item", "error", "interlock", "fault", "manual", "page", "pagina"]);
+
+    const allTokens = rawQuery.split(/[\s,;]+/).filter(t => t.length >= 2 && !stopWords.has(t));
+    if (!allTokens.length) return;
+
+    // Si hay números o códigos específicos (ej. 609, 409, ao8), priorizar esos sobre palabras genéricas como "item"
+    const specificTokens = allTokens.filter(t => !genericWords.has(t));
+    const activeTerms = specificTokens.length > 0 ? specificTokens : allTokens;
 
     pdfPage.getTextContent().then(function(textContent) {
         try {
             const ctx = canvas.getContext("2d");
             ctx.save();
-            ctx.fillStyle = "rgba(255, 210, 0, 0.36)";
+            ctx.fillStyle = "rgba(255, 210, 0, 0.42)";
             for (const item of textContent.items) {
-                if (!item.str || item.str.trim().length < 2) continue;
-                const itemNorm = item.str.toLowerCase()
+                if (!item.str || item.str.trim().length === 0) continue;
+                const itemStr = item.str.toLowerCase()
                     .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-                if (!terms.some(t => itemNorm.includes(t))) continue;
+                const itemTokens = itemStr.split(/[\W_]+/).filter(Boolean);
+
+                const hasMatch = activeTerms.some(t => {
+                    if (t.length <= 2) return itemTokens.includes(t);
+                    return itemTokens.some(it => it === t || (it.length > t.length && it.startsWith(t) && t.length >= 4));
+                });
+
+                if (!hasMatch) continue;
+
                 const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
                 const x = tx[4];
                 const y = tx[5];
-                // Estimate font height in canvas pixels from transform scale
                 const fontSize = Math.sqrt(item.transform[0] * item.transform[0] +
                                            item.transform[1] * item.transform[1]);
                 const h = fontSize * viewport.scale;
                 const w = (item.width || 0) * viewport.scale;
                 if (w > 2 && h > 2) {
-                    ctx.fillRect(x, y - h * 0.9, w, h * 1.1);
+                    ctx.fillRect(x, y - h * 0.9, w, h * 1.15);
                 }
             }
             ctx.restore();
@@ -710,10 +724,10 @@ function renderDiagnostico(data, mode, symptoms) {
             '<span class="diag-chip">' + esc(item.value) + " · " + Math.round((item.coverage || 0) * 100) + "%</span>"
         ).join("");
 
-        // Sección de acción recomendada (si existe)
-        const actionHtml = result.action_summary
-            ? '<div class="diag-action-box"><span class="diag-action-label">🔧 Acción sugerida</span>' +
-              esc(result.action_summary) + '</div>'
+        // Sección de tarjeta / componente asociado
+        const componentHtml = result.associated_component
+            ? '<div class="diag-component-box"><span class="diag-comp-label">📍 Tarjeta / Componente asociado</span>' +
+              esc(result.associated_component) + '</div>'
             : "";
 
         card.innerHTML =
@@ -726,7 +740,7 @@ function renderDiagnostico(data, mode, symptoms) {
             '<div class="card-header"><span class="card-manual manual-badge">' + esc(result.manual) + "</span>" +
             '<span class="card-page">Página ' + Number(result.page) + "</span></div>" +
             '<div class="diag-chips">' + matches + "</div>" +
-            actionHtml +
+            componentHtml +
             '<div class="card-ctx">' + esc(result.context) + "</div>";
 
         const footer = document.createElement("div");

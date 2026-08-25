@@ -67,41 +67,14 @@ def clean_text(raw: str) -> str:
 
 
 def extract_page_text(page) -> str:
-    """Extracción multi-estrategia de texto."""
+    """Extrae texto de una página con PyMuPDF preservando bloques y etiquetas técnicas."""
     try:
-        text1 = page.extract_text(x_tolerance=3, y_tolerance=4) or ""
+        raw = page.get_text("text") or ""
     except Exception:
-        text1 = ""
-
-    text2 = ""
-    if len(text1.strip()) < 50:
-        try:
-            text2 = page.extract_text(layout=True, x_tolerance=3, y_tolerance=4) or ""
-        except Exception:
-            pass
-
-    table_text = ""
-    try:
-        tables = page.extract_tables()
-        if tables:
-            cells = [
-                str(c).strip()
-                for t in tables
-                for r in t
-                for c in r
-                if c and str(c).strip()
-            ]
-            table_text = " ".join(cells)
-    except Exception:
-        pass
-
-    raw = text1 if len(text1) >= len(text2) else text2
-    if table_text and len(table_text) > 30:
-        raw = (raw + "\n" + table_text).strip() if raw else table_text
-
+        raw = ""
     cleaned = clean_text(raw)
-    useful = len(cleaned.replace(" ", "").replace("\n", ""))
-    return cleaned if useful >= 20 else ""
+    useful_chars = len(cleaned.replace(" ", "").replace("\n", ""))
+    return cleaned if useful_chars >= 15 else ""
 
 
 # ─── HASH UTILITIES ──────────────────────────────────────────────────────────
@@ -166,18 +139,21 @@ def extract_pdf(pdf_path: Path) -> dict:
 
     print(f"\n  [PDF] {pdf_path.name}")
     try:
-        with pdfplumber.open(pdf_path) as pdf:
-            total = len(pdf.pages)
-            for i, page in tqdm(enumerate(pdf.pages, start=1), total=total, unit="pag", ncols=72):
-                try:
-                    text = extract_page_text(page)
-                except Exception as exc:
-                    text = ""
-                    errors.append({"page": i, "error": type(exc).__name__})
-                if text:
-                    pages.append({"manual": manual_name, "page": i, "text": text})
-                else:
-                    empty_pages.append(i)
+        doc = fitz.open(str(pdf_path))
+        total = len(doc)
+        for i in tqdm(range(total), total=total, unit="pag", ncols=72):
+            page_num = i + 1
+            try:
+                page = doc[i]
+                text = extract_page_text(page)
+            except Exception as exc:
+                text = ""
+                errors.append({"page": page_num, "error": type(exc).__name__})
+            if text:
+                pages.append({"manual": manual_name, "page": page_num, "text": text})
+            else:
+                empty_pages.append(page_num)
+        doc.close()
     except Exception as exc:
         print(f"  [ERR] Error abriendo el PDF: {exc}")
         return {

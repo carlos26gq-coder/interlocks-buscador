@@ -1,12 +1,10 @@
-"""Extrae texto de PDFs y genera un informe de calidad de la extracción.
+"""Extrae texto de PDFs con PyMuPDF (alta velocidad y fidelidad en esquemas).
 
 Ejemplos:
     python scripts/extract_pages.py
     python scripts/extract_pages.py --pdf "manuals/nuevo manual.pdf"
 
 Después de extraer, ejecutar ``python scripts/build_index.py``.
-Los diagramas que sean imágenes sin capa de texto requieren OCR externo y quedan
-identificados como páginas sin texto en el informe.
 """
 
 from __future__ import annotations
@@ -17,7 +15,11 @@ from pathlib import Path
 import re
 import time
 
-import pdfplumber
+try:
+    import pymupdf as fitz
+except ImportError:
+    import fitz
+
 from tqdm import tqdm
 
 
@@ -38,65 +40,24 @@ def compact_write(path: Path, value: object) -> None:
 
 
 def clean_text(raw: str) -> str:
-    """Post-process extracted text: join hyphenated line-breaks, normalize whitespace."""
-    # Rejoin words split at end of line with a hyphen (e.g., "inter-\nlock" → "interlock")
+    """Post-procesamiento del texto: une guiones de fin de línea y normaliza espacios."""
     text = re.sub(r"-\s*\n\s*", "", raw)
-    # Collapse tabs and multiple spaces to a single space
     text = re.sub(r"[ \t]+", " ", text)
-    # Collapse more than 2 consecutive newlines to a paragraph break
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
 
 def extract_page_text(page) -> str:
-    """Try multiple extraction strategies and return the best result.
-
-    Strategy 1 — Standard extraction with fine tolerances.
-    Strategy 2 — Layout-aware extraction (better for multi-column/complex pages).
-    Strategy 3 — Table cell extraction (appended if it adds significant content).
-    Pages with fewer than 20 useful chars are considered image-only and return "".
-    """
-    # Strategy 1: standard
+    """Extrae texto de una página con PyMuPDF preservando bloques y etiquetas técnicas."""
     try:
-        text1 = page.extract_text(x_tolerance=3, y_tolerance=4) or ""
+        # Modo estándar con preservación de bloques de texto
+        raw = page.get_text("text") or ""
     except Exception:
-        text1 = ""
-
-    # Strategy 2: layout-aware (only if strategy 1 yielded little text)
-    text2 = ""
-    if len(text1.strip()) < 50:
-        try:
-            text2 = page.extract_text(layout=True, x_tolerance=3, y_tolerance=4) or ""
-        except Exception:
-            pass
-
-    # Strategy 3: table cells (concatenated as supplementary text)
-    table_text = ""
-    try:
-        tables = page.extract_tables()
-        if tables:
-            cells = [
-                str(cell).strip()
-                for table in tables
-                for row in table
-                for cell in row
-                if cell and str(cell).strip()
-            ]
-            table_text = " ".join(cells)
-    except Exception:
-        pass
-
-    # Choose the richer of strategy 1 and 2
-    raw = text1 if len(text1) >= len(text2) else text2
-
-    # Append table text if it carries significant extra content
-    if table_text and len(table_text) > 30:
-        raw = (raw + "\n" + table_text).strip() if raw else table_text
+        raw = ""
 
     cleaned = clean_text(raw)
-    # Discard pages with too little useful content (likely image-only or blank)
     useful_chars = len(cleaned.replace(" ", "").replace("\n", ""))
-    return cleaned if useful_chars >= 20 else ""
+    return cleaned if useful_chars >= 15 else ""
 
 
 def extract_pdf(pdf_path: Path, output_dir: Path) -> dict:
@@ -107,18 +68,21 @@ def extract_pdf(pdf_path: Path, output_dir: Path) -> dict:
     started = time.perf_counter()
 
     print(f"\nProcesando: {pdf_path.name}")
-    with pdfplumber.open(pdf_path) as pdf:
-        total_pages = len(pdf.pages)
-        for index, page in tqdm(enumerate(pdf.pages, start=1), total=total_pages):
-            try:
-                text = extract_page_text(page)
-            except Exception as error:
-                text = ""
-                extraction_errors.append({"page": index, "error": type(error).__name__})
-            if text:
-                pages.append({"manual": manual_name, "page": index, "text": text})
-            else:
-                empty_pages.append(index)
+    doc = fitz.open(str(pdf_path))
+    total_pages = len(doc)
+    for index in tqdm(range(total_pages), total=total_pages, unit="pag", ncols=72):
+        page_num = index + 1
+        try:
+            page = doc[index]
+            text = extract_page_text(page)
+        except Exception as error:
+            text = ""
+            extraction_errors.append({"page": page_num, "error": type(error).__name__})
+        if text:
+            pages.append({"manual": manual_name, "page": page_num, "text": text})
+        else:
+            empty_pages.append(page_num)
+    doc.close()
 
     output_file = output_dir / f"{manual_name}_pages.json"
     compact_write(output_file, pages)
@@ -133,7 +97,7 @@ def extract_pdf(pdf_path: Path, output_dir: Path) -> dict:
     }
     print(
         f"Generado {output_file.name}: {len(pages)}/{total_pages} páginas con texto; "
-        f"{len(empty_pages)} requieren revisión/OCR"
+        f"{len(empty_pages)} sin texto"
     )
     return report
 
@@ -150,7 +114,10 @@ def main() -> None:
     args = parse_args()
     manuals_dir = args.manuals_dir.resolve()
     output_dir = args.output_dir.resolve()
-    pdf_files = [args.pdf.resolve()] if args.pdf else sorted(manuals_dir.glob("*.pdf"))
+    # Excluir subcarpetas
+    pdf_files = [args.pdf.resolve()] if args.pdf else sorted(
+        p for p in manuals_dir.glob("*.pdf") if p.parent == manuals_dir
+    )
     if not pdf_files:
         raise SystemExit(f"No se encontraron PDF en {manuals_dir}")
 
@@ -158,19 +125,21 @@ def main() -> None:
     if REPORT_PATH.exists():
         try:
             previous_reports = {
-                report["manual"]: report
-                for report in json.loads(REPORT_PATH.read_text(encoding="utf-8")).get("manuals", [])
+                item["manual"]: item
+                for item in json.loads(REPORT_PATH.read_text(encoding="utf-8")).get("manuals", [])
             }
-        except (ValueError, KeyError, TypeError):
+        except Exception:
             previous_reports = {}
 
-    for pdf_file in pdf_files:
-        report = extract_pdf(pdf_file, output_dir)
+    for pdf_path in pdf_files:
+        report = extract_pdf(pdf_path, output_dir)
         previous_reports[report["manual"]] = report
 
-    compact_write(REPORT_PATH, {"manuals": [previous_reports[key] for key in sorted(previous_reports)]})
-    print(f"\nInforme de extracción: {REPORT_PATH}")
-    print("Siguiente paso: python scripts/build_index.py")
+    compact_write(
+        REPORT_PATH,
+        {"manuals": [previous_reports[key] for key in sorted(previous_reports)]},
+    )
+    print("\nExtracción completada. Recuerda ejecutar scripts/build_index.py si cambiaste manuales.")
 
 
 if __name__ == "__main__":

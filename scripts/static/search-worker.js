@@ -96,19 +96,23 @@ function queryMatchInfo(text, query) {
     return {matched:Boolean(matches.length), position:matches.length ? matches[0].index : -1, occurrences:matches.length};
 }
 
-function makeContext(text, query, before = 180, after = 380) {
-    const normalizedText = normalize(text);
-    const normalizedQuery = normalize(query);
+function makeContext(text, query, before = 160, after = 320) {
+    const cleaned = text.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ")
+        .replace(/[^\w\s\.\,\-\:\;\(\)\/]/g, " ")
+        .replace(/\s+/g, " ").trim();
+
+    const normalizedText = normalize(cleaned);
+    const normalizedQuery = normalize(query).trim();
     let position = normalizedText.indexOf(normalizedQuery);
     if (position < 0) {
         const positions = queryTokens(query).map(token => normalizedText.indexOf(token)).filter(pos => pos >= 0);
         position = positions.length ? Math.min(...positions) : 0;
     }
     const start = Math.max(0, position - before);
-    const end = Math.min(text.length, position + Math.max(query.length, 1) + after);
-    let context = text.substring(start, end).replace(/\s+/g, " ").trim();
-    if (start) context = "... " + context;
-    if (end < text.length) context += " ...";
+    const end = Math.min(cleaned.length, position + Math.max(normalizedQuery.length, 1) + after);
+    let context = cleaned.substring(start, end).trim();
+    if (start > 0) context = "... " + context;
+    if (end < cleaned.length) context += " ...";
     return context;
 }
 
@@ -227,26 +231,38 @@ function tokenFrequency(token) {
     return (postings.get(token) || []).length / Math.max(documents.length, 1);
 }
 
-function extractActionSentences(text, signalTokens, maxSentences) {
-    const actionPat = /\b(?:check|verify|replace|reset|calibrate|inspect|ensure|adjust|connect|disconnect|remove|install|restore|should|must|cause[ds]?|due to|result[s]? from|indicates?|suggest[s]?)\b/i;
-    const sentences = text.split(/(?<=[.!?])\s+|\n/).map(s => s.replace(/\s+/g, " ").trim()).filter(s => s.length >= 18 && s.length <= 320);
-    const scored = [];
-    for (const s of sentences) {
-        const sToks = new Set(tokenize(s));
-        const tokenHits = [...signalTokens].filter(t => sToks.has(t)).length;
-        const actionHits = (s.match(actionPat) || []).length;
-        const diagHits = [...DIAGNOSTIC_WORDS].filter(w => sToks.has(w)).length;
-        const total = tokenHits * 4 + actionHits * 3 + diagHits * 2;
-        if (total >= 4) scored.push([total, s]);
+function extractAssociatedComponents(text) {
+    const cleaned = text.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
+
+    const boardMatches = cleaned.match(/\b(?:PCB\s+[A-Z0-9]+|AO\d+|AI\s*\d+[A-Z]?|DO\s*\d+|DI\s*\d+|PWA\s+[A-Z0-9]+|PWB\s+[A-Z0-9]+|DIE-[A-Z0-9]+|SCC-[A-Z0-9]+|CPU-[A-Z0-9]+)\b/gi) || [];
+    const boards = [];
+    for (const b of boardMatches) {
+        const bClean = b.replace(/\s+/g, " ").trim().toUpperCase();
+        if (!boards.includes(bClean) && bClean.length >= 3 && !["PCB", "PWA", "PWB"].includes(bClean)) {
+            boards.push(bClean);
+        }
     }
-    scored.sort((a, b) => b[0] - a[0]);
-    const seen = new Set(), unique = [];
-    for (const [, s] of scored) {
-        const key = normalize(s.substring(0, 40));
-        if (!seen.has(key)) { seen.add(key); unique.push(s); }
-        if (unique.length >= maxSentences) break;
+
+    const areaMatches = cleaned.match(/\b(?:(?:HTCA\s+)?AREA\s+\d+[A-Z]?|RACK\s+[A-Z0-9]+|CABINET\s+[A-Z0-9]+)\b/gi) || [];
+    const areas = [];
+    for (const a of areaMatches) {
+        const aClean = a.replace(/\s+/g, " ").trim().toUpperCase();
+        if (!areas.includes(aClean)) areas.push(aClean);
     }
-    return unique.join(" ");
+
+    const titleMatch = cleaned.match(/(?:^|\n)\s*(?:(?:\d+\.\d+\s+)?([A-Za-z0-9\s\-]+(?:system|interlock[s]?|control|circuit|power|supply|assembly|module|sheet\s+\d+)))/i);
+    let subsystem = "";
+    if (titleMatch && titleMatch[1]) {
+        const sub = titleMatch[1].replace(/\s+/g, " ").trim();
+        if (sub.length >= 5 && sub.length <= 70) subsystem = sub;
+    }
+
+    const parts = [];
+    if (boards.length) parts.push("Tarjeta: " + boards.slice(0, 3).join(", "));
+    if (areas.length) parts.push("Ubicación: " + areas.slice(0, 2).join(", "));
+    if (subsystem) parts.push("Subsistema: " + subsystem);
+
+    return parts.length ? parts.join(" · ") : "Componente identificado en manual";
 }
 
 async function _diagnoseSymptomsOffline(symptomList) {
@@ -261,19 +277,19 @@ async function _diagnoseSymptomsOffline(symptomList) {
         const allToks = new Set(queryTokens(value));
         if (!allToks.size) continue;
 
-        // Filter out overly common tokens (appear in >60% of docs)
-        const specificTokens = new Set([...allToks].filter(t => tokenFrequency(t) <= 0.60));
-        if (!specificTokens.size) continue;
+        // Filter out overly common tokens (appear in >65% of docs)
+        const specificTokens = new Set([...allToks].filter(t => tokenFrequency(t) <= 0.65));
+        const activeTokens = specificTokens.size ? specificTokens : allToks;
 
         prepared.push({
             name: `symptom_${i + 1}`,
             value,
             normalizedValue: normalize(value),
             valueTokens: allToks,
-            specificTokens,
+            specificTokens: activeTokens,
             weight: weightsByPosition[i] || 1.0
         });
-        for (const token of specificTokens) {
+        for (const token of activeTokens) {
             allSignalTokens.add(token);
             for (const id of postings.get(token) || []) candidates.add(id);
         }
@@ -281,7 +297,7 @@ async function _diagnoseSymptomsOffline(symptomList) {
 
     if (!prepared.length) return {
         results: [], signals: [],
-        message: "Los sintomas ingresados son demasiado genericos. Ingresa codigos de error, interlocks o terminos tecnicos especificos."
+        message: "Ingresa al menos un código, señal o síntoma específico."
     };
 
     const ranked = [];
@@ -295,34 +311,29 @@ async function _diagnoseSymptomsOffline(symptomList) {
 
         for (const signal of prepared) {
             const hitsSpecific = [...signal.specificTokens].filter(t => doc.tokenSet.has(t));
-            if (!hitsSpecific.length) continue;
+            const hitsAll = [...signal.valueTokens].filter(t => doc.tokenSet.has(t));
+            if (!hitsSpecific.length && !hitsAll.length) continue;
 
-            const coverageSpecific = hitsSpecific.length / signal.specificTokens.size;
+            const hits = hitsSpecific.length ? hitsSpecific : hitsAll;
+            const coverageSpecific = hits.length / signal.specificTokens.size;
             const exactPhrase = doc.normalized.includes(signal.normalizedValue);
             const hasNumeric = [...signal.specificTokens].some(t => /^\d+$/.test(t));
             const codeMatch = hasNumeric ? codeNearAnyLabel(doc.normalized, signal.specificTokens) : false;
 
-            // Strict acceptance rules
-            if (hasNumeric && signal.specificTokens.size <= 3) {
-                if (!exactPhrase && !codeMatch) continue;
-            } else if (hasNumeric && signal.specificTokens.size > 3) {
-                if (!exactPhrase && !codeMatch && coverageSpecific < 0.55) continue;
-            } else {
-                if (coverageSpecific < 0.55) continue;
-            }
-
-            let signalScore = hitsSpecific.length * 5 + coverageSpecific * 15;
-            if (exactPhrase) signalScore += 40;
-            else if (codeMatch) signalScore += 32;
+            let signalScore = hits.length * 6 + coverageSpecific * 16;
+            if (exactPhrase) signalScore += 45;
+            else if (codeMatch) signalScore += 35;
             score += signalScore * signal.weight;
             matchedSignals.push({ field: signal.name, value: signal.value, coverage: Math.round(coverageSpecific * 100) / 100 });
-            hitsSpecific.forEach(t => matchedTokens.add(t));
+            hits.forEach(t => matchedTokens.add(t));
         }
         if (!matchedSignals.length) continue;
 
-        score += Math.max(0, matchedSignals.length - 1) * 30;
-        score += Math.min([...ACTION_WORDS].filter(w => doc.tokenSet.has(w)).length, 8) * 2.5;
-        score += Math.min([...DIAGNOSTIC_WORDS].filter(w => doc.tokenSet.has(w)).length, 6) * 1.8;
+        // Massive convergence bonus for multi-signal intersection on same page
+        if (matchedSignals.length > 1) {
+            score += (matchedSignals.length - 1) * 60;
+        }
+        score += Math.min([...DIAGNOSTIC_WORDS].filter(w => doc.tokenSet.has(w)).length, 8) * 2.0;
         ranked.push({ score, document: doc, matchedSignals, matchedTokens });
     }
 
@@ -332,7 +343,7 @@ async function _diagnoseSymptomsOffline(symptomList) {
     const seen = new Set();
     for (const item of ranked) {
         const title = bestLine(item.document.text, allSignalTokens);
-        const key = item.document.manual + "|" + normalize(title).substring(0, 90);
+        const key = item.document.manual + "|" + item.document.page;
         if (seen.has(key)) continue;
         seen.add(key);
         selected.push({ ...item, title });
@@ -341,7 +352,7 @@ async function _diagnoseSymptomsOffline(symptomList) {
 
     if (!selected.length) return {
         results: [], signals: prepared.map(p => p.value),
-        message: "No se encontro evidencia suficientemente especifica en los manuales para estos sintomas."
+        message: "No se encontraron relaciones directas en los manuales para las señales ingresadas."
     };
 
     const maxScore = selected[0].score;
@@ -355,7 +366,7 @@ async function _diagnoseSymptomsOffline(symptomList) {
 
         const confidence = relative >= 75 ? "alta" : relative >= PDF_CONFIDENCE_THRESHOLD ? "media" : "baja";
         const pdfRelevant = relative >= MIN_RELATIVE_MATCH_DIAGNOSE && confidence !== "baja";
-        const actionSummary = extractActionSentences(item.document.text, allSignalTokens, 2);
+        const associatedComp = extractAssociatedComponents(item.document.text);
 
         results.push({
             type: "manual",
@@ -363,7 +374,7 @@ async function _diagnoseSymptomsOffline(symptomList) {
             manual: item.document.manual,
             page: item.document.page,
             context: makeContext(item.document.text, [...item.matchedTokens].join(" "), 260, 480),
-            action_summary: actionSummary,
+            associated_component: associatedComp,
             matched_signals: item.matchedSignals,
             relative_match: relative,
             confidence,
@@ -375,7 +386,7 @@ async function _diagnoseSymptomsOffline(symptomList) {
 
     if (!results.length) return {
         results: [], signals: prepared.map(p => p.value),
-        message: "Las coincidencias encontradas no tienen suficiente relevancia diagnostica. Intenta con codigos de error mas especificos."
+        message: "Las coincidencias encontradas no tienen suficiente relevancia. Intenta con códigos de señal más específicos."
     };
 
     const bestMatchedCount = results.reduce((b, r) => Math.max(b, r.matched_count), 0);
@@ -383,7 +394,7 @@ async function _diagnoseSymptomsOffline(symptomList) {
         results,
         signals: prepared.map(p => p.value),
         message: bestMatchedCount === totalSignals ? ""
-            : results.length > 1 ? "No todas las paginas reunen todos los sintomas; se muestran las mas relevantes."
+            : results.length > 1 ? "No todas las páginas reúnen todos los síntomas; se muestran las conexiones más relevantes."
             : ""
     };
 }
