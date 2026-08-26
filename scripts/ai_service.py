@@ -119,8 +119,16 @@ def analyze_with_gemini(
             "message": "Se requiere una clave de API de Gemini. Configúrala como variable GEMINI_API_KEY o ingrésala en la app.",
         }
 
-    # Modelo configurable: por defecto gemini-2.5-flash, o gemini-2.5-pro / gemini-3.7-flash
-    active_model = model.strip() or os.environ.get("GEMINI_MODEL", "").strip() or "gemini-2.5-flash"
+    # Lista de modelos con respaldo automático (waterfall)
+    models_to_try = []
+    if model.strip():
+        models_to_try.append(model.strip())
+    env_model = os.environ.get("GEMINI_MODEL", "").strip()
+    if env_model and env_model not in models_to_try:
+        models_to_try.append(env_model)
+    for default_m in ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.5-flash", "gemini-flash-latest"]:
+        if default_m not in models_to_try:
+            models_to_try.append(default_m)
 
     # Recopilar evidencia técnica de los 19 manuales
     grounding_docs = gather_grounding_context(search_engine, symptoms)
@@ -137,32 +145,52 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
 
     try:
         client = genai.Client(api_key=key)
+        last_error = None
 
-        response = client.models.generate_content(
-            model=active_model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_INSTRUCTION,
-                temperature=0.2,
-                response_mime_type="application/json",
-            ),
-        )
+        for current_model in models_to_try:
+            try:
+                response = client.models.generate_content(
+                    model=current_model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_INSTRUCTION,
+                        temperature=0.2,
+                        response_mime_type="application/json",
+                    ),
+                )
 
-        raw_text = response.text or ""
-        # Limpieza de posibles delimitadores markdown
-        cleaned_json = re.sub(r"^```json\s*", "", raw_text.strip(), flags=re.IGNORECASE)
-        cleaned_json = re.sub(r"\s*```$", "", cleaned_json).strip()
+                raw_text = response.text or ""
+                cleaned_json = re.sub(r"^```json\s*", "", raw_text.strip(), flags=re.IGNORECASE)
+                cleaned_json = re.sub(r"\s*```$", "", cleaned_json).strip()
 
-        data = json.loads(cleaned_json)
+                data = json.loads(cleaned_json)
+                return {
+                    "ok": True,
+                    "data": data,
+                    "model_used": current_model,
+                    "symptoms": symptoms,
+                }
+            except Exception as model_err:
+                last_error = model_err
+                err_str = str(model_err)
+                # Si es error 404 (modelo no disponible) o 503 (saturación temporal), intentar siguiente modelo
+                if "404" in err_str or "503" in err_str or "UNAVAILABLE" in err_str or "NOT_FOUND" in err_str:
+                    continue
+                # Si es clave inválida o cuota, romper de inmediato
+                raise model_err
+
+        if last_error:
+            raise last_error
+
         return {
-            "ok": True,
-            "data": data,
-            "symptoms": symptoms,
+            "ok": False,
+            "error": "no_model_available",
+            "message": "No se pudo conectar con ningún modelo de Gemini disponible.",
         }
 
     except Exception as exc:
         err_msg = str(exc)
-        if "API_KEY_INVALID" in err_msg or "400" in err_msg and "API key" in err_msg:
+        if "API_KEY_INVALID" in err_msg or ("400" in err_msg and "API key" in err_msg):
             return {
                 "ok": False,
                 "error": "invalid_api_key",

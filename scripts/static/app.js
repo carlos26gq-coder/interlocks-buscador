@@ -261,12 +261,8 @@ function resaltarEnPdf(pdfPage, viewport, canvas) {
             ctx.save();
             ctx.fillStyle = "rgba(255, 210, 0, 0.45)";
 
-            // Priorizar la frase exacta buscada; si tiene varias palabras, incluir términos individuales no triviales
+            // Solo resaltar la frase o término exacto buscado para evitar doble resaltado o palabras dispersas
             const searchTerms = [rawQuery];
-            const words = rawQuery.split(/[\s,;]+/).filter(w => w.length >= 3 && !["con", "del", "para", "por", "the", "and", "for"].includes(w));
-            for (const w of words) {
-                if (!searchTerms.includes(w)) searchTerms.push(w);
-            }
 
             for (const item of textContent.items) {
                 if (!item.str || item.str.trim().length === 0) continue;
