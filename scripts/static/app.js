@@ -42,15 +42,30 @@ function workerRequest(type, payload) {
 }
 
 async function apiRequest(url, options = {}) {
-    const response = await fetch(url, options);
-    let data = null;
-    try { data = await response.json(); } catch { data = null; }
-    if (!response.ok) {
-        const error = new Error((data && data.error) || `Error HTTP ${response.status}`);
-        error.status = response.status;
-        throw error;
+    const timeoutMs = options.timeout || (url.includes("/ai") ? 30000 : 15000);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const fetchOptions = { ...options, signal: options.signal || controller.signal };
+    delete fetchOptions.timeout;
+
+    try {
+        const response = await fetch(url, fetchOptions);
+        clearTimeout(timer);
+        let data = null;
+        try { data = await response.json(); } catch { data = null; }
+        if (!response.ok) {
+            const error = new Error((data && (data.message || data.error)) || `Error HTTP ${response.status}`);
+            error.status = response.status;
+            throw error;
+        }
+        return data;
+    } catch (err) {
+        clearTimeout(timer);
+        if (err && err.name === "AbortError") {
+            throw new Error("Tiempo de espera agotado. Verifica tu conexión de red.");
+        }
+        throw err;
     }
-    return data;
 }
 
 // ─── HELPERS ─────────────────────────────────────────────
@@ -172,46 +187,65 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
 
 function renderPdfPagina(num) {
     const numEntero = parseInt(num, 10);
-    if (!window._pdfDoc || window._pdfRendering) return;
+    if (!window._pdfDoc) return;
+
+    if (window._pdfRenderTask) {
+        try { window._pdfRenderTask.cancel(); } catch (_e) {}
+        window._pdfRenderTask = null;
+    }
     window._pdfRendering = true;
-    
+
     window._pdfDoc.getPage(numEntero).then(function(page) {
         const canvas  = document.getElementById("pdfCanvas");
+        if (!canvas) { window._pdfRendering = false; return; }
         const ctx     = canvas.getContext("2d");
-        
+
         canvas.dataset.currentZoom = 1;
 
         const vw      = Math.min(window.innerWidth - 20, 900);
         const vp0     = page.getViewport({ scale: 1 });
         const baseScale = vw / vp0.width;
-        
+
         const ratioInteligente = Math.min(window.devicePixelRatio || 1.5, 2);
         const vp = page.getViewport({ scale: baseScale * ratioInteligente });
-        
+
         canvas.width  = vp.width;
         canvas.height = vp.height;
-        
+
         canvas.dataset.baseWidth = vw; 
         canvas.style.width = vw + "px"; 
 
-        page.render({ canvasContext: ctx, viewport: vp }).promise.then(function() {
+        const renderTask = page.render({ canvasContext: ctx, viewport: vp });
+        window._pdfRenderTask = renderTask;
+
+        renderTask.promise.then(function() {
             window._pdfRendering = false;
+            window._pdfRenderTask = null;
             window._pdfPage = numEntero;
-            
+
             const info = document.getElementById("pdfPagInfo");
             if (info) info.textContent = "Pág. " + numEntero + " / " + window._pdfDoc.numPages;
-            
+
             const btnWeb = document.getElementById("btnWebPdf");
             if (btnWeb) {
                 const baseUrl = btnWeb.href.split('#')[0];
                 btnWeb.href = baseUrl + "#page=" + numEntero;
             }
 
-            document.getElementById("pdfScroll").scrollTop = 0;
+            const scrollEl = document.getElementById("pdfScroll");
+            if (scrollEl) scrollEl.scrollTop = 0;
 
-            // Resaltar términos buscados (no bloquea ni rompe la visualización si falla)
+            // Resaltar términos buscados
             resaltarEnPdf(page, vp, canvas);
+        }).catch(function(err) {
+            window._pdfRendering = false;
+            window._pdfRenderTask = null;
+            if (err && err.name !== "RenderingCancelledException") {
+                console.warn("PDF render warning:", err);
+            }
         });
+    }).catch(function() {
+        window._pdfRendering = false;
     });
 }
 
@@ -291,7 +325,20 @@ function pdfPagSiguiente() {
 function cerrarVisorPDF() {
     const m = document.getElementById("pdfModal");
     if (m) m.style.display = "none";
-    window._pdfDoc = null;
+    if (window._pdfRenderTask) {
+        try { window._pdfRenderTask.cancel(); } catch (_e) {}
+        window._pdfRenderTask = null;
+    }
+    const canvas = document.getElementById("pdfCanvas");
+    if (canvas) {
+        canvas.width = 1;
+        canvas.height = 1;
+    }
+    if (window._pdfDoc) {
+        try { window._pdfDoc.destroy(); } catch (_e) {}
+        window._pdfDoc = null;
+    }
+    window._pdfRendering = false;
 }
 
 // ─── LÓGICA DE ZOOM (Zoom Focal Optimizado) ──────────────────────
@@ -422,11 +469,10 @@ function crearTarjetaResultado(result, keyword, index) {
     const isNote = result.type === "note";
     const card = document.createElement("article");
     card.className = "result-card" + (isNote ? " note-card" : "");
-    card.style.animationDelay = (Math.min(index, 10) * 25) + "ms";
-
     const tags = isNote && Array.isArray(result.tags) && result.tags.length
-        ? '<div class="card-tags">' + result.tags.map(tag => '<span class="tag">'+esc(tag)+'</span>').join("") + "</div>"
+        ? '<div class="card-tags">' + result.tags.map(tag => `<span class="tag">#${esc(tag)}</span>`).join("") + "</div>"
         : "";
+
     const manualLabel = isNote ? "📝 Apunte" : esc(result.manual);
     const pageLabel = isNote ? esc(result.page) : "Página " + Number(result.page);
     card.innerHTML =
@@ -464,7 +510,10 @@ function renderResultados(data, keyword, mode, append = false) {
         return;
     }
 
-    results.forEach((result, index) => list.appendChild(crearTarjetaResultado(result, keyword, index)));
+    const fragment = document.createDocumentFragment();
+    results.forEach((result, index) => fragment.appendChild(crearTarjetaResultado(result, keyword, index)));
+    list.appendChild(fragment);
+
     _searchState.total = Number(data.total) || 0;
     _searchState.hasMore = Boolean(data.has_more);
     _searchState.mode = mode;

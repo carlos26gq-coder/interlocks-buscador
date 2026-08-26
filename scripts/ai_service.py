@@ -93,7 +93,8 @@ def gather_grounding_context(search_engine: SearchEngine, symptoms: list[str], m
                     seen_pages.add(key)
                     contexts.append(f"--- Manual: {r['manual']} (Página {r['page']}) ---\n{r['context']}")
 
-    return "\n\n".join(contexts) if contexts else "No se encontraron páginas directas con los términos exactos."
+    combined = "\n\n".join(contexts) if contexts else "No se encontraron páginas directas con los términos exactos."
+    return combined[:25000]
 
 
 def analyze_with_gemini(
