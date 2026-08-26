@@ -347,7 +347,7 @@ async function _diagnoseSymptomsOffline(symptomList) {
         if (seen.has(key)) continue;
         seen.add(key);
         selected.push({ ...item, title });
-        if (selected.length >= 6) break;
+        if (selected.length >= 3) break;
     }
 
     if (!selected.length) return {

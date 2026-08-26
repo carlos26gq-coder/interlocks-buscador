@@ -262,20 +262,15 @@ class SearchEngine:
             raw_occurrences = document.normalized.count(normalized_query)
             flexible_matches = list(phrase_pattern.finditer(document.normalized)) if phrase_pattern else []
 
-            # Si no hay coincidencia exacta de frase, buscar coincidencia por tokens
-            hits = set(q_tokens) & document.token_set
-            if not raw_occurrences and not flexible_matches and len(hits) < len(q_tokens):
+            # Exigir coincidencia exacta de la frase o palabras contiguas
+            if not raw_occurrences and not flexible_matches:
                 continue
 
             score = 0.0
             if raw_occurrences:
-                score += raw_occurrences * 20
+                score += raw_occurrences * 25
             if flexible_matches:
-                score += len(flexible_matches) * 15
-
-            # Coincidencia de todos los términos
-            if len(hits) == len(q_tokens) and len(q_tokens) > 1:
-                score += 30
+                score += len(flexible_matches) * 20
 
             first_position = document.normalized.find(normalized_query)
             if first_position < 0 and flexible_matches:
@@ -306,13 +301,13 @@ class SearchEngine:
 
     # ─── DIAGNÓSTICO LEGACY (CAMPOS NOMBRADOS) ───────────────────────────────
 
-    def diagnose(self, signals: dict[str, str], limit: int = 6) -> dict:
+    def diagnose(self, signals: dict[str, str], limit: int = 3) -> dict:
         symptom_list = [v for k, v in signals.items() if v]
         return self.diagnose_symptoms(symptom_list, limit=limit)
 
     # ─── DIAGNÓSTICO POR SÍNTOMAS / SEÑALES (RELACIONAR TAB) ─────────────────
 
-    def diagnose_symptoms(self, symptoms: list[str], limit: int = 6) -> dict:
+    def diagnose_symptoms(self, symptoms: list[str], limit: int = 3) -> dict:
         """Diagnóstico relacional: busca dónde se conectan y convergen los síntomas ingresados."""
         weights_by_position = [1.4, 1.3, 1.2, 1.1]
         prepared = []

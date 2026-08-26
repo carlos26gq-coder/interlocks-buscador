@@ -219,49 +219,64 @@ function resaltarEnPdf(pdfPage, viewport, canvas) {
     if (!_highlightQuery || !window.pdfjsLib) return;
     const rawQuery = _highlightQuery.trim().toLowerCase()
         .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    if (!rawQuery) return;
-
-    const stopWords = new Set(["a", "al", "and", "con", "de", "del", "el", "en", "es", "for", "in", "is", "la", "las", "los", "of", "on", "or", "para", "por", "que", "se", "the", "to", "un", "una", "y"]);
-    const genericWords = new Set(["item", "error", "interlock", "fault", "manual", "page", "pagina"]);
-
-    const allTokens = rawQuery.split(/[\s,;]+/).filter(t => t.length >= 2 && !stopWords.has(t));
-    if (!allTokens.length) return;
-
-    // Si hay números o códigos específicos (ej. 609, 409, ao8), priorizar esos sobre palabras genéricas como "item"
-    const specificTokens = allTokens.filter(t => !genericWords.has(t));
-    const activeTerms = specificTokens.length > 0 ? specificTokens : allTokens;
+    if (!rawQuery || rawQuery.length < 2) return;
 
     pdfPage.getTextContent().then(function(textContent) {
         try {
             const ctx = canvas.getContext("2d");
             ctx.save();
-            ctx.fillStyle = "rgba(255, 210, 0, 0.42)";
+            ctx.fillStyle = "rgba(255, 210, 0, 0.45)";
+
+            // Priorizar la frase exacta buscada; si tiene varias palabras, incluir términos individuales no triviales
+            const searchTerms = [rawQuery];
+            const words = rawQuery.split(/[\s,;]+/).filter(w => w.length >= 3 && !["con", "del", "para", "por", "the", "and", "for"].includes(w));
+            for (const w of words) {
+                if (!searchTerms.includes(w)) searchTerms.push(w);
+            }
+
             for (const item of textContent.items) {
                 if (!item.str || item.str.trim().length === 0) continue;
                 const itemStr = item.str.toLowerCase()
                     .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-                const itemTokens = itemStr.split(/[\W_]+/).filter(Boolean);
-
-                const hasMatch = activeTerms.some(t => {
-                    if (t.length <= 2) return itemTokens.includes(t);
-                    return itemTokens.some(it => it === t || (it.length > t.length && it.startsWith(t) && t.length >= 4));
-                });
-
-                if (!hasMatch) continue;
+                const strLen = item.str.length;
+                if (!strLen) continue;
 
                 const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
-                const x = tx[4];
-                const y = tx[5];
+                const itemX = tx[4];
+                const itemY = tx[5];
                 const fontSize = Math.sqrt(item.transform[0] * item.transform[0] +
                                            item.transform[1] * item.transform[1]);
                 const h = fontSize * viewport.scale;
-                const w = (item.width || 0) * viewport.scale;
-                if (w > 2 && h > 2) {
-                    ctx.fillRect(x, y - h * 0.9, w, h * 1.15);
+                const totalW = (item.width || 0) * viewport.scale;
+                if (totalW <= 2 || h <= 2) continue;
+
+                // Buscar coincidencias exactas dentro de este bloque de texto
+                for (const term of searchTerms) {
+                    let searchPos = 0;
+                    while (searchPos < itemStr.length) {
+                        const idx = itemStr.indexOf(term, searchPos);
+                        if (idx < 0) break;
+
+                        // Verificar límites de palabra para no subrayar subcadenas falsas
+                        const charBefore = idx > 0 ? itemStr[idx - 1] : " ";
+                        const charAfter = (idx + term.length < itemStr.length) ? itemStr[idx + term.length] : " ";
+                        const isWordBoundary = /[\s\W_]/.test(charBefore) && /[\s\W_]/.test(charAfter);
+
+                        if (isWordBoundary || term === rawQuery) {
+                            // Calcular exactamente la posición y ancho de la palabra buscada dentro del bloque
+                            const startFraction = idx / strLen;
+                            const widthFraction = Math.min(term.length, strLen - idx) / strLen;
+                            const hlX = itemX + startFraction * totalW;
+                            const hlW = Math.max(4, widthFraction * totalW);
+
+                            ctx.fillRect(hlX, itemY - h * 0.9, hlW, h * 1.15);
+                        }
+                        searchPos = idx + Math.max(term.length, 1);
+                    }
                 }
             }
             ctx.restore();
-        } catch (_e) { /* silencioso: PDF sigue visible */ }
+        } catch (_e) { /* silencioso: visor PDF sigue visible */ }
     }).catch(function() { /* silencioso */ });
 }
 
@@ -630,53 +645,42 @@ function renderDiagrama(results, symptoms) {
     const container = document.getElementById("diagDiagram");
     if (!results.length) { container.style.display = "none"; return; }
     const main   = results[0];
-    const others = results.slice(1, 4);
+    const others = results.slice(1, 3);
 
     const symsHtml = symptoms.slice(0, 4).map(s =>
         '<div class="diag-sym-node" title="' + esc(s) + '">' +
-        esc(s.length > 22 ? s.slice(0, 20) + "…" : s) + '</div>'
+        esc(s.length > 24 ? s.slice(0, 22) + "…" : s) + '</div>'
     ).join("");
 
-    // Nodo principal — solo clickable si el PDF es realmente relevante
-    const mainPdfOk = _r2url && main.pdf_relevant !== false;
-    const mainClickable = mainPdfOk
-        ? 'onclick="verPDF(\'' + esc(main.manual) + '\',' + main.page + ',\'' + esc(symptoms.join(" ")) + '\')"'
-        : "";
-    const mainClass = mainPdfOk ? "diag-main-node" : "diag-main-node no-link";
-
-    // Badge de confianza
-    const confMap = { alta: { color: "var(--green)", label: "Alta confianza" }, media: { color: "var(--warn)", label: "Confianza media" }, baja: { color: "var(--muted)", label: "Baja confianza" } };
+    const confMap = { alta: { color: "var(--green)", label: "Alta probabilidad" }, media: { color: "var(--warn)", label: "Probabilidad media" }, baja: { color: "var(--muted)", label: "Baja probabilidad" } };
     const mainConf = confMap[main.confidence] || confMap.media;
 
+    const mainTitle = main.associated_component || main.title || "Factor común identificado";
+
     const othersHtml = others.map(r => {
-        const t = (r.title || r.manual || "");
-        const short = t.length > 24 ? t.slice(0, 22) + "…" : t;
-        const otherPdfOk = _r2url && r.pdf_relevant !== false;
-        const click = otherPdfOk
-            ? 'onclick="verPDF(\'' + esc(r.manual) + '\',' + r.page + ',\'' + esc(symptoms.join(" ")) + '\')"'
-            : "";
-        return '<div class="diag-other-node" ' + click + (otherPdfOk ? '' : ' style="opacity:.65"') + '>' +
+        const t = (r.associated_component || r.title || r.manual || "");
+        const short = t.length > 28 ? t.slice(0, 26) + "…" : t;
+        return '<div class="diag-other-node">' +
             '<span class="diag-other-title" title="' + esc(t) + '">' + esc(short) + '</span>' +
-            '<span class="diag-other-meta">' + esc(r.manual) + ' · pág.' + r.page + ' · ' + r.relative_match + '%</span>' +
+            '<span class="diag-other-meta">' + esc(r.manual) + ' · ' + r.relative_match + '%</span>' +
             '</div>';
     }).join("");
 
     container.innerHTML =
         '<div class="diag-diagram-wrap">' +
-            '<div style="font-size:.58rem;font-family:var(--mono);color:var(--muted);text-align:center;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Síntomas ingresados</div>' +
+            '<div style="font-size:.58rem;font-family:var(--mono);color:var(--muted);text-align:center;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Señales / Síntomas analizados</div>' +
             '<div class="diag-sym-row">' + symsHtml + '</div>' +
             '<div class="diag-connector"></div>' +
-            '<div class="' + mainClass + '" ' + mainClickable + '>' +
-                '<div class="diag-main-label">⚡ Causa más probable</div>' +
-                '<div class="diag-main-title">' + esc(main.title || "Evidencia relacionada") + '</div>' +
-                '<div class="diag-main-meta">' + esc(main.manual) + ' · pág. ' + main.page +
-                ' · <b>' + main.relative_match + '%</b>' +
+            '<div class="diag-main-node no-link">' +
+                '<div class="diag-main-label">⚡ Factor Común / Causa Raíz</div>' +
+                '<div class="diag-main-title">' + esc(mainTitle) + '</div>' +
+                '<div class="diag-main-meta">Manual: <b>' + esc(main.manual) + '</b>' +
+                ' · <b>' + main.relative_match + '% de compatibilidad</b>' +
                 ' · <span style="color:' + mainConf.color + '">' + mainConf.label + '</span></div>' +
-                (mainPdfOk ? '<div style="font-size:.6rem;color:var(--muted);margin-top:3px">Toca para ver evidencia en PDF</div>' : '') +
             '</div>' +
             (others.length
                 ? '<div class="diag-connector-fan"></div>' +
-                  '<div style="font-size:.58rem;font-family:var(--mono);color:var(--muted);text-align:center;margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em">Otras hipótesis</div>' +
+                  '<div style="font-size:.58rem;font-family:var(--mono);color:var(--muted);text-align:center;margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em">Otras relaciones posibles</div>' +
                   '<div class="diag-others-row">' + othersHtml + '</div>'
                 : "") +
         '</div>';
@@ -694,7 +698,7 @@ function renderDiagnostico(data, mode, symptoms) {
     diagram.style.display = "none";
 
     const results = Array.isArray(data.results) ? data.results : [];
-    meta.textContent = (mode === "online" ? "ONLINE" : "OFFLINE") + " · " + results.length + " hipótesis";
+    meta.textContent = (mode === "online" ? "ONLINE" : "OFFLINE") + " · " + results.length + " relaciones encontradas";
     notice.textContent = data.message || "";
     notice.style.display = (data.message && results.length) ? "block" : "none";
 
@@ -709,13 +713,12 @@ function renderDiagnostico(data, mode, symptoms) {
     renderDiagrama(results, allSymptoms);
 
     const confColors = { alta: "var(--green)", media: "var(--warn)", baja: "var(--muted)" };
-    const confLabels = { alta: "⬤ Alta confianza", media: "⬤ Confianza media", baja: "⬤ Baja confianza" };
+    const confLabels = { alta: "⬤ Alta probabilidad", media: "⬤ Probabilidad media", baja: "⬤ Baja probabilidad" };
 
-    results.forEach((result, index) => {
+    results.slice(0, 3).forEach((result, index) => {
         const conf     = result.confidence || "media";
         const confColor = confColors[conf] || "var(--muted)";
-        const confLabel = confLabels[conf] || "Confianza media";
-        const pdfOk   = result.pdf_relevant !== false && !!_r2url;
+        const confLabel = confLabels[conf] || "Probabilidad media";
 
         const card = document.createElement("article");
         card.className = "diagnostic-card" + (conf === "baja" ? " diag-card-low" : "");
@@ -724,43 +727,23 @@ function renderDiagnostico(data, mode, symptoms) {
             '<span class="diag-chip">' + esc(item.value) + " · " + Math.round((item.coverage || 0) * 100) + "%</span>"
         ).join("");
 
-        // Sección de tarjeta / componente asociado
         const componentHtml = result.associated_component
-            ? '<div class="diag-component-box"><span class="diag-comp-label">📍 Tarjeta / Componente asociado</span>' +
+            ? '<div class="diag-component-box"><span class="diag-comp-label">📍 Factor Común / Componente Asociado</span>' +
               esc(result.associated_component) + '</div>'
             : "";
 
         card.innerHTML =
             '<div class="diag-rank">' +
-                '<span>HIPÓTESIS ' + (index + 1) + '</span>' +
+                '<span>RELACIÓN ' + (index + 1) + '</span>' +
                 '<span style="color:' + confColor + ';font-size:.65rem">' + confLabel + '</span>' +
-                '<b>' + Number(result.relative_match || 0) + "% · " + Number(result.matched_count || 0) + "/" + Number(result.signal_count || 0) + " síntomas</b>" +
+                '<b>' + Number(result.relative_match || 0) + "% · " + Number(result.matched_count || 0) + "/" + Number(result.signal_count || 0) + " señales</b>" +
             "</div>" +
-            "<h3>" + esc(result.title || "Evidencia relacionada") + "</h3>" +
-            '<div class="card-header"><span class="card-manual manual-badge">' + esc(result.manual) + "</span>" +
-            '<span class="card-page">Página ' + Number(result.page) + "</span></div>" +
+            "<h3>" + esc(result.title || "Conexión técnica documentada") + "</h3>" +
+            '<div class="card-header"><span class="card-manual manual-badge">' + esc(result.manual) + "</span></div>" +
             '<div class="diag-chips">' + matches + "</div>" +
             componentHtml +
             '<div class="card-ctx">' + esc(result.context) + "</div>";
 
-        const footer = document.createElement("div");
-        footer.className = "card-footer";
-
-        if (pdfOk) {
-            const button = document.createElement("button");
-            button.className = "btn-pdf";
-            button.textContent = "📖 Ver evidencia · pág. " + result.page;
-            const kw = allSymptoms.join(" ");
-            button.addEventListener("click", () => verPDF(result.manual, result.page, kw));
-            footer.appendChild(button);
-        } else if (conf === "baja") {
-            const note = document.createElement("span");
-            note.style.cssText = "font-size:.65rem;color:var(--muted);font-family:var(--mono)";
-            note.textContent = "Sin evidencia directa en PDF para este caso";
-            footer.appendChild(note);
-        }
-
-        card.appendChild(footer);
         list.appendChild(card);
     });
 }
