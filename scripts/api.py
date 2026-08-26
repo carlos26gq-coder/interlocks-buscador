@@ -17,6 +17,7 @@ from supabase import Client, create_client
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from search_engine import SearchEngine, normalize
+from ai_service import analyze_with_gemini
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -272,6 +273,7 @@ def health():
         "manuals": len(search_engine.manuals),
         "supabase": bool(supabase),
         "r2": bool(R2_PUBLIC_URL),
+        "gemini": bool(os.environ.get("GEMINI_API_KEY")),
     })
 
 
@@ -333,7 +335,7 @@ def diagnose():
                 raise ValidationError("Cada síntoma admite hasta 200 caracteres.")
             if cleaned:
                 symptoms.append(cleaned)
-        result = search_engine.diagnose_symptoms(symptoms, limit=6)
+        result = search_engine.diagnose_symptoms(symptoms, limit=3)
     else:
         # Legacy named-fields format (backward compatibility)
         signals = {
@@ -342,9 +344,41 @@ def diagnose():
             "message": bounded_text(data, "message", 300),
             "observations": bounded_text(data, "observations", 500),
         }
-        result = search_engine.diagnose(signals, limit=6)
+        result = search_engine.diagnose(signals, limit=3)
     result["r2_url"] = R2_PUBLIC_URL
     return jsonify(result)
+
+
+@app.route("/diagnose/ai", methods=["POST"])
+@limiter.limit("45 per hour")
+def diagnose_ai():
+    data = json_body()
+    symptoms_raw = data.get("symptoms", [])
+    if not isinstance(symptoms_raw, list) or not symptoms_raw:
+        raise ValidationError("Debes ingresar al menos un síntoma o descripción técnica.")
+
+    symptoms = []
+    for item in symptoms_raw[:4]:
+        if not isinstance(item, str):
+            raise ValidationError("Cada síntoma debe ser texto.")
+        cleaned = item.strip()
+        if len(cleaned) > 300:
+            raise ValidationError("Cada síntoma admite hasta 300 caracteres.")
+        if cleaned:
+            symptoms.append(cleaned)
+
+    if not symptoms:
+        raise ValidationError("Ingresa al menos un síntoma o descripción técnica.")
+
+    client_key = request.headers.get("X-Gemini-Key", "").strip() or str(data.get("api_key", "")).strip()
+    model_override = str(data.get("model", "")).strip() or request.headers.get("X-Gemini-Model", "").strip()
+    ai_result = analyze_with_gemini(symptoms, search_engine, api_key=client_key, model=model_override)
+
+    if not ai_result.get("ok"):
+        status_code = 400 if ai_result.get("error") in {"no_api_key", "invalid_api_key"} else 500
+        return jsonify(ai_result), status_code
+
+    return jsonify(ai_result), 200
 
 
 @app.route("/notes", methods=["GET"])

@@ -748,6 +748,207 @@ function renderDiagnostico(data, mode, symptoms) {
     });
 }
 
+function configurarClaveAi() {
+    const actualKey = localStorage.getItem("solvi_gemini_key") || "";
+    const actualModel = localStorage.getItem("solvi_gemini_model") || "gemini-2.5-flash";
+
+    const nuevaKey = prompt(
+        "Configurar clave de Gemini AI:\n(Obtén tu clave en https://aistudio.google.com)\n\nDeja en blanco para usar la clave del servidor.",
+        actualKey
+    );
+    if (nuevaKey === null) return;
+
+    const limpiaKey = nuevaKey.trim();
+    if (limpiaKey) {
+        localStorage.setItem("solvi_gemini_key", limpiaKey);
+        const nuevoModelo = prompt(
+            "Selecciona el modelo de Gemini:\n- gemini-2.5-flash (Ultrarrápido, por defecto)\n- gemini-2.5-pro (Razonamiento profundo Pro)\n- gemini-3.7-flash (Última generación con pensamiento)\n\nIngresa el nombre del modelo:",
+            actualModel
+        );
+        if (nuevoModelo && nuevoModelo.trim()) {
+            localStorage.setItem("solvi_gemini_model", nuevoModelo.trim());
+        }
+        toast("Configuración de Gemini guardada", "ok");
+    } else {
+        localStorage.removeItem("solvi_gemini_key");
+        localStorage.removeItem("solvi_gemini_model");
+        toast("Se usará la clave del servidor", "ok");
+    }
+}
+
+function renderDiagnosticoAi(aiData, symptoms) {
+    const list    = document.getElementById("diagResults");
+    const empty   = document.getElementById("diagEmpty");
+    const meta    = document.getElementById("diagMeta");
+    const notice  = document.getElementById("diagNotice");
+    list.innerHTML = "";
+    empty.style.display = "none";
+
+    const activeModelName = localStorage.getItem("solvi_gemini_model") || "GEMINI 2.5 FLASH";
+    meta.textContent = "IA · " + activeModelName.toUpperCase();
+    notice.style.display = "none";
+
+    const confMap = {
+        alta: { color: "var(--green)", label: "⬤ Alta probabilidad" },
+        media: { color: "var(--warn)", label: "⬤ Probabilidad media" },
+        baja: { color: "var(--muted)", label: "⬤ Baja probabilidad" }
+    };
+    const conf = confMap[aiData.confidence] || confMap.media;
+
+    // Renderizar diagrama de flujo relacionando los síntomas a la causa raíz de la IA
+    const fakeDiag = [{
+        title: aiData.root_cause,
+        associated_component: (aiData.associated_boards || []).join(", ") || aiData.subsystem,
+        manual: (aiData.manual_references || ["Elekta LINAC"])[0],
+        relative_match: aiData.confidence === "alta" ? 98 : aiData.confidence === "media" ? 85 : 65,
+        confidence: aiData.confidence || "alta"
+    }];
+    renderDiagrama(fakeDiag, symptoms);
+
+    const card = document.createElement("article");
+    card.className = "diag-ai-card";
+
+    const boardsChips = (aiData.associated_boards || []).map(b =>
+        '<span class="diag-chip" style="background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.35);color:#d8b4fe">📍 ' + esc(b) + "</span>"
+    ).join("");
+
+    const manualsChips = (aiData.manual_references || []).map(m =>
+        '<span class="diag-chip" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent)">📚 ' + esc(m) + "</span>"
+    ).join("");
+
+    const stepsHtml = (aiData.action_steps || []).map((step, idx) =>
+        '<li data-step="' + (idx + 1) + '">' + esc(step) + "</li>"
+    ).join("");
+
+    const warningHtml = aiData.safety_warning
+        ? '<div class="diag-ai-warning"><strong>⚠️ PRECAUCIÓN DE SEGURIDAD:</strong> ' + esc(aiData.safety_warning) + '</div>'
+        : "";
+
+    card.innerHTML =
+        '<div class="diag-ai-top">' +
+            '<span class="diag-ai-badge">✨ INFORME DE CAUSA RAÍZ (IA)</span>' +
+            '<span style="font-size:.65rem;font-family:var(--mono);color:' + conf.color + '">' + conf.label + '</span>' +
+        '</div>' +
+        '<div class="diag-ai-root">' + esc(aiData.root_cause || "Causa no identificada") + '</div>' +
+        (aiData.subsystem ? '<div style="font-size:.78rem;font-family:var(--mono);color:#94a3b8;margin-bottom:8px">⚙️ Subsistema: <b style="color:#e2e8f0">' + esc(aiData.subsystem) + '</b></div>' : '') +
+        (boardsChips ? '<div class="diag-chips" style="margin-bottom:12px">' + boardsChips + '</div>' : '') +
+        '<div class="diag-ai-section">' +
+            '<div class="diag-ai-sectit">🧠 Análisis y Deducción Causal</div>' +
+            '<div class="diag-ai-body">' + esc(aiData.explanation || "") + '</div>' +
+        '</div>' +
+        (stepsHtml ?
+            '<div class="diag-ai-section">' +
+                '<div class="diag-ai-sectit">🔧 Procedimiento de Inspección Sugerido</div>' +
+                '<ul class="diag-ai-steps">' + stepsHtml + '</ul>' +
+            '</div>'
+        : '') +
+        (manualsChips ?
+            '<div class="diag-ai-section">' +
+                '<div class="diag-ai-sectit">📖 Manuales de Referencia</div>' +
+                '<div class="diag-chips">' + manualsChips + '</div>' +
+            '</div>'
+        : '') +
+        warningHtml;
+
+    list.appendChild(card);
+}
+
+async function analizarDiagnosticoAi() {
+    const symptoms = diagnosticoSymptoms();
+    if (!symptoms.length) {
+        toast("Ingresa al menos un síntoma, error o descripción de falla", "err");
+        return;
+    }
+
+    if (!navigator.onLine) {
+        toast("El análisis con IA requiere internet. Mostrando diagnóstico local...", "warn");
+        return analizarDiagnostico();
+    }
+
+    const btnAi   = document.getElementById("btnDiagnoseAi");
+    const btnDiag = document.getElementById("btnDiagnose");
+    const list    = document.getElementById("diagResults");
+    const empty   = document.getElementById("diagEmpty");
+    const diagram = document.getElementById("diagDiagram");
+
+    empty.style.display   = "none";
+    diagram.style.display = "none";
+    list.innerHTML =
+        '<div class="diag-ai-loading">' +
+            '<div class="spinner"></div>' +
+            '<p>🧠 Razonando causa raíz con Gemini AI...</p>' +
+            '<span style="font-size:.68rem;color:var(--muted);font-family:var(--mono)">Correlacionando síntomas con la arquitectura técnica de Elekta</span>' +
+        '</div>';
+
+    if (btnAi)   { btnAi.disabled = true; btnAi.textContent = "Razonando..."; }
+    if (btnDiag) { btnDiag.disabled = true; }
+
+    try {
+        const customKey = localStorage.getItem("solvi_gemini_key") || "";
+        const customModel = localStorage.getItem("solvi_gemini_model") || "";
+        const headers = {"Content-Type": "application/json"};
+        if (customKey) {
+            headers["X-Gemini-Key"] = customKey;
+        }
+        if (customModel) {
+            headers["X-Gemini-Model"] = customModel;
+        }
+
+        const res = await apiRequest("/diagnose/ai", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ symptoms, api_key: customKey, model: customModel })
+        });
+
+        if (res.ok && res.data) {
+            renderDiagnosticoAi(res.data, symptoms);
+        } else {
+            throw new Error(res.message || "Error desconocido al procesar con IA.");
+        }
+    } catch (error) {
+        const errMsg = error.message || String(error);
+        if (errMsg.includes("no_api_key") || errMsg.includes("clave de API") || errMsg.includes("API_KEY")) {
+            list.innerHTML =
+                '<div class="diagnostic-card" style="border-left-color:#a855f7">' +
+                    '<div class="diag-ai-badge" style="margin-bottom:8px">✨ CONFIGURACIÓN DE IA</div>' +
+                    '<h3 style="color:#f8fafc">Se requiere una Clave de API de Gemini</h3>' +
+                    '<p style="font-size:.8rem;color:#cbd5e1;line-height:1.5;margin-bottom:12px">' +
+                        'Para habilitar el razonamiento causal inteligente y descripciones en lenguaje natural, ingresa tu clave de Google AI Studio o configúrala como variable <code>GEMINI_API_KEY</code> en Render.' +
+                    '</p>' +
+                    '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+                        '<input id="promptGeminiKey" type="password" placeholder="Pega tu clave AIzaSy..." style="flex:1;min-width:200px;background:var(--s2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--mono);font-size:.8rem">' +
+                        '<button class="btn btn-ai" onclick="guardarYReintentarAi()">Guardar y Analizar</button>' +
+                    '</div>' +
+                    '<div style="margin-top:10px"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="color:var(--accent);font-size:.72rem;text-decoration:underline">Obtener clave en Google AI Studio ↗</a></div>' +
+                '</div>';
+        } else {
+            list.innerHTML =
+                '<div class="diagnostic-card" style="border-left-color:var(--danger)">' +
+                    '<div class="diag-rank"><span style="color:var(--danger)">ERROR AL CONSULTAR IA</span></div>' +
+                    '<h3 style="color:var(--danger)">' + esc(errMsg) + '</h3>' +
+                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">Puedes intentar de nuevo o utilizar el diagnóstico algorítmico local.</p>' +
+                    '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">Ejecutar diagnóstico local</button>' +
+                '</div>';
+        }
+    } finally {
+        if (btnAi)   { btnAi.disabled = false; btnAi.textContent = "✨ Analizar Causa con IA"; }
+        if (btnDiag) { btnDiag.disabled = false; }
+    }
+}
+
+function guardarYReintentarAi() {
+    const input = document.getElementById("promptGeminiKey");
+    if (!input) return;
+    const key = input.value.trim();
+    if (!key) {
+        toast("Ingresa una clave válida", "err");
+        return;
+    }
+    localStorage.setItem("solvi_gemini_key", key);
+    toast("Clave guardada con éxito", "ok");
+    analizarDiagnosticoAi();
+}
+
 async function analizarDiagnostico() {
     const symptoms = diagnosticoSymptoms();
     if (!symptoms.length) {

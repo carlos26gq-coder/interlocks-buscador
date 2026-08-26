@@ -162,6 +162,22 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .diag-component-box{background:rgba(0,212,255,.07);border-left:3px solid rgba(0,212,255,.6);border-radius:0 6px 6px 0;padding:8px 11px;margin:8px 0;font-size:.75rem;color:var(--text);line-height:1.5}
 .diag-comp-label{display:block;font-size:.6rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;font-weight:700}
 .diag-card-low{opacity:.75;border-color:rgba(100,116,139,.25)}
+.btn-ai{background:linear-gradient(135deg,#4f46e5,#7c3aed,#c026d3);color:#fff;font-weight:600;border:none;box-shadow:0 2px 10px rgba(124,58,237,.35);transition:transform .15s,box-shadow .15s;-webkit-tap-highlight-color:transparent}
+.btn-ai:active{transform:scale(.97);box-shadow:0 1px 4px rgba(124,58,237,.5)}
+.diag-ai-card{background:linear-gradient(145deg,rgba(30,27,75,.45),rgba(15,23,42,.75));border:1px solid rgba(168,85,247,.38);border-left:4px solid #a855f7;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 4px 20px rgba(0,0,0,.25);animation:fadeIn .3s ease both}
+.diag-ai-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px}
+.diag-ai-badge{display:inline-flex;align-items:center;gap:5px;font-size:.65rem;font-family:var(--mono);padding:3px 8px;border-radius:20px;background:rgba(168,85,247,.18);color:#d8b4fe;border:1px solid rgba(168,85,247,.35);font-weight:700;letter-spacing:.04em}
+.diag-ai-root{font-size:1.02rem;font-weight:800;color:#f8fafc;margin:6px 0 10px;line-height:1.35;background:linear-gradient(90deg,#f8fafc,#c084fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.diag-ai-section{margin-top:12px}
+.diag-ai-sectit{font-size:.62rem;font-family:var(--mono);color:#c084fc;text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin-bottom:5px;display:flex;align-items:center;gap:4px}
+.diag-ai-body{font-size:.82rem;line-height:1.6;color:#cbd5e1}
+.diag-ai-steps{margin:6px 0;padding-left:0;list-style:none}
+.diag-ai-steps li{position:relative;padding-left:22px;margin-bottom:7px;font-size:.8rem;line-height:1.5;color:#e2e8f0}
+.diag-ai-steps li::before{content:attr(data-step);position:absolute;left:0;top:2px;width:16px;height:16px;border-radius:50%;background:rgba(168,85,247,.25);color:#d8b4fe;font-size:.6rem;font-family:var(--mono);font-weight:700;display:flex;align-items:center;justify-content:center}
+.diag-ai-warning{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:9px 12px;margin-top:12px;font-size:.76rem;color:#fca5a5;line-height:1.45}
+.diag-ai-loading{text-align:center;padding:24px 12px;background:var(--surface);border:1px dashed rgba(168,85,247,.4);border-radius:12px;margin-bottom:12px}
+.diag-ai-loading .spinner{border-top-color:#a855f7;width:28px;height:28px;border-width:2.5px;margin:0 auto 10px}
+.diag-ai-loading p{font-size:.8rem;color:#c084fc;font-family:var(--mono)}
 @media(max-width:520px){.nav-btn{font-size:.56rem;padding-left:1px;padding-right:1px}}
 
 </style>
@@ -219,34 +235,40 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 
 <div id="screenDiagnose" class="screen">
   <div class="diagnostic-intro">
-    <h2>🧭 Relacionar síntomas</h2>
-    <p>Escribe hasta 4 errores, interlocks o síntomas. SOLVI buscará las causas más probables y mostrará las relaciones encontradas en los manuales.</p>
+    <h2>🧭 Relacionar síntomas & Causa Raíz</h2>
+    <p>Escribe hasta 4 errores, interlocks o fallas descriptivas (ej: <em>"gantry se frena al girar en sentido horario"</em> o <em>"ITEM 409"</em>). SOLVI analizará la causa raíz técnica.</p>
   </div>
   <div id="symptomsContainer">
     <div class="symptom-row" data-index="0">
       <span class="symptom-num">①</span>
-      <input type="text" class="symptom-input" maxlength="200" placeholder="Ej: Interlock 283" autocomplete="off" autocorrect="off" autocapitalize="off">
+      <input type="text" class="symptom-input" maxlength="250" placeholder="Ej: Interlock 283 o descripción de falla" autocomplete="off" autocorrect="off" autocapitalize="off">
       <button class="sym-del-btn" onclick="quitarSintoma(this)" aria-label="Eliminar" style="display:none">✕</button>
     </div>
     <div class="symptom-row" data-index="1">
       <span class="symptom-num">②</span>
-      <input type="text" class="symptom-input" maxlength="200" placeholder="Ej: Error 66" autocomplete="off" autocorrect="off" autocapitalize="off">
+      <input type="text" class="symptom-input" maxlength="250" placeholder="Ej: ITEM 409 o Error 66" autocomplete="off" autocorrect="off" autocapitalize="off">
       <button class="sym-del-btn" onclick="quitarSintoma(this)" aria-label="Eliminar" style="display:none">✕</button>
     </div>
   </div>
-  <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
-    <button id="btnAddSym" class="btn btn-ghost btn-sm" onclick="agregarSintoma()">+ Síntoma</button>
-    <span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Máx. 4 síntomas</span>
+  <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;align-items:center">
+      <button id="btnAddSym" class="btn btn-ghost btn-sm" onclick="agregarSintoma()">+ Síntoma</button>
+      <span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Máx. 4 síntomas</span>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="configurarClaveAi()" style="font-size:.68rem;padding:3px 8px;color:var(--muted)">⚙️ Clave IA</button>
   </div>
   <div class="diag-actions">
-    <button id="btnDiagnose" class="btn btn-primary" onclick="analizarDiagnostico()">Relacionar</button>
-    <span id="diagMeta">Hasta 6 hipótesis</span>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button id="btnDiagnose" class="btn btn-primary" onclick="analizarDiagnostico()">⚡ Relacionar</button>
+      <button id="btnDiagnoseAi" class="btn btn-ai" onclick="analizarDiagnosticoAi()">✨ Analizar Causa con IA</button>
+    </div>
+    <span id="diagMeta">Top 3 hipótesis</span>
   </div>
-  <p class="diag-disclaimer">La coincidencia es relativa a la evidencia encontrada; no sustituye los procedimientos de seguridad, diagnóstico ni calibración indicados por el fabricante.</p>
+  <p class="diag-disclaimer">La correlación y el análisis con IA se basan en la evidencia de los manuales de Elekta; no sustituyen los procedimientos de seguridad ni calibración del fabricante.</p>
   <div id="diagNotice" class="info-box" style="display:none;margin-bottom:10px"></div>
   <div id="diagDiagram" style="display:none"></div>
   <div id="diagEmpty" class="state-box">
-    <div class="icon">🧩</div><p>Completa uno o más síntomas para buscar relaciones técnicas.</p>
+    <div class="icon">🧩</div><p>Completa uno o más síntomas para buscar relaciones técnicas o analizar la causa raíz con IA.</p>
   </div>
   <div id="diagResults"></div>
 </div>
