@@ -165,6 +165,9 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .diag-card-low{opacity:.75;border-color:rgba(100,116,139,.25)}
 .btn-ai{background:linear-gradient(135deg,#4f46e5,#7c3aed,#c026d3);color:#fff;font-weight:600;border:none;box-shadow:0 2px 10px rgba(124,58,237,.35);transition:transform .15s,box-shadow .15s;-webkit-tap-highlight-color:transparent}
 .btn-ai:active{transform:scale(.97);box-shadow:0 1px 4px rgba(124,58,237,.5)}
+.diag-ai-diagram-wrap{background:linear-gradient(145deg,rgba(30,27,75,.35),rgba(17,24,39,.8));border:1px solid rgba(168,85,247,.3);border-radius:12px;padding:14px 12px;margin-bottom:12px}
+.diag-ai-flow-badge{display:inline-flex;align-items:center;gap:4px;font-size:.62rem;font-family:var(--mono);color:#d8b4fe;background:rgba(168,85,247,.15);border:1px solid rgba(168,85,247,.3);padding:2px 8px;border-radius:12px;margin:4px 0}
+.diag-ai-main-node{background:linear-gradient(135deg,rgba(124,58,237,.15),rgba(168,85,247,.05));border:2px solid rgba(168,85,247,.45);border-radius:10px;padding:12px;text-align:center}
 .diag-ai-card{background:linear-gradient(145deg,rgba(30,27,75,.45),rgba(15,23,42,.75));border:1px solid rgba(168,85,247,.38);border-left:4px solid #a855f7;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 4px 20px rgba(0,0,0,.25);animation:fadeIn .3s ease both}
 .diag-ai-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px}
 .diag-ai-badge{display:inline-flex;align-items:center;gap:5px;font-size:.65rem;font-family:var(--mono);padding:3px 8px;border-radius:20px;background:rgba(168,85,247,.18);color:#d8b4fe;border:1px solid rgba(168,85,247,.35);font-weight:700;letter-spacing:.04em}
@@ -251,17 +254,14 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
       <button class="sym-del-btn" onclick="quitarSintoma(this)" aria-label="Eliminar" style="display:none">✕</button>
     </div>
   </div>
-  <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap">
-    <div style="display:flex;gap:8px;align-items:center">
-      <button id="btnAddSym" class="btn btn-ghost btn-sm" onclick="agregarSintoma()">+ Síntoma</button>
-      <span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Máx. 4 síntomas</span>
-    </div>
-    <button class="btn btn-ghost btn-sm" onclick="configurarClaveAi()" style="font-size:.68rem;padding:3px 8px;color:var(--muted)">⚙️ Clave IA</button>
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+    <button id="btnAddSym" class="btn btn-ghost btn-sm" onclick="agregarSintoma()">+ Síntoma</button>
+    <span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Máx. 4 síntomas</span>
   </div>
   <div class="diag-actions">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button id="btnDiagnose" class="btn btn-primary" onclick="analizarDiagnostico()">⚡ Relacionar</button>
-      <button id="btnDiagnoseAi" class="btn btn-ai" onclick="analizarDiagnosticoAi()">✨ Analizar Causa con IA</button>
+      <button id="btnDiagnoseAi" class="btn btn-ai" onclick="analizarDiagnosticoAi()">🧠 Analizar causas</button>
     </div>
     <span id="diagMeta">Top 3 hipótesis</span>
   </div>

@@ -42,7 +42,7 @@ function workerRequest(type, payload) {
 }
 
 async function apiRequest(url, options = {}) {
-    const timeoutMs = options.timeout || (url.includes("/ai") ? 30000 : 15000);
+    const timeoutMs = options.timeout || (url.includes("/ai") ? 60000 : 15000);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const fetchOptions = { ...options, signal: options.signal || controller.signal };
@@ -793,32 +793,32 @@ function renderDiagnostico(data, mode, symptoms) {
     });
 }
 
-function configurarClaveAi() {
-    const actualKey = localStorage.getItem("solvi_gemini_key") || "";
-    const actualModel = localStorage.getItem("solvi_gemini_model") || "gemini-2.5-flash";
+function renderDiagramaAi(aiData, symptoms) {
+    const container = document.getElementById("diagDiagram");
+    if (!aiData || !symptoms.length) { container.style.display = "none"; return; }
 
-    const nuevaKey = prompt(
-        "Configurar clave de Gemini AI:\n(Obtén tu clave en https://aistudio.google.com)\n\nDeja en blanco para usar la clave del servidor.",
-        actualKey
-    );
-    if (nuevaKey === null) return;
+    const symsHtml = symptoms.slice(0, 4).map(s =>
+        '<div class="diag-sym-node" style="border-color:rgba(168,85,247,.4);color:#d8b4fe;background:rgba(168,85,247,.08)" title="' + esc(s) + '">' +
+        esc(s.length > 24 ? s.slice(0, 22) + "…" : s) + '</div>'
+    ).join("");
 
-    const limpiaKey = nuevaKey.trim();
-    if (limpiaKey) {
-        localStorage.setItem("solvi_gemini_key", limpiaKey);
-        const nuevoModelo = prompt(
-            "Selecciona el modelo de Gemini:\n- gemini-2.5-flash (Ultrarrápido, por defecto)\n- gemini-2.5-pro (Razonamiento profundo Pro)\n- gemini-3.7-flash (Última generación con pensamiento)\n\nIngresa el nombre del modelo:",
-            actualModel
-        );
-        if (nuevoModelo && nuevoModelo.trim()) {
-            localStorage.setItem("solvi_gemini_model", nuevoModelo.trim());
-        }
-        toast("Configuración de Gemini guardada", "ok");
-    } else {
-        localStorage.removeItem("solvi_gemini_key");
-        localStorage.removeItem("solvi_gemini_model");
-        toast("Se usará la clave del servidor", "ok");
-    }
+    const boardsList = (aiData.associated_boards || []).join(" · ");
+
+    container.innerHTML =
+        '<div class="diag-ai-diagram-wrap">' +
+            '<div style="font-size:.58rem;font-family:var(--mono);color:var(--muted);text-align:center;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Señales / Síntomas analizados</div>' +
+            '<div class="diag-sym-row">' + symsHtml + '</div>' +
+            '<div style="display:flex;justify-content:center;margin:6px 0">' +
+                '<span class="diag-ai-flow-badge">🧠 Deducción Causal de Causa Raíz</span>' +
+            '</div>' +
+            '<div class="diag-ai-main-node">' +
+                '<div class="diag-main-label" style="color:#c084fc">⚡ Causa Raíz Más Probable</div>' +
+                '<div class="diag-main-title" style="color:#f8fafc;font-size:.92rem">' + esc(aiData.root_cause || "Causa identificada") + '</div>' +
+                (aiData.subsystem ? '<div style="font-size:.7rem;font-family:var(--mono);color:#94a3b8;margin-top:4px">Subsistema: <b style="color:#e2e8f0">' + esc(aiData.subsystem) + '</b></div>' : '') +
+                (boardsList ? '<div style="font-size:.68rem;font-family:var(--mono);color:#c084fc;margin-top:2px">📍 Módulos / PCBs: <b>' + esc(boardsList) + '</b></div>' : '') +
+            '</div>' +
+        '</div>';
+    container.style.display = "block";
 }
 
 function renderDiagnosticoAi(aiData, symptoms) {
@@ -829,26 +829,18 @@ function renderDiagnosticoAi(aiData, symptoms) {
     list.innerHTML = "";
     empty.style.display = "none";
 
-    const activeModelName = localStorage.getItem("solvi_gemini_model") || "GEMINI 2.5 FLASH";
-    meta.textContent = "IA · " + activeModelName.toUpperCase();
+    meta.textContent = "";
     notice.style.display = "none";
 
     const confMap = {
         alta: { color: "var(--green)", label: "⬤ Alta probabilidad" },
         media: { color: "var(--warn)", label: "⬤ Probabilidad media" },
-        baja: { color: "var(--muted)", label: "⬤ Baja probabilidad" }
+        baja: { color: "var(--muted)", label: "⬤ Probabilidad media" }
     };
-    const conf = confMap[aiData.confidence] || confMap.media;
+    const conf = confMap[aiData.confidence] || confMap.alta;
 
-    // Renderizar diagrama de flujo relacionando los síntomas a la causa raíz de la IA
-    const fakeDiag = [{
-        title: aiData.root_cause,
-        associated_component: (aiData.associated_boards || []).join(", ") || aiData.subsystem,
-        manual: (aiData.manual_references || ["Elekta LINAC"])[0],
-        relative_match: aiData.confidence === "alta" ? 98 : aiData.confidence === "media" ? 85 : 65,
-        confidence: aiData.confidence || "alta"
-    }];
-    renderDiagrama(fakeDiag, symptoms);
+    // Renderizar diagrama dedicado para IA (exclusivo para la causa raíz de IA)
+    renderDiagramaAi(aiData, symptoms);
 
     const card = document.createElement("article");
     card.className = "diag-ai-card";
@@ -871,7 +863,7 @@ function renderDiagnosticoAi(aiData, symptoms) {
 
     card.innerHTML =
         '<div class="diag-ai-top">' +
-            '<span class="diag-ai-badge">✨ INFORME DE CAUSA RAÍZ (IA)</span>' +
+            '<span class="diag-ai-badge">INFORME DE CAUSA RAÍZ</span>' +
             '<span style="font-size:.65rem;font-family:var(--mono);color:' + conf.color + '">' + conf.label + '</span>' +
         '</div>' +
         '<div class="diag-ai-root">' + esc(aiData.root_cause || "Causa no identificada") + '</div>' +
@@ -921,11 +913,11 @@ async function analizarDiagnosticoAi() {
     list.innerHTML =
         '<div class="diag-ai-loading">' +
             '<div class="spinner"></div>' +
-            '<p>🧠 Razonando causa raíz con Gemini AI...</p>' +
+            '<p>🧠 Analizando y deduciendo causas con los manuales...</p>' +
             '<span style="font-size:.68rem;color:var(--muted);font-family:var(--mono)">Correlacionando síntomas con la arquitectura técnica de Elekta</span>' +
         '</div>';
 
-    if (btnAi)   { btnAi.disabled = true; btnAi.textContent = "Razonando..."; }
+    if (btnAi)   { btnAi.disabled = true; btnAi.textContent = "Analizando..."; }
     if (btnDiag) { btnDiag.disabled = true; }
 
     try {
@@ -955,16 +947,15 @@ async function analizarDiagnosticoAi() {
         if (errMsg.includes("no_api_key") || errMsg.includes("clave de API") || errMsg.includes("API_KEY")) {
             list.innerHTML =
                 '<div class="diagnostic-card" style="border-left-color:#a855f7">' +
-                    '<div class="diag-ai-badge" style="margin-bottom:8px">✨ CONFIGURACIÓN DE IA</div>' +
+                    '<div class="diag-ai-badge" style="margin-bottom:8px">CONFIGURACIÓN DE IA</div>' +
                     '<h3 style="color:#f8fafc">Se requiere una Clave de API de Gemini</h3>' +
                     '<p style="font-size:.8rem;color:#cbd5e1;line-height:1.5;margin-bottom:12px">' +
-                        'Para habilitar el razonamiento causal inteligente y descripciones en lenguaje natural, ingresa tu clave de Google AI Studio o configúrala como variable <code>GEMINI_API_KEY</code> en Render.' +
+                        'Para habilitar el razonamiento causal inteligente, asegúrate de haber configurado la variable <code>GEMINI_API_KEY</code> en Render o ingrésala aquí.' +
                     '</p>' +
                     '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
                         '<input id="promptGeminiKey" type="password" placeholder="Pega tu clave AIzaSy..." style="flex:1;min-width:200px;background:var(--s2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--mono);font-size:.8rem">' +
                         '<button class="btn btn-ai" onclick="guardarYReintentarAi()">Guardar y Analizar</button>' +
                     '</div>' +
-                    '<div style="margin-top:10px"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="color:var(--accent);font-size:.72rem;text-decoration:underline">Obtener clave en Google AI Studio ↗</a></div>' +
                 '</div>';
         } else {
             list.innerHTML =
@@ -976,7 +967,7 @@ async function analizarDiagnosticoAi() {
                 '</div>';
         }
     } finally {
-        if (btnAi)   { btnAi.disabled = false; btnAi.textContent = "✨ Analizar Causa con IA"; }
+        if (btnAi)   { btnAi.disabled = false; btnAi.textContent = "🧠 Analizar causas"; }
         if (btnDiag) { btnDiag.disabled = false; }
     }
 }
