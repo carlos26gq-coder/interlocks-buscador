@@ -161,8 +161,8 @@ def extract_keywords_for_retrieval(symptoms: list[str]) -> list[str]:
     return list(dict.fromkeys(keywords))[:12]
 
 
-def gather_grounding_context(search_engine: SearchEngine, symptoms: list[str], max_pages: int = 6) -> str:
-    """Busca en los 19 manuales los fragmentos técnicos más relevantes para fundamentar la respuesta."""
+def gather_grounding_context(search_engine: SearchEngine, symptoms: list[str], max_pages: int = 3) -> str:
+    """Busca en los 19 manuales los fragmentos técnicos más relevantes para fundamentar la respuesta de forma ultra-rápida."""
     contexts = []
     seen_pages = set()
 
@@ -174,21 +174,23 @@ def gather_grounding_context(search_engine: SearchEngine, symptoms: list[str], m
             seen_pages.add(key)
             comp = r.get("associated_component", "")
             comp_str = f" [Componente: {comp}]" if comp else ""
-            contexts.append(f"--- Manual: {r['manual']} (Página {r['page']}){comp_str} ---\n{r['context']}")
+            snip = str(r.get("context", ""))[:800]
+            contexts.append(f"--- Manual: {r['manual']} (Página {r['page']}){comp_str} ---\n{snip}")
 
     # 2. Si faltan contextos, buscar por palabras clave individuales
-    if len(contexts) < 3:
+    if len(contexts) < 2:
         kws = extract_keywords_for_retrieval(symptoms)
         for kw in kws:
-            s_res = search_engine.search(kw, limit=3)
+            s_res = search_engine.search(kw, limit=2)
             for r in s_res.get("results", []):
                 key = (r["manual"], r["page"])
                 if key not in seen_pages and len(contexts) < max_pages:
                     seen_pages.add(key)
-                    contexts.append(f"--- Manual: {r['manual']} (Página {r['page']}) ---\n{r['context']}")
+                    snip = str(r.get("context", ""))[:800]
+                    contexts.append(f"--- Manual: {r['manual']} (Página {r['page']}) ---\n{snip}")
 
     combined = "\n\n".join(contexts) if contexts else "No se encontraron páginas directas con los términos exactos."
-    return combined[:25000]
+    return combined[:4500]
 
 
 def analyze_with_gemini(
@@ -205,7 +207,7 @@ def analyze_with_gemini(
             "message": "La biblioteca google-genai no está instalada en el servidor.",
         }
 
-    key = api_key.strip() or os.environ.get("GEMINI_API_KEY", "").strip()
+    key = str(api_key or os.environ.get("GEMINI_API_KEY", "")).strip().strip("\"' \r\n\t")
     if not key:
         return {
             "ok": False,
@@ -218,21 +220,20 @@ def analyze_with_gemini(
     if cached:
         return cached
 
-    # 2. Lista de modelos con respaldo automático (waterfall de alta disponibilidad)
+    # 2. Lista de modelos con respaldo automático (waterfall de alta velocidad y disponibilidad)
     models_to_try = []
     if model.strip():
         models_to_try.append(model.strip())
-    env_model = os.environ.get("GEMINI_MODEL", "").strip()
+    env_model = os.environ.get("GEMINI_MODEL", "").strip().strip("\"' ")
     if env_model and env_model not in models_to_try:
         models_to_try.append(env_model)
 
     default_chain = [
         "gemini-3.5-flash",
         "gemini-3.5-flash-lite",
-        "gemini-3.6-flash",
         "gemini-3.1-flash-lite",
+        "gemini-3.6-flash",
         "gemini-flash-latest",
-        "gemini-3.7-flash",
     ]
     for default_m in default_chain:
         if default_m not in models_to_try:

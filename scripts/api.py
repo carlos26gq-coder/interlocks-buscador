@@ -366,39 +366,49 @@ def diagnose():
 @app.route("/diagnose/ai", methods=["POST"])
 @limiter.limit("300 per hour; 30 per minute")
 def diagnose_ai():
-    data = json_body()
-    symptoms_raw = data.get("symptoms", [])
-    if not isinstance(symptoms_raw, list) or not symptoms_raw:
-        raise ValidationError("Debes ingresar al menos un síntoma o descripción técnica.")
+    try:
+        data = json_body()
+        symptoms_raw = data.get("symptoms", [])
+        if not isinstance(symptoms_raw, list) or not symptoms_raw:
+            raise ValidationError("Debes ingresar al menos un síntoma o descripción técnica.")
 
-    symptoms = []
-    for item in symptoms_raw[:4]:
-        if not isinstance(item, str):
-            raise ValidationError("Cada síntoma debe ser texto.")
-        cleaned = item.strip()
-        if len(cleaned) > 300:
-            raise ValidationError("Cada síntoma admite hasta 300 caracteres.")
-        if cleaned:
-            symptoms.append(cleaned)
+        symptoms = []
+        for item in symptoms_raw[:4]:
+            if not isinstance(item, str):
+                raise ValidationError("Cada síntoma debe ser texto.")
+            cleaned = item.strip()
+            if len(cleaned) > 300:
+                raise ValidationError("Cada síntoma admite hasta 300 caracteres.")
+            if cleaned:
+                symptoms.append(cleaned)
 
-    if not symptoms:
-        raise ValidationError("Ingresa al menos un síntoma o descripción técnica.")
+        if not symptoms:
+            raise ValidationError("Ingresa al menos un síntoma o descripción técnica.")
 
-    client_key = request.headers.get("X-Gemini-Key", "").strip() or str(data.get("api_key", "")).strip()
-    model_override = str(data.get("model", "")).strip() or request.headers.get("X-Gemini-Model", "").strip()
-    ai_result = analyze_with_gemini(symptoms, search_engine, api_key=client_key, model=model_override)
+        client_key = request.headers.get("X-Gemini-Key", "").strip() or str(data.get("api_key", "")).strip()
+        model_override = str(data.get("model", "")).strip() or request.headers.get("X-Gemini-Model", "").strip()
+        ai_result = analyze_with_gemini(symptoms, search_engine, api_key=client_key, model=model_override)
 
-    if not ai_result.get("ok"):
-        error_type = ai_result.get("error")
-        if error_type in {"no_api_key", "invalid_api_key"}:
-            status_code = 400
-        elif error_type == "quota_exceeded":
-            status_code = 429
-        else:
-            status_code = 503
-        return jsonify(ai_result), status_code
+        if not ai_result.get("ok"):
+            error_type = ai_result.get("error")
+            if error_type in {"no_api_key", "invalid_api_key"}:
+                status_code = 400
+            elif error_type == "quota_exceeded":
+                status_code = 429
+            else:
+                status_code = 503
+            return jsonify(ai_result), status_code
 
-    return jsonify(ai_result), 200
+        return jsonify(ai_result), 200
+    except ValidationError as val_err:
+        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error en endpoint /diagnose/ai")
+        return jsonify({
+            "ok": False,
+            "error": "server_exception",
+            "message": f"Inconveniente temporal en el servidor: {str(exc)[:120]}",
+        }), 503
 
 
 @app.route("/notes", methods=["GET"])
