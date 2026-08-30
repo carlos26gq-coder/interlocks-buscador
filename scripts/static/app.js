@@ -54,8 +54,15 @@ async function apiRequest(url, options = {}) {
         let data = null;
         try { data = await response.json(); } catch { data = null; }
         if (!response.ok) {
-            const error = new Error((data && (data.message || data.error)) || `Error HTTP ${response.status}`);
+            const serverMsg = data && (data.message || data.error);
+            const fallbackMsg = response.status === 429
+                ? "Demasiadas consultas simultáneas. Espera unos segundos."
+                : (response.status === 500
+                    ? "Inconveniente temporal en el servidor. Intenta de nuevo o usa el diagnóstico local."
+                    : `Error HTTP ${response.status}`);
+            const error = new Error(serverMsg || fallbackMsg);
             error.status = response.status;
+            error.data = data;
             throw error;
         }
         return data;
@@ -130,6 +137,16 @@ function verPDF(manual, page, keyword) {
 }
 
 function abrirVisorPDF(pdfUrl, pageNum, manual) {
+    // Liberar documento anterior si existía para prevenir saturación de RAM en móviles
+    if (window._pdfDoc) {
+        try { window._pdfDoc.destroy(); } catch (_e) {}
+        window._pdfDoc = null;
+    }
+    if (window._pdfRenderTask) {
+        try { window._pdfRenderTask.cancel(); } catch (_e) {}
+        window._pdfRenderTask = null;
+    }
+
     let modal = document.getElementById("pdfModal");
     if (!modal) {
         modal = document.createElement("div");
@@ -890,7 +907,9 @@ function renderDiagnosticoAi(aiData, symptoms) {
     list.appendChild(card);
 }
 
+let _isAnalyzingAi = false;
 async function analizarDiagnosticoAi() {
+    if (_isAnalyzingAi) return;
     const symptoms = diagnosticoSymptoms();
     if (!symptoms.length) {
         toast("Ingresa al menos un síntoma, error o descripción de falla", "err");
@@ -902,6 +921,7 @@ async function analizarDiagnosticoAi() {
         return analizarDiagnostico();
     }
 
+    _isAnalyzingAi = true;
     const btnAi   = document.getElementById("btnDiagnoseAi");
     const btnDiag = document.getElementById("btnDiagnose");
     const list    = document.getElementById("diagResults");
@@ -937,10 +957,10 @@ async function analizarDiagnosticoAi() {
             body: JSON.stringify({ symptoms, api_key: customKey, model: customModel })
         });
 
-        if (res.ok && res.data) {
+        if (res && res.ok && res.data) {
             renderDiagnosticoAi(res.data, symptoms);
         } else {
-            throw new Error(res.message || "Error desconocido al procesar con IA.");
+            throw new Error((res && (res.message || res.error)) || "Inconveniente al procesar con IA.");
         }
     } catch (error) {
         const errMsg = error.message || String(error);
@@ -959,14 +979,15 @@ async function analizarDiagnosticoAi() {
                 '</div>';
         } else {
             list.innerHTML =
-                '<div class="diagnostic-card" style="border-left-color:var(--danger)">' +
-                    '<div class="diag-rank"><span style="color:var(--danger)">ERROR AL CONSULTAR IA</span></div>' +
-                    '<h3 style="color:var(--danger)">' + esc(errMsg) + '</h3>' +
-                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">Puedes intentar de nuevo o utilizar el diagnóstico algorítmico local.</p>' +
-                    '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">Ejecutar diagnóstico local</button>' +
+                '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
+                    '<div class="diag-rank"><span style="color:var(--warn)">AVISO DE CONSULTA IA</span></div>' +
+                    '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">' + esc(errMsg) + '</h3>' +
+                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">El motor de correlación algorítmica local está listo para responder inmediatamente.</p>' +
+                    '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Ejecutar diagnóstico local instantáneo</button>' +
                 '</div>';
         }
     } finally {
+        _isAnalyzingAi = false;
         if (btnAi)   { btnAi.disabled = false; btnAi.textContent = "🧠 Analizar causas"; }
         if (btnDiag) { btnDiag.disabled = false; }
     }
@@ -1058,7 +1079,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
 // ─── NOTAS localStorage ──────────────────────────────────
 function notasLocal() { try { const value=JSON.parse(localStorage.getItem("interlocks_notas")||"[]"); return Array.isArray(value)?value:[]; } catch { return []; } }
-function notasGuardar(ns) { localStorage.setItem("interlocks_notas", JSON.stringify(Array.isArray(ns)?ns:[])); }
+function notasGuardar(ns) { try { localStorage.setItem("interlocks_notas", JSON.stringify(Array.isArray(ns)?ns:[])); } catch (_e) {} }
 function notaSync(n) { const t = notasLocal().filter(x=>x.id!==n.id); t.push(n); notasGuardar(t); }
 function notaBorrar(id) { notasGuardar(notasLocal().filter(n=>n.id!==id)); }
 function pendLoad()    {
@@ -1068,7 +1089,7 @@ function pendLoad()    {
         return value.map(item => item.op ? item : {op:"create", id:item.id, payload:item});
     } catch { return []; }
 }
-function pendSave(p)   { localStorage.setItem("interlocks_pend", JSON.stringify(p)); }
+function pendSave(p)   { try { localStorage.setItem("interlocks_pend", JSON.stringify(p)); } catch (_e) {} }
 function pendAdd(n)    { const p=pendLoad().filter(item=>item.id!==n.id); p.push({op:"create",id:n.id,payload:n}); pendSave(p); }
 function pendDel(id)   { pendSave(pendLoad().filter(n=>n.id!==id)); }
 

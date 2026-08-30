@@ -73,8 +73,18 @@ async function ensureManuals(manualFilter) {
 
 function candidateIds(query, manualFilter) {
     const terms = queryTokens(query);
-    let ids = terms.length && postings.has(terms[0]) ? [...postings.get(terms[0])]
-        : documents.map(document => document.id);
+    let ids;
+    if (terms.length) {
+        const matchingTerms = terms.filter(t => postings.has(t));
+        if (matchingTerms.length) {
+            matchingTerms.sort((a, b) => (postings.get(a) || []).length - (postings.get(b) || []).length);
+            ids = [...postings.get(matchingTerms[0])];
+        } else {
+            ids = [];
+        }
+    } else {
+        ids = documents.map(document => document.id);
+    }
     if (manualFilter) {
         const allowed = new Set(manuals.get(manualFilter) || []);
         ids = ids.filter(id => allowed.has(id));

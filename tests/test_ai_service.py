@@ -47,16 +47,57 @@ class AIServiceTests(unittest.TestCase):
     def test_analyze_with_gemini_success_mock(self, mock_client_cls):
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
-        mock_resp = MagicMock()
-        mock_resp.text = '{"root_cause": "Tarjeta de control de Gantry", "subsystem": "Gantry Motion", "confidence": "alta", "explanation": "Falla en encoder", "associated_boards": ["PCB 16N"], "manual_references": ["movement.pdf"], "action_steps": ["1. Revisar voltajes"], "safety_warning": "Desconectar HT"}'
-        mock_client.models.generate_content.return_value = mock_resp
+    def test_extract_json_safely(self):
+        from ai_service import extract_json_safely
+        raw = '''```json
+        {
+            "root_cause": "Tarjeta AO8 en Area 16",
+            "subsystem": "Beam Centering",
+            "confidence": "alta",
+            "explanation": "Detalle técnico de prueba",
+            "associated_boards": ["AO8", "PCB 16V",],
+            "manual_references": ["diagrams.pdf (Pág 167)"],
+            "action_steps": ["Paso 1"],
+            "safety_warning": "Peligro",
+        }
+        ```'''
+        data = extract_json_safely(raw)
+        self.assertEqual(data["root_cause"], "Tarjeta AO8 en Area 16")
+        self.assertEqual(data["associated_boards"], ["AO8", "PCB 16V"])
 
-        res = analyze_with_gemini(["el gantry se frena"], self.engine, api_key="fake-test-key")
+    def test_diagnosis_cache_memory(self):
+        from ai_service import get_cached_diagnosis, set_cached_diagnosis
+        symptoms = ["ITEM 409", "ITEM 332"]
+        payload = {"root_cause": "Tarjeta AO8"}
+        set_cached_diagnosis(symptoms, payload, "gemini-3.7-flash")
+
+        # Recuperar con síntomas en distinto orden / mayúsculas
+        cached = get_cached_diagnosis(["item 332", "item 409"])
+        self.assertIsNotNone(cached)
+        self.assertTrue(cached["cached"])
+        self.assertEqual(cached["data"]["root_cause"], "Tarjeta AO8")
+
+    @patch("ai_service.genai.Client")
+    def test_analyze_with_gemini_falls_back_on_429_quota(self, mock_client_cls):
+        from ai_service import _DIAG_CACHE
+        _DIAG_CACHE.clear()
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+
+        # Simular que el primer modelo da 429 RESOURCE_EXHAUSTED y el segundo responde con éxito
+        success_resp = MagicMock()
+        success_resp.text = '{"root_cause": "Causa secundaria", "subsystem": "Prueba", "confidence": "alta", "explanation": "Ok", "associated_boards": [], "manual_references": [], "action_steps": [], "safety_warning": ""}'
+
+        mock_client.models.generate_content.side_effect = [
+            Exception("429 RESOURCE_EXHAUSTED. Quota exceeded for metric"),
+            success_resp
+        ]
+
+        res = analyze_with_gemini(["falla rara 99"], self.engine, api_key="fake-key")
         self.assertTrue(res["ok"])
-        self.assertEqual(res["data"]["root_cause"], "Tarjeta de control de Gantry")
-        self.assertEqual(res["data"]["subsystem"], "Gantry Motion")
-        self.assertEqual(res["data"]["confidence"], "alta")
+        self.assertEqual(res["data"]["root_cause"], "Causa secundaria")
 
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -333,7 +333,18 @@ class SearchEngine:
 
             weight = weights_by_position[i] if i < len(weights_by_position) else 1.0
             label = f"symptom_{i + 1}"
-            prepared.append((label, value, normalize(value), value_tokens, specific_tokens, weight))
+            
+            # Precompilar expresiones regulares para códigos numéricos
+            numeric_codes = [t for t in specific_tokens if t.isdigit()]
+            code_regexes = []
+            if numeric_codes:
+                labels = r"interlock|inhibit|error|fault|alarm|code|item|i\d{1,4}|e\d{1,4}"
+                for code in numeric_codes:
+                    code_pattern = rf"(?:i|e|item)?\s*{re.escape(code)}"
+                    code_regexes.append(re.compile(rf"\b(?:{labels})\b[\W_]{{0,30}}\b{code_pattern}\b"))
+                    code_regexes.append(re.compile(rf"\b{code_pattern}\b[\W_]{{0,30}}\b(?:{labels})\b"))
+
+            prepared.append((label, value, normalize(value), value_tokens, specific_tokens, weight, code_regexes))
             all_signal_tokens.update(specific_tokens)
 
             for token in specific_tokens:
@@ -356,7 +367,7 @@ class SearchEngine:
             matched_signals = []
             matched_tokens: set[str] = set()
 
-            for name, value, normalized_value, value_tokens, specific_tokens, weight in prepared:
+            for name, value, normalized_value, value_tokens, specific_tokens, weight, code_regexes in prepared:
                 hits_specific = specific_tokens & document.token_set
                 hits_all = value_tokens & document.token_set
                 if not hits_specific and not hits_all:
@@ -365,8 +376,7 @@ class SearchEngine:
                 hits = hits_specific or hits_all
                 coverage = len(hits) / max(len(specific_tokens), 1)
                 exact_phrase = normalized_value in document.normalized
-                has_numeric = any(t.isdigit() for t in specific_tokens)
-                code_match = _code_near_any_label(document.normalized, specific_tokens) if has_numeric else False
+                code_match = any(rgx.search(document.normalized) for rgx in code_regexes) if code_regexes else False
 
                 signal_score = len(hits) * 6 + coverage * 16
                 if exact_phrase:

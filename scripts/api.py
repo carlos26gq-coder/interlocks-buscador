@@ -217,7 +217,21 @@ def handle_too_large(_error):
 
 @app.errorhandler(429)
 def handle_rate_limit(error):
-    return jsonify({"error": "Demasiadas solicitudes. Intenta nuevamente en unos minutos."}), 429
+    return jsonify({
+        "ok": False,
+        "error": "rate_limit_exceeded",
+        "message": "Demasiadas solicitudes simultáneas. Espera unos segundos e intenta de nuevo.",
+    }), 429
+
+
+@app.errorhandler(500)
+def handle_server_error(error):
+    app.logger.exception("Error interno del servidor no controlado")
+    return jsonify({
+        "ok": False,
+        "error": "server_error",
+        "message": "Ocurrió un inconveniente temporal en el servidor. Puedes reintentar o usar el diagnóstico local.",
+    }), 500
 
 
 @app.route("/")
@@ -320,7 +334,7 @@ def search():
 
 
 @app.route("/diagnose", methods=["POST"])
-@limiter.limit("60 per hour")
+@limiter.limit("300 per hour; 30 per minute")
 def diagnose():
     data = json_body()
     # New format: {"symptoms": ["...", "...", ...]} — up to 4 free-form symptom strings
@@ -350,7 +364,7 @@ def diagnose():
 
 
 @app.route("/diagnose/ai", methods=["POST"])
-@limiter.limit("45 per hour")
+@limiter.limit("300 per hour; 30 per minute")
 def diagnose_ai():
     data = json_body()
     symptoms_raw = data.get("symptoms", [])
@@ -375,7 +389,13 @@ def diagnose_ai():
     ai_result = analyze_with_gemini(symptoms, search_engine, api_key=client_key, model=model_override)
 
     if not ai_result.get("ok"):
-        status_code = 400 if ai_result.get("error") in {"no_api_key", "invalid_api_key"} else 500
+        error_type = ai_result.get("error")
+        if error_type in {"no_api_key", "invalid_api_key"}:
+            status_code = 400
+        elif error_type == "quota_exceeded":
+            status_code = 429
+        else:
+            status_code = 503
         return jsonify(ai_result), status_code
 
     return jsonify(ai_result), 200
