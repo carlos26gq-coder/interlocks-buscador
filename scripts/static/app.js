@@ -942,7 +942,11 @@ async function analizarDiagnosticoAi() {
 
     try {
         const customKey = localStorage.getItem("solvi_gemini_key") || "";
-        const customModel = localStorage.getItem("solvi_gemini_model") || "";
+        let customModel = (localStorage.getItem("solvi_gemini_model") || "").trim();
+        if (customModel.includes("2.5") || customModel.includes("1.5") || customModel.includes("3.7")) {
+            localStorage.removeItem("solvi_gemini_model");
+            customModel = "";
+        }
         const headers = {"Content-Type": "application/json"};
         if (customKey) {
             headers["X-Gemini-Key"] = customKey;

@@ -227,12 +227,12 @@ def analyze_with_gemini(
         models_to_try.append(env_model)
 
     default_chain = [
-        "gemini-3.7-flash",
-        "gemini-3.6-flash",
         "gemini-3.5-flash",
         "gemini-3.5-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3.1-flash-lite",
         "gemini-flash-latest",
-        "gemini-pro-latest",
+        "gemini-3.7-flash",
     ]
     for default_m in default_chain:
         if default_m not in models_to_try:
