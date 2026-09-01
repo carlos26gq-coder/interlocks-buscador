@@ -42,7 +42,7 @@ function workerRequest(type, payload) {
 }
 
 async function apiRequest(url, options = {}) {
-    const timeoutMs = options.timeout || (url.includes("/ai") ? 60000 : 15000);
+    const timeoutMs = options.timeout || (url.includes("/ai") ? 90000 : 15000);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const fetchOptions = { ...options, signal: options.signal || controller.signal };
@@ -53,13 +53,18 @@ async function apiRequest(url, options = {}) {
         clearTimeout(timer);
         let data = null;
         try { data = await response.json(); } catch { data = null; }
+
+        // For AI endpoint: if response is JSON with ok:true, return it even at odd status codes
+        if (url.includes("/ai") && data && data.ok) return data;
+
         if (!response.ok) {
-            const serverMsg = data && (data.message || data.error);
+            // Always prefer the server's own message first
+            const serverMsg = data && (data.message || data.error || null);
             const fallbackMsg = response.status === 429
-                ? "Demasiadas consultas simultáneas. Espera unos segundos."
-                : (response.status === 500
-                    ? "Inconveniente temporal en el servidor. Intenta de nuevo o usa el diagnóstico local."
-                    : `Error HTTP ${response.status}`);
+                ? "Límite de consultas alcanzado. Espera unos segundos e intenta de nuevo."
+                : response.status === 503
+                    ? "Servicio temporalmente no disponible. Intenta de nuevo en unos momentos."
+                    : `Error HTTP ${response.status}`;
             const error = new Error(serverMsg || fallbackMsg);
             error.status = response.status;
             error.data = data;
@@ -69,7 +74,7 @@ async function apiRequest(url, options = {}) {
     } catch (err) {
         clearTimeout(timer);
         if (err && err.name === "AbortError") {
-            throw new Error("Tiempo de espera agotado. Verifica tu conexión de red.");
+            throw new Error("Tiempo de espera agotado. Verifica tu conexión o intenta de nuevo.");
         }
         throw err;
     }
@@ -831,7 +836,6 @@ function renderDiagramaAi(aiData, symptoms) {
             '<div class="diag-ai-main-node">' +
                 '<div class="diag-main-label" style="color:#c084fc">⚡ Causa Raíz Más Probable</div>' +
                 '<div class="diag-main-title" style="color:#f8fafc;font-size:.92rem">' + esc(aiData.root_cause || "Causa identificada") + '</div>' +
-                (aiData.subsystem ? '<div style="font-size:.7rem;font-family:var(--mono);color:#94a3b8;margin-top:4px">Subsistema: <b style="color:#e2e8f0">' + esc(aiData.subsystem) + '</b></div>' : '') +
                 (boardsList ? '<div style="font-size:.68rem;font-family:var(--mono);color:#c084fc;margin-top:2px">📍 Módulos / PCBs: <b>' + esc(boardsList) + '</b></div>' : '') +
             '</div>' +
         '</div>';
@@ -884,7 +888,6 @@ function renderDiagnosticoAi(aiData, symptoms) {
             '<span style="font-size:.65rem;font-family:var(--mono);color:' + conf.color + '">' + conf.label + '</span>' +
         '</div>' +
         '<div class="diag-ai-root">' + esc(aiData.root_cause || "Causa no identificada") + '</div>' +
-        (aiData.subsystem ? '<div style="font-size:.78rem;font-family:var(--mono);color:#94a3b8;margin-bottom:8px">⚙️ Subsistema: <b style="color:#e2e8f0">' + esc(aiData.subsystem) + '</b></div>' : '') +
         (boardsChips ? '<div class="diag-chips" style="margin-bottom:12px">' + boardsChips + '</div>' : '') +
         '<div class="diag-ai-section">' +
             '<div class="diag-ai-sectit">🧠 Análisis y Deducción Causal</div>' +
@@ -968,26 +971,49 @@ async function analizarDiagnosticoAi() {
         }
     } catch (error) {
         const errMsg = error.message || String(error);
-        if (errMsg.includes("no_api_key") || errMsg.includes("clave de API") || errMsg.includes("API_KEY")) {
+        const errData = error.data || {};
+        const errType = errData.error || "";
+
+        if (errType === "no_api_key" || errMsg.includes("clave de API") || errMsg.includes("API_KEY") || errType === "invalid_api_key") {
             list.innerHTML =
                 '<div class="diagnostic-card" style="border-left-color:#a855f7">' +
                     '<div class="diag-ai-badge" style="margin-bottom:8px">CONFIGURACIÓN DE IA</div>' +
                     '<h3 style="color:#f8fafc">Se requiere una Clave de API de Gemini</h3>' +
                     '<p style="font-size:.8rem;color:#cbd5e1;line-height:1.5;margin-bottom:12px">' +
-                        'Para habilitar el razonamiento causal inteligente, asegúrate de haber configurado la variable <code>GEMINI_API_KEY</code> en Render o ingrésala aquí.' +
+                        'La variable <code>GEMINI_API_KEY</code> no está configurada en Render o la clave no es válida.' +
                     '</p>' +
                     '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
                         '<input id="promptGeminiKey" type="password" placeholder="Pega tu clave AIzaSy..." style="flex:1;min-width:200px;background:var(--s2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--mono);font-size:.8rem">' +
                         '<button class="btn btn-ai" onclick="guardarYReintentarAi()">Guardar y Analizar</button>' +
                     '</div>' +
                 '</div>';
+        } else if (errType === "quota_exceeded" || errMsg.includes("429") || errMsg.includes("cuota") || errMsg.includes("Límite")) {
+            list.innerHTML =
+                '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
+                    '<div class="diag-rank"><span style="color:var(--warn)">⏳ CUOTA TEMPORAL ALCANZADA</span></div>' +
+                    '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">' + esc(errMsg) + '</h3>' +
+                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">Espera 30 segundos y vuelve a intentar, o ejecuta el diagnóstico local ahora.</p>' +
+                    '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Diagnóstico local instantáneo</button>' +
+                    ' <button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="analizarDiagnosticoAi()">🔄 Reintentar IA</button>' +
+                '</div>';
+        } else if (errMsg.includes("agotado") || errMsg.includes("AbortError") || errMsg.includes("timeout")) {
+            list.innerHTML =
+                '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
+                    '<div class="diag-rank"><span style="color:var(--warn)">⏱ TIEMPO DE RESPUESTA EXCEDIDO</span></div>' +
+                    '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">La IA tardó más de lo esperado en responder.</h3>' +
+                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">El análisis puede completarse en el siguiente intento. El diagnóstico local está disponible de inmediato.</p>' +
+                    '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Diagnóstico local instantáneo</button>' +
+                    ' <button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="analizarDiagnosticoAi()">🔄 Reintentar IA</button>' +
+                '</div>';
         } else {
             list.innerHTML =
                 '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
-                    '<div class="diag-rank"><span style="color:var(--warn)">AVISO DE CONSULTA IA</span></div>' +
+                    '<div class="diag-rank"><span style="color:var(--warn)">⚠️ ERROR DE ANÁLISIS</span></div>' +
                     '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">' + esc(errMsg) + '</h3>' +
-                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">El motor de correlación algorítmica local está listo para responder inmediatamente.</p>' +
-                    '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Ejecutar diagnóstico local instantáneo</button>' +
+                    '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
+                        '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Diagnóstico local</button>' +
+                        '<button class="btn btn-ghost btn-sm" onclick="analizarDiagnosticoAi()">🔄 Reintentar IA</button>' +
+                    '</div>' +
                 '</div>';
         }
     } finally {

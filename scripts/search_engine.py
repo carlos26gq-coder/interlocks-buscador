@@ -262,15 +262,25 @@ class SearchEngine:
             raw_occurrences = document.normalized.count(normalized_query)
             flexible_matches = list(phrase_pattern.finditer(document.normalized)) if phrase_pattern else []
 
-            # Exigir coincidencia exacta de la frase o palabras contiguas
-            if not raw_occurrences and not flexible_matches:
+            # Calcular cuántos tokens individuales coinciden en el documento
+            token_hits = [t for t in q_tokens if t in document.token_set] if q_tokens else []
+
+            # Incluir si: (a) hay coincidencia exacta o flexible de la frase completa,
+            # O (b) al menos uno de los tokens significativos está en el documento.
+            # Esto evita que buscar "facility 1" excluya páginas con "facility" solo
+            # porque "1" (token de 1 char) no se indexa de forma individual.
+            if not raw_occurrences and not flexible_matches and not token_hits:
                 continue
 
             score = 0.0
             if raw_occurrences:
-                score += raw_occurrences * 25
+                score += raw_occurrences * 30  # Coincidencia exacta = máxima prioridad
             if flexible_matches:
-                score += len(flexible_matches) * 20
+                score += len(flexible_matches) * 22
+            if token_hits and not raw_occurrences and not flexible_matches:
+                # Coincidencia parcial: puntuación proporcional a tokens hallados
+                coverage = len(token_hits) / max(len(q_tokens), 1)
+                score += coverage * 12
 
             first_position = document.normalized.find(normalized_query)
             if first_position < 0 and flexible_matches:
@@ -298,6 +308,7 @@ class SearchEngine:
             "limit": limit,
             "has_more": offset + limit < total,
         }
+
 
     # ─── DIAGNÓSTICO LEGACY (CAMPOS NOMBRADOS) ───────────────────────────────
 

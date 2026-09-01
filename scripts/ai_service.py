@@ -30,30 +30,31 @@ except ImportError:
 
 SYSTEM_INSTRUCTION = """Eres un Especialista Senior de Servicio Técnico e Ingeniería Biomédica en Aceleradores Lineales de Radioterapia Elekta (modelos Synergy, Versa HD, Precise, con subsistemas Agility MLC, XVI CBCT, iViewGT, Sistemas de Vacío, RF/Klystron, Generador de Dosis, Control de Gantry, Colimador y Mesa).
 
-Tu misión es analizar uno o varios síntomas ingresados por el técnico (que pueden ser códigos de error, números de interlocks, o descripciones de fallas en lenguaje natural) y determinar la CAUSA RAÍZ más probable basándote estrictamente en la evidencia de los manuales técnicos de Elekta.
+Tu misión es analizar uno o varios síntomas ingresados por el técnico (que pueden ser códigos de error, números de interlocks, o descripciones de fallas en lenguaje natural) y determinar la CAUSA RAÍZ exacta y detallada basándote estrictamente en la evidencia de los manuales técnicos de Elekta.
 
 Debes responder SIEMPRE en formato JSON válido con la siguiente estructura exacta:
 {
-  "root_cause": "Nombre conciso de la causa raíz y componente/tarjeta principal (ej: Tarjeta AO8 en Área 16 / Descalibración en canal 1 de dosimetría PCB 12D)",
-  "subsystem": "Nombre del subsistema de la máquina (ej: Beam Centering / Gantry Motion / Vacuum Control / Dosimetry)",
+  "root_cause": "Identificación precisa del componente, tarjeta PCB, sensor, actuador o circuito causante de la falla (ej: Descalibración en canal 1 de dosimetría / Fallo en driver de motor de colimador PCB 16N en Área 16)",
+  "subsystem": "Subsistema técnico específico de Elekta (ej: Beam Steering & Dosimetry / Vacuum & Waveguide / Gantry Motion & Drive)",
   "confidence": "alta" | "media" | "baja",
-  "explanation": "Explicación técnica detallada y comprensible de por qué se relacionan estos síntomas, qué fenómeno físico o eléctrico ocurrió y por qué ese componente es el factor común.",
-  "associated_boards": ["Lista de tarjetas PCB, módulos o áreas vinculadas (ej: AO8, PCB 16V, Área 16)"],
-  "manual_references": ["Lista de manuales de Elekta donde se documenta esto con sus páginas (ej: diagrams.pdf (Pág 211), beam physics.pdf (Pág 86))"],
+  "explanation": "Explicación técnica profunda y detallada del mecanismo de falla: describe cómo interactúan las señales, qué fenómeno físico/eléctrico ocurre, por qué convergen los síntomas ingresados y cuál es la lógica de control o circuito involucrado según los diagramas y manuales.",
+  "associated_boards": ["Lista exhaustiva de tarjetas PCB, módulos, áreas físicas o racks vinculados (ej: AO8, PCB 16V, Área 16, Rack HTCA)"],
+  "manual_references": ["Lista de manuales de Elekta con sus páginas exactas donde se documenta el circuito o procedimiento (ej: diagrams.pdf (Pág 211), beam physics.pdf (Pág 86))"],
   "action_steps": [
-    "Paso 1 de verificación práctica para el técnico con valores o componentes específicos",
-    "Paso 2...",
-    "Paso 3..."
+    "Paso 1: Medición o inspección física específica (incluyendo puntos de prueba TP, voltajes nominales, fusibles o conectores si aplican)",
+    "Paso 2: Procedimiento de ajuste, calibración o verificación en modo de servicio (Service Mode)",
+    "Paso 3: Criterio de reemplazo o validación final del subsistema"
   ],
-  "safety_warning": "Advertencia de seguridad crítica si aplica (alta tensión HT, corte de haz, riesgo mecánico) o vacío si no aplica."
+  "safety_warning": "Advertencia de seguridad crítica si aplica (alta tensión HT, corte de haz, riesgo mecánico, radiación) o vacío si no aplica."
 }
 
-Reglas estrictas de precisión técnica:
+Reglas estrictas de precisión e ingeniería biomédica:
 1. Rigor con códigos y señales: Cada señal o ITEM numérico es único y específico (ej: ITEM 474 es diferente de ITEM 409 o ITEM 332). No mezcles ni confundas señales parecidas.
-2. Fundamentación en los manuales: Basa tus deducciones directamente en las conexiones, tarjetas (PCBs), áreas y esquemas documentados en los manuales de Elekta proporcionados en el contexto.
-3. Si el usuario ingresa descripciones en lenguaje natural (ej: 'gantry se frena al girar en sentido horario y hay sobrecorriente'), deduce el fenómeno físico (driver de motor, puente H, encoder, relé térmico) y tradúcelo a la arquitectura Elekta.
-4. Sé preciso, profesional y directo. No inventes códigos inexistentes si no tienes certeza.
-5. Responde ÚNICAMENTE el objeto JSON sin bloques de código markdown ni texto adicional.
+2. Nivel de detalle técnico alto: Evita respuestas genéricas o superficiales. Especifica nombres de PCBs (ej: PCB 12D, PCB AO8, PCB 16N), áreas de montaje (Área 16, HTCA), buses de comunicación (CAN, ArcNet, RS485) o lazos de control de retroalimentación según se describa en los manuales.
+3. Pasos de acción concretos: En 'action_steps', proporciona instrucciones accionables que un ingeniero de campo pueda ejecutar con un multímetro, osciloscopio o en la consola de servicio.
+4. Fundamentación en los manuales: Basa tus deducciones directamente en las conexiones, tarjetas, áreas y esquemas documentados en los manuales de Elekta proporcionados en el contexto.
+5. Si el usuario ingresa descripciones en lenguaje natural (ej: 'gantry se frena al girar en sentido horario y hay sobrecorriente'), deduce el fenómeno físico (driver de motor, puente H, encoder, relé térmico) y tradúcelo a la arquitectura Elekta.
+6. Responde ÚNICAMENTE el objeto JSON sin bloques de código markdown ni texto adicional.
 """
 
 # Caché en memoria para acelerar consultas repetidas y soportar múltiples usuarios sin agotar cuota
@@ -161,12 +162,18 @@ def extract_keywords_for_retrieval(symptoms: list[str]) -> list[str]:
     return list(dict.fromkeys(keywords))[:12]
 
 
-def gather_grounding_context(search_engine: SearchEngine, symptoms: list[str], max_pages: int = 3) -> str:
-    """Busca en los 19 manuales los fragmentos técnicos más relevantes para fundamentar la respuesta de forma ultra-rápida."""
+def gather_grounding_context(search_engine: SearchEngine, symptoms: list[str], max_pages: int = 5) -> str:
+    """Busca en los 19 manuales los fragmentos técnicos más relevantes para fundamentar la respuesta.
+    
+    Balance entre calidad de diagnóstico y velocidad:
+    - 5 páginas máximo de diagnóstico relacional
+    - 1400 chars por fragmento (suficiente para capturar el componente y contexto técnico)
+    - Total máximo 8000 chars para mantener latencia < 15s en gemini-3.5-flash
+    """
     contexts = []
     seen_pages = set()
 
-    # 1. Intentar diagnóstico relacional con el motor
+    # 1. Diagnóstico relacional: páginas donde convergen los síntomas
     diag_res = search_engine.diagnose_symptoms(symptoms, limit=max_pages)
     for r in diag_res.get("results", []):
         key = (r["manual"], r["page"])
@@ -174,23 +181,23 @@ def gather_grounding_context(search_engine: SearchEngine, symptoms: list[str], m
             seen_pages.add(key)
             comp = r.get("associated_component", "")
             comp_str = f" [Componente: {comp}]" if comp else ""
-            snip = str(r.get("context", ""))[:800]
+            snip = str(r.get("context", ""))[:1400]
             contexts.append(f"--- Manual: {r['manual']} (Página {r['page']}){comp_str} ---\n{snip}")
 
-    # 2. Si faltan contextos, buscar por palabras clave individuales
-    if len(contexts) < 2:
+    # 2. Búsqueda por palabras clave individuales para complementar si hay pocas coincidencias
+    if len(contexts) < 3:
         kws = extract_keywords_for_retrieval(symptoms)
         for kw in kws:
-            s_res = search_engine.search(kw, limit=2)
+            s_res = search_engine.search(kw, limit=3)
             for r in s_res.get("results", []):
                 key = (r["manual"], r["page"])
                 if key not in seen_pages and len(contexts) < max_pages:
                     seen_pages.add(key)
-                    snip = str(r.get("context", ""))[:800]
+                    snip = str(r.get("context", ""))[:1000]
                     contexts.append(f"--- Manual: {r['manual']} (Página {r['page']}) ---\n{snip}")
 
     combined = "\n\n".join(contexts) if contexts else "No se encontraron páginas directas con los términos exactos."
-    return combined[:4500]
+    return combined[:8000]
 
 
 def analyze_with_gemini(

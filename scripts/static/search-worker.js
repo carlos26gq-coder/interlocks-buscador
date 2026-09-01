@@ -73,37 +73,69 @@ async function ensureManuals(manualFilter) {
 
 function candidateIds(query, manualFilter) {
     const terms = queryTokens(query);
-    let ids;
+    let ids = new Set();
     if (terms.length) {
-        const matchingTerms = terms.filter(t => postings.has(t));
-        if (matchingTerms.length) {
-            matchingTerms.sort((a, b) => (postings.get(a) || []).length - (postings.get(b) || []).length);
-            ids = [...postings.get(matchingTerms[0])];
-        } else {
-            ids = [];
+        for (const t of terms) {
+            const list = postings.get(t) || [];
+            for (let i = 0; i < list.length; i++) {
+                ids.add(list[i]);
+            }
+        }
+        if (!ids.size) {
+            ids = new Set(documents.map(d => d.id));
         }
     } else {
-        ids = documents.map(document => document.id);
+        ids = new Set(documents.map(d => d.id));
     }
     if (manualFilter) {
         const allowed = new Set(manuals.get(manualFilter) || []);
-        ids = ids.filter(id => allowed.has(id));
+        ids = new Set([...ids].filter(id => allowed.has(id)));
     }
-    return ids;
+    return [...ids];
 }
 
-function queryMatchInfo(text, query) {
+function queryMatchInfo(document, query) {
+    const text = document.normalized;
     const normalizedQuery = normalize(query).trim();
     const rawPosition = text.indexOf(normalizedQuery);
-    if (rawPosition >= 0) {
-        return {matched:true, position:rawPosition, occurrences:text.split(normalizedQuery).length - 1};
-    }
     const parts = tokenize(query);
-    if (!parts.length) return {matched:false, position:-1, occurrences:0};
-    const escaped = parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    const pattern = new RegExp("\\b" + escaped.join("[\\W_]+") + "\\b", "g");
-    const matches = [...text.matchAll(pattern)];
-    return {matched:Boolean(matches.length), position:matches.length ? matches[0].index : -1, occurrences:matches.length};
+    const qTokens = queryTokens(query);
+
+    let rawOccurrences = 0;
+    if (rawPosition >= 0) {
+        rawOccurrences = text.split(normalizedQuery).length - 1;
+    }
+
+    let flexibleMatches = 0;
+    let firstFlexiblePos = -1;
+    if (parts.length) {
+        const escaped = parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+        const pattern = new RegExp("\\b" + escaped.join("[\\W_]+") + "\\b", "g");
+        const matches = [...text.matchAll(pattern)];
+        flexibleMatches = matches.length;
+        if (flexibleMatches) firstFlexiblePos = matches[0].index;
+    }
+
+    const tokenHits = qTokens.filter(t => document.tokenSet && document.tokenSet.has(t));
+
+    if (!rawOccurrences && !flexibleMatches && !tokenHits.length) {
+        return { matched: false, score: 0 };
+    }
+
+    let score = 0;
+    if (rawOccurrences) score += rawOccurrences * 30;
+    if (flexibleMatches) score += flexibleMatches * 22;
+    if (tokenHits.length && !rawOccurrences && !flexibleMatches) {
+        const coverage = tokenHits.length / Math.max(qTokens.length, 1);
+        score += coverage * 12;
+    }
+
+    let firstPos = rawPosition >= 0 ? rawPosition : firstFlexiblePos;
+    if (firstPos >= 0) {
+        score += Math.max(0, 5 - firstPos / 1000);
+    }
+
+    return { matched: true, score };
 }
 
 function makeContext(text, query, before = 160, after = 320) {
@@ -152,10 +184,10 @@ async function searchOffline(payload) {
         await ensureManuals(manualFilter);
         manualResults = candidateIds(query, manualFilter).map(id => {
             const document = documents[id];
-            return {document, match:queryMatchInfo(document.normalized, query)};
+            return { document, match: queryMatchInfo(document, query) };
         }).filter(item => item.match.matched).map(item => ({
-            document:item.document,
-            score:item.match.occurrences * 10 + Math.max(0, 5 - item.match.position / 1000)
+            document: item.document,
+            score: item.match.score
         })).sort((a, b) => b.score - a.score || a.document.manual.localeCompare(b.document.manual) || a.document.page - b.document.page)
           .map(item => ({
               type: "manual",
