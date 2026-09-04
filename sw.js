@@ -1,10 +1,11 @@
-// SOLVI Service Worker v23 — aplicación e índices offline por manual.
-const CACHE = "solvi-v23";
+// SOLVI Service Worker v24 — aplicación e índices offline por manual + grafo de conocimiento.
+const CACHE = "solvi-v24";
 const CORE = [
     "/",
     "/manifest.json",
     "/static/app.js",
     "/static/search-worker.js",
+    "/static/linac_graph.json",
     "/static/icon-192.png",
     "/static/icon-512.png",
     "/data/search/catalog.json"

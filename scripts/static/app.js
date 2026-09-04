@@ -754,6 +754,143 @@ function renderDiagrama(results, symptoms) {
     container.style.display = "block";
 }
 
+// ─── KNOWLEDGE GRAPH CIRCUIT TRACER (OFFLINE FIRST) ───────
+function renderTrazaGrafo(data, symptoms) {
+    const container = document.getElementById("graphTraceResult");
+    const empty     = document.getElementById("diagEmpty");
+    if (!container) return;
+
+    if (!data || !data.found) {
+        container.style.display = "block";
+        container.innerHTML =
+            '<div class="diagnostic-card" style="border-left-color:var(--muted)">' +
+                '<span class="graph-badge" style="background:rgba(255,255,255,.05);color:var(--muted);border-color:var(--border)">TRAZA DE CIRCUITO</span>' +
+                '<h3 style="color:#94a3b8;font-size:.85rem;margin:6px 0">No se detectaron conexiones físicas directas en el grafo</h3>' +
+                '<p style="font-size:.76rem;color:var(--muted)">Intenta con códigos específicos (ej: ITEM 409, D_RATE 1, Interlock 283) o usa el Diagnóstico Causal IA.</p>' +
+            '</div>';
+        return;
+    }
+
+    if (empty) empty.style.display = "none";
+
+    const pcbsChips = (data.pcbs || []).map(b =>
+        '<span class="diag-chip" style="background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.35);color:#d8b4fe">📍 ' + esc(b) + '</span>'
+    ).join("");
+
+    const cablesChips = (data.cables || []).map(c =>
+        '<span class="diag-chip" style="background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.35);color:#93c5fd">🔌 ' + esc(c) + '</span>'
+    ).join("");
+
+    const connsChips = (data.connectors || []).map(cn =>
+        '<span class="diag-chip" style="background:rgba(6,182,212,.12);border-color:rgba(6,182,212,.35);color:#67e8f9">🔗 ' + esc(cn) + '</span>'
+    ).join("");
+
+    const tpsChips = (data.test_points || []).map(tp =>
+        '<span class="diag-chip" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047">⚡ ' + esc(tp) + '</span>'
+    ).join("");
+
+    const areasChips = (data.areas || []).map(ar =>
+        '<span class="diag-chip" style="background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.35);color:#86efac">🏢 ' + esc(ar) + '</span>'
+    ).join("");
+
+    const symsKw = symptoms.join(" ");
+    const manualsChips = (data.manual_references || []).map(m => {
+        const mStr = String(m || "").trim();
+        const match = mStr.match(/([a-z0-9_\s\-]+?)(?:\.pdf)?\s*(?:\([^\d]*(\d+)[^\)]*\))?$/i);
+        if (match && _r2url) {
+            const manualName = match[1].trim().toLowerCase();
+            const pageNum = parseInt(match[2], 10) || 1;
+            return '<button class="diag-chip" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent);cursor:pointer" onclick="verPDF(\'' + esc(manualName) + '\', ' + pageNum + ', \'' + esc(symsKw) + '\')">📖 ' + esc(mStr) + '</button>';
+        }
+        return '<span class="diag-chip" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent)">📚 ' + esc(mStr) + '</span>';
+    }).join("");
+
+    const flowDiagram = data.trace_diagram
+        ? '<div class="graph-flow-box">' +
+            '<span>📐 RUTA FÍSICA:</span> <b>' + esc(data.trace_diagram) + '</b>' +
+          '</div>'
+        : '';
+
+    container.innerHTML =
+        '<div class="graph-card">' +
+            '<div class="graph-top">' +
+                '<span class="graph-badge">⚡ TRAZA DE CIRCUITO FÍSICA · GRAFO DETERMINISTA</span>' +
+                '<span style="font-size:.65rem;font-family:var(--mono);color:var(--green)">⬤ Verificado en planos</span>' +
+            '</div>' +
+            '<div class="graph-hub">' + esc(data.hub_node || "Componente Central") + '</div>' +
+            flowDiagram +
+            (pcbsChips ? '<div class="diag-chips" style="margin-bottom:6px">' + pcbsChips + '</div>' : '') +
+            (cablesChips ? '<div class="diag-chips" style="margin-bottom:6px">' + cablesChips + '</div>' : '') +
+            (connsChips ? '<div class="diag-chips" style="margin-bottom:6px">' + connsChips + '</div>' : '') +
+            (tpsChips ? '<div class="diag-chips" style="margin-bottom:6px">' + tpsChips + '</div>' : '') +
+            (areasChips ? '<div class="diag-chips" style="margin-bottom:10px">' + areasChips + '</div>' : '') +
+            (manualsChips ?
+                '<div style="margin-top:10px;border-top:1px solid rgba(0,212,255,.15);padding-top:8px">' +
+                    '<div style="font-size:.62rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;margin-bottom:5px">📖 Planos y Esquemas del Circuito (Clic para abrir)</div>' +
+                    '<div class="diag-chips" style="gap:8px">' + manualsChips + '</div>' +
+                '</div>'
+            : '') +
+        '</div>';
+    container.style.display = "block";
+}
+
+let _isTracingGraph = false;
+async function ejecutarTrazaGrafo() {
+    if (_isTracingGraph) return;
+    const symptoms = diagnosticoSymptoms();
+    if (!symptoms.length) {
+        toast("Ingresa al menos un síntoma, código ITEM o interlock", "err");
+        return;
+    }
+
+    _isTracingGraph = true;
+    const btnTrace = document.getElementById("btnTraceGraph");
+    const container = document.getElementById("graphTraceResult");
+    if (btnTrace) { btnTrace.disabled = true; btnTrace.textContent = "Trazando..."; }
+
+    if (container) {
+        container.style.display = "block";
+        container.innerHTML =
+            '<div style="text-align:center;padding:16px;font-size:.78rem;color:var(--accent);font-family:var(--mono)">' +
+                '<span class="spinner" style="display:inline-block;width:18px;height:18px;border-width:2px;vertical-align:middle;margin-right:6px"></span>' +
+                'Recorriendo grafo de interconexión y planos de Elekta...' +
+            '</div>';
+    }
+
+    try {
+        let resData = null;
+        if (navigator.onLine) {
+            try {
+                const res = await apiRequest("/diagnose/graph", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ symptoms })
+                });
+                if (res && res.found !== undefined) resData = res;
+            } catch (netErr) {
+                console.warn("Fallo de red en /diagnose/graph, recurriendo al worker offline:", netErr);
+            }
+        }
+
+        if (!resData && _worker) {
+            const workerResp = await workerRequest("diagnose_graph", { symptoms });
+            if (workerResp && workerResp.found !== undefined) resData = workerResp;
+        }
+
+        if (resData) {
+            renderTrazaGrafo(resData, symptoms);
+        } else {
+            await analizarDiagnostico();
+        }
+    } catch (err) {
+        console.error("Error en traza de grafo:", err);
+        toast("Inconveniente al trazar circuito: " + (err.message || err), "err");
+    } finally {
+        _isTracingGraph = false;
+        if (btnTrace) { btnTrace.disabled = false; btnTrace.textContent = "⚡ Traza de Circuito (Offline)"; }
+    }
+}
+
 // ─── RENDER DIAGNÓSTICO ───────────────────────────────────
 function renderDiagnostico(data, mode, symptoms) {
     const list    = document.getElementById("diagResults");

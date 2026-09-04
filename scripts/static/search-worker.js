@@ -587,8 +587,182 @@ async function _diagnoseLegacyOffline(rawSignals) {
         })),
         signals: prepared.map(item => item.value),
         message: selected.length && bestMatchedCount === totalSignals ? ""
-            : selected.length ? "No se encontró una página que reúna todos los datos; se muestran coincidencias parciales."
-            : "No se encontró una relación suficiente en los manuales."
+// ─── KNOWLEDGE GRAPH OFFLINE CIRCUIT TRACER (LAZY LOADED) ───────────────────
+let _graphData = null;
+let _graphLoadingPromise = null;
+
+async function ensureGraphData() {
+    if (_graphData) return _graphData;
+    if (_graphLoadingPromise) return _graphLoadingPromise;
+    _graphLoadingPromise = (async () => {
+        try {
+            const res = await fetch("/static/linac_graph.json");
+            if (!res.ok) throw new Error("No se pudo cargar el grafo de conocimiento: " + res.status);
+            _graphData = await res.json();
+            return _graphData;
+        } catch (e) {
+            _graphLoadingPromise = null;
+            throw e;
+        }
+    })();
+    return _graphLoadingPromise;
+}
+
+async function diagnoseGraphOffline(payload) {
+    const graph = await ensureGraphData();
+    const symptoms = Array.isArray(payload.symptoms) ? payload.symptoms : [];
+    if (!symptoms.length) return { found: false, reason: "no_symptoms" };
+
+    function cleanKey(t) {
+        return String(t || "").toLowerCase().replace(/[\W_]+/g, "");
+    }
+
+    function resolveEntity(text) {
+        const clean = cleanKey(text);
+        if (!clean) return null;
+        if (graph.lookup && graph.lookup[clean]) return graph.lookup[clean];
+
+        const itemM = String(text).match(/\bitem\s*(\d{2,4})\b/i);
+        if (itemM) {
+            const cand = "ITEM " + itemM[1];
+            if (graph.entities && graph.entities[cand]) return cand;
+        }
+        const intlkM = String(text).match(/\b(?:interlock|int)\s*(\d{2,4})\b/i);
+        if (intlkM) {
+            const cand = "INTERLOCK " + intlkM[1];
+            if (graph.entities && graph.entities[cand]) return cand;
+        }
+        const numM = String(text).match(/\b(\d{2,4})\b/);
+        if (numM) {
+            const code = numM[1];
+            for (const pref of ["ITEM", "INTERLOCK", "ERROR"]) {
+                const cand = pref + " " + code;
+                if (graph.entities && graph.entities[cand]) return cand;
+            }
+        }
+        return null;
+    }
+
+    const resolvedNodes = [];
+    for (const s of symptoms) {
+        const nid = resolveEntity(s);
+        if (nid && !resolvedNodes.includes(nid)) resolvedNodes.push(nid);
+    }
+
+    if (!resolvedNodes.length) return { found: false, reason: "no_entities_resolved", resolved_nodes: [] };
+
+    function findShortestPath(startId, targetId, maxDepth = 4) {
+        if (!graph.adjacency[startId] || !graph.adjacency[targetId]) return null;
+        if (startId === targetId) return [{ node: startId, relation: "self" }];
+        const queue = [[startId, [{ node: startId, relation: "start" }]]];
+        const visited = new Set([startId]);
+        while (queue.length) {
+            const [current, path] = queue.shift();
+            if (path.length > maxDepth) continue;
+            const neighbors = graph.adjacency[current] || [];
+            for (let i = 0; i < neighbors.length; i++) {
+                const [neigh, rel] = neighbors[i];
+                if (neigh === targetId) {
+                    return [...path, { node: neigh, relation: rel }];
+                }
+                if (!visited.has(neigh)) {
+                    visited.add(neigh);
+                    queue.push([neigh, [...path, { node: neigh, relation: rel }]]);
+                }
+            }
+        }
+        return null;
+    }
+
+    const pcbs = [];
+    const cables = [];
+    const connectors = [];
+    const testPoints = [];
+    const areas = [];
+    const manualRefs = [];
+
+    function collectNodeHardware(n) {
+        const ent = (graph.entities && graph.entities[n]) || {};
+        const etype = ent.type || "";
+        if (etype === "pcb" && !pcbs.includes(n)) pcbs.push(n);
+        else if (etype === "cable" && !cables.includes(n)) cables.push(n);
+        else if (etype === "connector" && !connectors.includes(n)) connectors.push(n);
+        else if (etype === "test_point" && !testPoints.includes(n)) testPoints.push(n);
+        else if (etype === "area" && !areas.includes(n)) areas.push(n);
+
+        const pages = ent.pages || [];
+        for (let i = 0; i < pages.length; i++) {
+            const refStr = pages[i][0] + " (Pág " + pages[i][1] + ")";
+            if (!manualRefs.includes(refStr) && manualRefs.length < 6) manualRefs.push(refStr);
+        }
+    }
+
+    if (resolvedNodes.length >= 2) {
+        const paths = [];
+        const commonCounts = {};
+
+        for (let i = 0; i < resolvedNodes.length; i++) {
+            for (let j = i + 1; j < resolvedNodes.length; j++) {
+                const p = findShortestPath(resolvedNodes[i], resolvedNodes[j]);
+                if (p) {
+                    paths.push(p);
+                    for (let k = 0; k < p.length; k++) {
+                        const stepNode = p[k].node;
+                        commonCounts[stepNode] = (commonCounts[stepNode] || 0) + 1;
+                    }
+                }
+            }
+        }
+
+        const sortedCands = Object.keys(commonCounts).sort((a, b) => {
+            const ta = graph.entities[a]?.type === "pcb" ? 3 : 1;
+            const tb = graph.entities[b]?.type === "pcb" ? 3 : 1;
+            return (commonCounts[b] * 10 + tb) - (commonCounts[a] * 10 + ta);
+        });
+        const hubNode = sortedCands.length ? sortedCands[0] : resolvedNodes[0];
+
+        const allNodes = new Set(resolvedNodes);
+        for (const p of paths) {
+            for (const step of p) allNodes.add(step.node);
+        }
+        for (const n of allNodes) collectNodeHardware(n);
+
+        const traceSteps = paths.length ? paths[0].map(s => s.node) : resolvedNodes;
+        return {
+            found: true,
+            hub_node: hubNode,
+            resolved_nodes: resolvedNodes,
+            trace_diagram: traceSteps.join(" -> "),
+            pcbs: pcbs.slice(0, 5),
+            cables: cables.slice(0, 5),
+            connectors: connectors.slice(0, 6),
+            test_points: testPoints.slice(0, 6),
+            areas: areas.slice(0, 4),
+            manual_references: manualRefs.slice(0, 6),
+            confidence: paths.length ? "alta" : "media"
+        };
+    }
+
+    // 1 solo nodo
+    const single = resolvedNodes[0];
+    collectNodeHardware(single);
+    const neighs = graph.adjacency[single] || [];
+    for (let i = 0; i < Math.min(neighs.length, 12); i++) {
+        collectNodeHardware(neighs[i][0]);
+    }
+
+    return {
+        found: true,
+        hub_node: single,
+        resolved_nodes: [single],
+        trace_diagram: single + " -> " + (pcbs[0] || (neighs[0] ? neighs[0][0] : single)),
+        pcbs: pcbs.slice(0, 5),
+        cables: cables.slice(0, 5),
+        connectors: connectors.slice(0, 6),
+        test_points: testPoints.slice(0, 6),
+        areas: areas.slice(0, 4),
+        manual_references: manualRefs.slice(0, 6),
+        confidence: "alta"
     };
 }
 
@@ -598,6 +772,7 @@ self.onmessage = async event => {
         let data;
         if (type === "search") data = await searchOffline(payload || {});
         else if (type === "diagnose") data = await diagnoseOffline(payload || {});
+        else if (type === "diagnose_graph") data = await diagnoseGraphOffline(payload || {});
         else if (type === "catalog") data = await ensureCatalog();
         else throw new Error("Operación offline desconocida");
         self.postMessage({ id, ok: true, data });

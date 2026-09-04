@@ -363,6 +363,30 @@ def diagnose():
     return jsonify(result)
 
 
+@app.route("/diagnose/graph", methods=["POST"])
+@limiter.limit("600 per hour; 60 per minute")
+def diagnose_graph():
+    try:
+        data = json_body()
+        symptoms_raw = data.get("symptoms", [])
+        if not isinstance(symptoms_raw, list) or not symptoms_raw:
+            raise ValidationError("Debes ingresar al menos un síntoma o código de hardware.")
+        symptoms = [str(s).strip() for s in symptoms_raw[:4] if str(s).strip()]
+        if not symptoms:
+            raise ValidationError("Ingresa al menos un síntoma o código de hardware.")
+
+        from graph_engine import get_graph_engine
+        engine = get_graph_engine()
+        result = engine.trace_circuit(symptoms)
+        result["r2_url"] = R2_PUBLIC_URL
+        return jsonify(result), 200
+    except ValidationError as val_err:
+        return jsonify({"found": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error en endpoint /diagnose/graph")
+        return jsonify({"found": False, "error": "server_exception", "message": str(exc)}), 500
+
+
 @app.route("/diagnose/ai", methods=["POST"])
 @limiter.limit("300 per hour; 30 per minute")
 def diagnose_ai():

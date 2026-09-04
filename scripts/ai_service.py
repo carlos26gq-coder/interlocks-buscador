@@ -218,6 +218,29 @@ def gather_grounding_context(search_engine: SearchEngine, symptoms: list[str], m
                     snip = str(r.get("context", ""))[:1200]
                     contexts.append(f"--- Manual: {r['manual']} (Página {r['page']}) ---\n{snip}")
 
+    # 4. Complementar con traza de circuito de hardware del Grafo si está disponible
+    try:
+        from graph_engine import get_graph_engine
+        g_engine = get_graph_engine()
+        g_trace = g_engine.trace_circuit(symptoms)
+        if g_trace.get("found"):
+            hub = g_trace.get("hub_node", "")
+            trace_str = g_trace.get("trace_diagram", "")
+            pcbs_str = ", ".join(g_trace.get("pcbs", []))
+            cables_str = ", ".join(g_trace.get("cables", []))
+            conns_str = ", ".join(g_trace.get("connectors", []))
+            tps_str = ", ".join(g_trace.get("test_points", []))
+            areas_str = ", ".join(g_trace.get("areas", []))
+            contexts.append(
+                f"=== TOPOLOGÍA DE HARDWARE EN GRAFO ELEKTA ===\n"
+                f"Componente/Tarjeta Central: {hub}\n"
+                f"Ruta de Conexión: {trace_str}\n"
+                f"Tarjetas: {pcbs_str} | Cables: {cables_str} | Conectores: {conns_str}\n"
+                f"Puntos de Prueba TP/Voltajes: {tps_str} | Ubicación: {areas_str}"
+            )
+    except Exception:
+        pass
+
     combined = "\n\n".join(contexts) if contexts else "No se encontraron páginas directas con los términos exactos."
     return combined[:10000]
 
