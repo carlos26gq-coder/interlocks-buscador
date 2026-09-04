@@ -28,24 +28,27 @@ except ImportError:
     GENAI_AVAILABLE = False
 
 
-SYSTEM_INSTRUCTION = """Eres un Especialista Senior de Servicio Técnico e Ingeniería Biomédica en Aceleradores Lineales de Radioterapia Elekta (modelos Synergy, Versa HD, Precise, con subsistemas Agility MLC, XVI CBCT, iViewGT, Sistemas de Vacío, RF/Klystron, Generador de Dosis, Control de Gantry, Colimador y Mesa).
+SYSTEM_INSTRUCTION = """Eres un Especialista Senior de Servicio Técnico e Ingeniería Biomédica en Aceleradores Lineales de Radioterapia Elekta (modelos Synergy, Versa HD, Precise, con subsistemas Agility MLC, XVI CBCT, iViewGT, Sistemas de Vacío, RF Magnetron, Generador de Dosis, Control de Gantry, Colimador y Mesa).
 
-Tu misión es analizar uno o varios síntomas ingresados por el técnico (que pueden ser códigos de error, números de interlocks, o descripciones de fallas en lenguaje natural) y determinar la CAUSA RAÍZ exacta y detallada basándote estrictamente en la evidencia de los manuales técnicos de Elekta.
+Tu misión es analizar uno o varios síntomas ingresados por el técnico (códigos de error, números de interlocks, o descripciones de fallas en lenguaje natural) y determinar la CAUSA RAÍZ técnica exacta y detallada basándote estrictamente en la evidencia de los manuales técnicos de Elekta.
 
 Debes responder SIEMPRE en formato JSON válido con la siguiente estructura exacta:
 {
-  "root_cause": "Identificación precisa del componente, tarjeta PCB, sensor, actuador o circuito causante de la falla (ej: Descalibración en canal 1 de dosimetría / Fallo en driver de motor de colimador PCB 16N en Área 16)",
-  "subsystem": "Subsistema técnico específico de Elekta (ej: Beam Steering & Dosimetry / Vacuum & Waveguide / Gantry Motion & Drive)",
+  "root_cause": "Identificación precisa del componente, tarjeta PCB, sensor, actuador o circuito causante (ej: Descalibración en canal 1 de dosimetría / Fallo en driver de motor de colimador PCB 16N en Área 16 / Falla en contacto de relé RLA1 en circuito de interlock HT)",
+  "subsystem": "Subsistema técnico específico de Elekta (ej: Beam Steering & Dosimetry / Vacuum & Waveguide / Gantry Motion & Drive / MLC Agility Control)",
   "confidence": "alta" | "media" | "baja",
-  "explanation": "Explicación técnica profunda y detallada del mecanismo de falla: describe cómo interactúan las señales, qué fenómeno físico/eléctrico ocurre, por qué convergen los síntomas ingresados y cuál es la lógica de control o circuito involucrado según los diagramas y manuales.",
-  "associated_boards": ["Lista exhaustiva de tarjetas PCB, módulos, áreas físicas o racks vinculados (ej: AO8, PCB 16V, Área 16, Rack HTCA)"],
+  "explanation": "Explicación técnica profunda, minuciosa y no genérica del mecanismo de falla: describe cómo interactúan las señales, qué fenómeno físico o eléctrico ocurrió, por qué convergen los síntomas ingresados y cuál es la lógica de control o lazo de retroalimentación según los diagramas y manuales.",
+  "associated_boards": ["Lista exhaustiva de tarjetas PCB, módulos, áreas físicas o racks vinculados (ej: PCB 12D, PCB AO8, Área 16, Rack HTCA)"],
+  "cables_and_connectors": ["Lista de cables, arneses, conectores, terminales y pines asociados (ej: Cable W14, Conector PL1 / SK12, Pin 3, Terminal Block TB2)"],
+  "test_points_and_signals": ["Puntos de prueba TP, voltajes nominales, fusibles, relés y números de ITEM involucrados (ej: TP2 (+15VDC ±0.5V), ITEM 474, Relé RLB2, Fusible FS1)"],
   "manual_references": ["Lista de manuales de Elekta con sus páginas exactas donde se documenta el circuito o procedimiento (ej: diagrams.pdf (Pág 211), beam physics.pdf (Pág 86))"],
   "action_steps": [
-    "Paso 1: Medición o inspección física específica (incluyendo puntos de prueba TP, voltajes nominales, fusibles o conectores si aplican)",
-    "Paso 2: Procedimiento de ajuste, calibración o verificación en modo de servicio (Service Mode)",
-    "Paso 3: Criterio de reemplazo o validación final del subsistema"
+    "Paso 1: Medición o inspección física específica con multímetro/osciloscopio (indicando puntos de prueba TP, voltajes nominales o fusibles)",
+    "Paso 2: Inspección de continuidad en cableado, conectores o relés asociados",
+    "Paso 3: Procedimiento de ajuste, calibración o verificación en modo de servicio (Service Mode)",
+    "Paso 4: Criterio de reemplazo de tarjeta/componente o validación final"
   ],
-  "safety_warning": "Advertencia de seguridad crítica si aplica (alta tensión HT, corte de haz, riesgo mecánico, radiación) o vacío si no aplica."
+  "safety_warning": "Advertencia de seguridad crítica si aplica (alta tensión HT, corte de haz de radiación, riesgo mecánico) o vacío si no aplica."
 }
 
 Reglas estrictas de precisión e ingeniería biomédica:
@@ -140,8 +143,10 @@ def extract_json_safely(raw_text: str) -> dict:
                     "confidence": conf_match.group(1) if conf_match else "alta",
                     "explanation": exp_match.group(1) if exp_match else "Análisis derivado de manuales Elekta.",
                     "associated_boards": [],
+                    "cables_and_connectors": [],
+                    "test_points_and_signals": [],
                     "manual_references": ["Elekta Service Manuals"],
-                    "action_steps": ["Verificar señales asociadas en Service Mode."],
+                    "action_steps": ["Verificar señales y componentes asociados en Service Mode."],
                     "safety_warning": "",
                 }
             raise ValueError(f"No se pudo estructurar el JSON devuelto por la IA: {cleaned[:120]}")
@@ -157,18 +162,19 @@ def extract_keywords_for_retrieval(symptoms: list[str]) -> list[str]:
     }
     for s in symptoms:
         cleaned = re.sub(r"[^\w\s\d]", " ", s.lower())
-        words = [w for w in cleaned.split() if len(w) >= 3 and w not in stop_words]
+        words = [w for w in cleaned.split() if len(w) >= 2 and w not in stop_words]
         keywords.extend(words)
     return list(dict.fromkeys(keywords))[:12]
 
 
-def gather_grounding_context(search_engine: SearchEngine, symptoms: list[str], max_pages: int = 5) -> str:
+def gather_grounding_context(search_engine: SearchEngine, symptoms: list[str], max_pages: int = 6) -> str:
     """Busca en los 19 manuales los fragmentos técnicos más relevantes para fundamentar la respuesta.
     
-    Balance entre calidad de diagnóstico y velocidad:
-    - 5 páginas máximo de diagnóstico relacional
-    - 1400 chars por fragmento (suficiente para capturar el componente y contexto técnico)
-    - Total máximo 8000 chars para mantener latencia < 15s en gemini-3.5-flash
+    Balance óptimo entre profundidad de ingeniería y velocidad:
+    - Hasta 6 páginas de diagnóstico relacional y esquemas
+    - Extracción de componentes (PCBs, Items, Cables, Test Points)
+    - Fragmentos de hasta 1600 caracteres por manual
+    - Total máximo 10,000 caracteres para análisis exhaustivo
     """
     contexts = []
     seen_pages = set()
@@ -180,24 +186,40 @@ def gather_grounding_context(search_engine: SearchEngine, symptoms: list[str], m
         if key not in seen_pages:
             seen_pages.add(key)
             comp = r.get("associated_component", "")
-            comp_str = f" [Componente: {comp}]" if comp else ""
-            snip = str(r.get("context", ""))[:1400]
+            comp_str = f" [Detalle: {comp}]" if comp else ""
+            snip = str(r.get("context", ""))[:1600]
             contexts.append(f"--- Manual: {r['manual']} (Página {r['page']}){comp_str} ---\n{snip}")
 
-    # 2. Búsqueda por palabras clave individuales para complementar si hay pocas coincidencias
-    if len(contexts) < 3:
-        kws = extract_keywords_for_retrieval(symptoms)
-        for kw in kws:
-            s_res = search_engine.search(kw, limit=3)
+    # 2. Búsqueda directa por códigos numéricos/señales específicas (ej: ITEM 474)
+    for sym in symptoms:
+        if len(contexts) >= max_pages:
+            break
+        cleaned_sym = sym.strip()
+        if re.search(r"\b(?:item\s*\d+|\d{2,4})\b", cleaned_sym, re.I):
+            s_res = search_engine.search(cleaned_sym, limit=3)
             for r in s_res.get("results", []):
                 key = (r["manual"], r["page"])
                 if key not in seen_pages and len(contexts) < max_pages:
                     seen_pages.add(key)
-                    snip = str(r.get("context", ""))[:1000]
+                    snip = str(r.get("context", ""))[:1400]
+                    contexts.append(f"--- Manual: {r['manual']} (Página {r['page']}) [Señal Directa] ---\n{snip}")
+
+    # 3. Búsqueda por palabras clave individuales para complementar si hay pocas coincidencias
+    if len(contexts) < 3:
+        kws = extract_keywords_for_retrieval(symptoms)
+        for kw in kws:
+            if len(contexts) >= max_pages:
+                break
+            s_res = search_engine.search(kw, limit=2)
+            for r in s_res.get("results", []):
+                key = (r["manual"], r["page"])
+                if key not in seen_pages and len(contexts) < max_pages:
+                    seen_pages.add(key)
+                    snip = str(r.get("context", ""))[:1200]
                     contexts.append(f"--- Manual: {r['manual']} (Página {r['page']}) ---\n{snip}")
 
     combined = "\n\n".join(contexts) if contexts else "No se encontraron páginas directas con los términos exactos."
-    return combined[:8000]
+    return combined[:10000]
 
 
 def analyze_with_gemini(

@@ -111,13 +111,25 @@ def _best_line(text: str, signal_tokens: set[str]) -> str:
 
 
 def _extract_associated_components(text: str, signal_tokens: set[str]) -> str:
-    """Extrae las tarjetas (PCBs), módulos, áreas o subsistemas donde convergen las señales."""
+    """Extrae tarjetas (PCBs), módulos, áreas, cables, conectores, puntos de prueba e ITEMs técnicos."""
     cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", text)
 
-    # 1. Tarjetas / PCBs / Cards / Unidades
+    # 1. Items y Números de Parte (Elekta 12NC y códigos ITEM)
+    items: list[str] = []
+    item_matches = re.findall(
+        r"\b(?:ITEM\s*\d+|P\/N\s*[A-Z0-9\-]+|PART\s*NO\.?\s*[A-Z0-9\-]+|45\d{2}[\s\-]?\d{3}[\s\-]?\d{4,5})\b",
+        cleaned,
+        re.IGNORECASE,
+    )
+    for it in item_matches:
+        it_clean = re.sub(r"\s+", " ", it).strip().upper()
+        if it_clean not in items:
+            items.append(it_clean)
+
+    # 2. Tarjetas / PCBs / Cards / Unidades
     boards: list[str] = []
     board_matches = re.findall(
-        r"\b(?:PCB\s+[A-Z0-9]+|AO\d+|AI\s*\d+[A-Z]?|DO\s*\d+|DI\s*\d+|PWA\s+[A-Z0-9]+|PWB\s+[A-Z0-9]+|DIE-[A-Z0-9]+|SCC-[A-Z0-9]+|CPU-[A-Z0-9]+)\b",
+        r"\b(?:PCB\s+[A-Z0-9]+|AO\d+|AI\s*\d+[A-Z]?|DO\s*\d+|DI\s*\d+|PWA\s+[A-Z0-9]+|PWB\s+[A-Z0-9]+|DIE-[A-Z0-9]+|SCC-[A-Z0-9]+|CPU-[A-Z0-9]+|MOT-[A-Z0-9]+|DRV-[A-Z0-9]+|TMC\b|RTD\b|MLC\b|XVI\b)\b",
         cleaned,
         re.IGNORECASE,
     )
@@ -126,10 +138,34 @@ def _extract_associated_components(text: str, signal_tokens: set[str]) -> str:
         if b_clean not in boards and len(b_clean) >= 3 and b_clean not in {"PCB", "PWA", "PWB"}:
             boards.append(b_clean)
 
-    # 2. Áreas / Ubicaciones físicas
+    # 3. Cables, Arneses y Conectores
+    cables: list[str] = []
+    cable_matches = re.findall(
+        r"\b(?:CABLE\s*[A-Z0-9\-]+|HARNESS\s*[A-Z0-9\-]+|PL\d{1,3}|SK\d{1,3}|TB\d{1,3}|J\d{1,3}|W\d{1,3})\b",
+        cleaned,
+        re.IGNORECASE,
+    )
+    for c in cable_matches:
+        c_clean = re.sub(r"\s+", " ", c).strip().upper()
+        if c_clean not in cables and len(c_clean) >= 2:
+            cables.append(c_clean)
+
+    # 4. Puntos de Prueba (TP), Relés, Fusibles y Voltajes
+    tps: list[str] = []
+    tp_matches = re.findall(
+        r"\b(?:TP\d{1,3}|TP_[A-Z0-9]+|RL[AB]?\d{1,3}|FS\d{1,3}|FUSE\s*[A-Z0-9]+|[+\-]?\d+(?:\.\d+)?\s*(?:VDC|VAC|kV))\b",
+        cleaned,
+        re.IGNORECASE,
+    )
+    for tp in tp_matches:
+        tp_clean = re.sub(r"\s+", " ", tp).strip().upper()
+        if tp_clean not in tps:
+            tps.append(tp_clean)
+
+    # 5. Áreas / Ubicaciones físicas
     areas: list[str] = []
     area_matches = re.findall(
-        r"\b(?:(?:HTCA\s+)?AREA\s+\d+[A-Z]?|RACK\s+[A-Z0-9]+|CABINET\s+[A-Z0-9]+)\b",
+        r"\b(?:(?:HTCA\s+)?AREA\s+\d+[A-Z]?|RACK\s+[A-Z0-9]+|CABINET\s+[A-Z0-9]+|GANTRY\s+DRUM|PEDESTAL)\b",
         cleaned,
         re.IGNORECASE,
     )
@@ -138,7 +174,7 @@ def _extract_associated_components(text: str, signal_tokens: set[str]) -> str:
         if a_clean not in areas:
             areas.append(a_clean)
 
-    # 3. Título del subsistema / plano
+    # 6. Título del subsistema / plano
     subsystem = ""
     title_match = re.search(
         r"(?:^|\n)\s*(?:(?:\d+\.\d+\s+)?([A-Za-z0-9\s\-]+(?:system|interlock[s]?|control|circuit|power|supply|assembly|module|sheet\s+\d+)))",
@@ -153,12 +189,18 @@ def _extract_associated_components(text: str, signal_tokens: set[str]) -> str:
     parts: list[str] = []
     if boards:
         parts.append("Tarjeta: " + ", ".join(boards[:3]))
+    if items:
+        parts.append("Señal/Item: " + ", ".join(items[:3]))
+    if cables:
+        parts.append("Conector/Cable: " + ", ".join(cables[:3]))
+    if tps:
+        parts.append("TP/Medición: " + ", ".join(tps[:2]))
     if areas:
         parts.append("Ubicación: " + ", ".join(areas[:2]))
     if subsystem:
         parts.append("Subsistema: " + subsystem)
 
-    return " · ".join(parts) if parts else "Componente identificado en manual"
+    return " · ".join(parts) if parts else "Componente documentado en manual"
 
 
 def _is_noise_page(document_normalized: str) -> bool:
@@ -229,7 +271,7 @@ class SearchEngine:
             )
             self.manuals[manual].append(document_id)
             for token in token_set:
-                if len(token) >= 2:
+                if len(token) >= 2 or token.isdigit():
                     self.postings[token].add(document_id)
 
     def _candidate_ids(self, query: str, manual: str = "") -> set[int]:
@@ -237,12 +279,26 @@ class SearchEngine:
         if not query_terms:
             candidates = set(range(len(self.documents)))
         else:
-            # Buscar en todos los términos para no omitir coincidencias parciales
-            candidates = set()
+            term_postings = []
             for t in query_terms:
-                candidates.update(self.postings.get(t, set()))
-            if not candidates:
+                if t in self.postings:
+                    term_postings.append(self.postings[t])
+                else:
+                    # Soporte de coincidencia por prefijo para palabras parciales
+                    p_set = set()
+                    for post_k, doc_ids in self.postings.items():
+                        if post_k.startswith(t):
+                            p_set.update(doc_ids)
+                    if p_set:
+                        term_postings.append(p_set)
+
+            if not term_postings:
                 candidates = set(range(len(self.documents)))
+            else:
+                term_postings.sort(key=len)
+                # Intentar intersección exacta para búsquedas multi-término
+                intersection = set.intersection(*term_postings)
+                candidates = intersection if intersection else set.union(*term_postings)
 
         manual = normalize(manual).strip()
         if manual:
@@ -262,25 +318,29 @@ class SearchEngine:
             raw_occurrences = document.normalized.count(normalized_query)
             flexible_matches = list(phrase_pattern.finditer(document.normalized)) if phrase_pattern else []
 
-            # Calcular cuántos tokens individuales coinciden en el documento
-            token_hits = [t for t in q_tokens if t in document.token_set] if q_tokens else []
+            token_hits = []
+            for t in q_tokens:
+                if t in document.token_set or any(dt.startswith(t) for dt in document.token_set):
+                    token_hits.append(t)
 
-            # Incluir si: (a) hay coincidencia exacta o flexible de la frase completa,
-            # O (b) al menos uno de los tokens significativos está en el documento.
-            # Esto evita que buscar "facility 1" excluya páginas con "facility" solo
-            # porque "1" (token de 1 char) no se indexa de forma individual.
-            if not raw_occurrences and not flexible_matches and not token_hits:
+            is_exact = raw_occurrences > 0 or len(flexible_matches) > 0
+            all_tokens_present = (len(token_hits) == len(q_tokens)) and len(q_tokens) > 0
+
+            # REGLA DE PRECISIÓN ESTRICTA:
+            # - Si la consulta tiene múltiples palabras: DEBE coincidir la frase exacta/flexible
+            #   O DEBEN estar presentes TODOS los términos (o sus prefijos) en el documento.
+            # - Si la consulta es de 1 sola palabra: DEBE coincidir el término exactamente o su prefijo.
+            # Esto previene resultados falsos donde páginas aisladas coinciden solo con 1 palabra suelta.
+            if not is_exact and not all_tokens_present:
                 continue
 
             score = 0.0
             if raw_occurrences:
-                score += raw_occurrences * 30  # Coincidencia exacta = máxima prioridad
+                score += raw_occurrences * 50  # Máxima prioridad para coincidencia exacta
             if flexible_matches:
-                score += len(flexible_matches) * 22
-            if token_hits and not raw_occurrences and not flexible_matches:
-                # Coincidencia parcial: puntuación proporcional a tokens hallados
-                coverage = len(token_hits) / max(len(q_tokens), 1)
-                score += coverage * 12
+                score += len(flexible_matches) * 40
+            if all_tokens_present and not is_exact:
+                score += 25
 
             first_position = document.normalized.find(normalized_query)
             if first_position < 0 and flexible_matches:

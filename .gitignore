@@ -3,3 +3,9 @@ manuals/
 __pycache__/
 *.pyc
 .env
+
+# Configuraciones locales de agentes e IDE
+AGENTS.md
+.geminirules
+.vscode/
+.env.example

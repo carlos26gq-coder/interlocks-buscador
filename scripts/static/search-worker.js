@@ -54,7 +54,7 @@ async function loadManual(entry) {
         documents.push({ id, manual: entry.name, page: Number(row[0]), text, normalized: normalize(text), tokenSet });
         manualIds.push(id);
         for (const token of tokenSet) {
-            if (token.length < 2) continue;
+            if (token.length < 2 && !/^\d+$/.test(token)) continue;
             if (!postings.has(token)) postings.set(token, []);
             postings.get(token).push(id);
         }
@@ -75,14 +75,39 @@ function candidateIds(query, manualFilter) {
     const terms = queryTokens(query);
     let ids = new Set();
     if (terms.length) {
+        const termLists = [];
         for (const t of terms) {
-            const list = postings.get(t) || [];
-            for (let i = 0; i < list.length; i++) {
-                ids.add(list[i]);
+            if (postings.has(t)) {
+                termLists.push(postings.get(t));
+            } else {
+                // Prefijo para términos parciales
+                const pSet = [];
+                for (const [key, docList] of postings.entries()) {
+                    if (key.startsWith(t)) {
+                        for (let i = 0; i < docList.length; i++) pSet.push(docList[i]);
+                    }
+                }
+                if (pSet.length) termLists.push(pSet);
             }
         }
-        if (!ids.size) {
+
+        if (!termLists.length) {
             ids = new Set(documents.map(d => d.id));
+        } else {
+            termLists.sort((a, b) => a.length - b.length);
+            let intersection = new Set(termLists[0]);
+            for (let i = 1; i < termLists.length; i++) {
+                const nextSet = new Set(termLists[i]);
+                intersection = new Set([...intersection].filter(id => nextSet.has(id)));
+                if (!intersection.size) break;
+            }
+            if (intersection.size) {
+                ids = intersection;
+            } else {
+                for (const list of termLists) {
+                    for (let i = 0; i < list.length; i++) ids.add(list[i]);
+                }
+            }
         }
     } else {
         ids = new Set(documents.map(d => d.id));
@@ -116,19 +141,27 @@ function queryMatchInfo(document, query) {
         if (flexibleMatches) firstFlexiblePos = matches[0].index;
     }
 
-    const tokenHits = qTokens.filter(t => document.tokenSet && document.tokenSet.has(t));
+    const tokenHits = qTokens.filter(t => {
+        if (!document.tokenSet) return false;
+        if (document.tokenSet.has(t)) return true;
+        for (const dt of document.tokenSet) {
+            if (dt.startsWith(t)) return true;
+        }
+        return false;
+    });
 
-    if (!rawOccurrences && !flexibleMatches && !tokenHits.length) {
+    const isExact = rawOccurrences > 0 || flexibleMatches > 0;
+    const allTokensPresent = (tokenHits.length === qTokens.length) && qTokens.length > 0;
+
+    // Regla de precisión: Coincidencia de frase O todos los términos presentes
+    if (!isExact && !allTokensPresent) {
         return { matched: false, score: 0 };
     }
 
     let score = 0;
-    if (rawOccurrences) score += rawOccurrences * 30;
-    if (flexibleMatches) score += flexibleMatches * 22;
-    if (tokenHits.length && !rawOccurrences && !flexibleMatches) {
-        const coverage = tokenHits.length / Math.max(qTokens.length, 1);
-        score += coverage * 12;
-    }
+    if (rawOccurrences) score += rawOccurrences * 50;
+    if (flexibleMatches) score += flexibleMatches * 40;
+    if (allTokensPresent && !isExact) score += 25;
 
     let firstPos = rawPosition >= 0 ? rawPosition : firstFlexiblePos;
     if (firstPos >= 0) {
@@ -276,7 +309,16 @@ function tokenFrequency(token) {
 function extractAssociatedComponents(text) {
     const cleaned = text.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
 
-    const boardMatches = cleaned.match(/\b(?:PCB\s+[A-Z0-9]+|AO\d+|AI\s*\d+[A-Z]?|DO\s*\d+|DI\s*\d+|PWA\s+[A-Z0-9]+|PWB\s+[A-Z0-9]+|DIE-[A-Z0-9]+|SCC-[A-Z0-9]+|CPU-[A-Z0-9]+)\b/gi) || [];
+    // 1. Items y Números de Parte
+    const itemMatches = cleaned.match(/\b(?:ITEM\s*\d+|P\/N\s*[A-Z0-9\-]+|PART\s*NO\.?\s*[A-Z0-9\-]+|45\d{2}[\s\-]?\d{3}[\s\-]?\d{4,5})\b/gi) || [];
+    const items = [];
+    for (const it of itemMatches) {
+        const itClean = it.replace(/\s+/g, " ").trim().toUpperCase();
+        if (!items.includes(itClean)) items.push(itClean);
+    }
+
+    // 2. Tarjetas / PCBs
+    const boardMatches = cleaned.match(/\b(?:PCB\s+[A-Z0-9]+|AO\d+|AI\s*\d+[A-Z]?|DO\s*\d+|DI\s*\d+|PWA\s+[A-Z0-9]+|PWB\s+[A-Z0-9]+|DIE-[A-Z0-9]+|SCC-[A-Z0-9]+|CPU-[A-Z0-9]+|MOT-[A-Z0-9]+|DRV-[A-Z0-9]+|TMC\b|RTD\b|MLC\b|XVI\b)\b/gi) || [];
     const boards = [];
     for (const b of boardMatches) {
         const bClean = b.replace(/\s+/g, " ").trim().toUpperCase();
@@ -285,7 +327,24 @@ function extractAssociatedComponents(text) {
         }
     }
 
-    const areaMatches = cleaned.match(/\b(?:(?:HTCA\s+)?AREA\s+\d+[A-Z]?|RACK\s+[A-Z0-9]+|CABINET\s+[A-Z0-9]+)\b/gi) || [];
+    // 3. Cables y Conectores
+    const cableMatches = cleaned.match(/\b(?:CABLE\s*[A-Z0-9\-]+|HARNESS\s*[A-Z0-9\-]+|PL\d{1,3}|SK\d{1,3}|TB\d{1,3}|J\d{1,3}|W\d{1,3})\b/gi) || [];
+    const cables = [];
+    for (const c of cableMatches) {
+        const cClean = c.replace(/\s+/g, " ").trim().toUpperCase();
+        if (!cables.includes(cClean) && cClean.length >= 2) cables.push(cClean);
+    }
+
+    // 4. Puntos de Prueba (TP) y Voltajes
+    const tpMatches = cleaned.match(/\b(?:TP\d{1,3}|TP_[A-Z0-9]+|RL[AB]?\d{1,3}|FS\d{1,3}|FUSE\s*[A-Z0-9]+|[+\-]?\d+(?:\.\d+)?\s*(?:VDC|VAC|kV))\b/gi) || [];
+    const tps = [];
+    for (const tp of tpMatches) {
+        const tpClean = tp.replace(/\s+/g, " ").trim().toUpperCase();
+        if (!tps.includes(tpClean)) tps.push(tpClean);
+    }
+
+    // 5. Áreas y Racks
+    const areaMatches = cleaned.match(/\b(?:(?:HTCA\s+)?AREA\s+\d+[A-Z]?|RACK\s+[A-Z0-9]+|CABINET\s+[A-Z0-9]+|GANTRY\s+DRUM|PEDESTAL)\b/gi) || [];
     const areas = [];
     for (const a of areaMatches) {
         const aClean = a.replace(/\s+/g, " ").trim().toUpperCase();
@@ -301,10 +360,13 @@ function extractAssociatedComponents(text) {
 
     const parts = [];
     if (boards.length) parts.push("Tarjeta: " + boards.slice(0, 3).join(", "));
+    if (items.length) parts.push("Señal/Item: " + items.slice(0, 3).join(", "));
+    if (cables.length) parts.push("Conector/Cable: " + cables.slice(0, 3).join(", "));
+    if (tps.length) parts.push("TP/Medición: " + tps.slice(0, 2).join(", "));
     if (areas.length) parts.push("Ubicación: " + areas.slice(0, 2).join(", "));
     if (subsystem) parts.push("Subsistema: " + subsystem);
 
-    return parts.length ? parts.join(" · ") : "Componente identificado en manual";
+    return parts.length ? parts.join(" · ") : "Componente documentado en manual";
 }
 
 async function _diagnoseSymptomsOffline(symptomList) {

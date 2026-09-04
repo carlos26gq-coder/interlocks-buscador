@@ -795,8 +795,14 @@ function renderDiagnostico(data, mode, symptoms) {
         ).join("");
 
         const componentHtml = result.associated_component
-            ? '<div class="diag-component-box"><span class="diag-comp-label">📍 Factor Común / Componente Asociado</span>' +
+            ? '<div class="diag-component-box"><span class="diag-comp-label">📍 Detalle Técnico Documentado</span>' +
               esc(result.associated_component) + '</div>'
+            : "";
+
+        const pdfButton = _r2url
+            ? '<div style="display:flex;justify-content:flex-end;margin-top:10px">' +
+                '<button class="btn-pdf" onclick="verPDF(\'' + esc(result.manual) + '\', ' + Number(result.page) + ', \'' + esc(allSymptoms.join(' ')) + '\')">📖 Ver pág. ' + Number(result.page) + '</button>' +
+              '</div>'
             : "";
 
         card.innerHTML =
@@ -809,7 +815,8 @@ function renderDiagnostico(data, mode, symptoms) {
             '<div class="card-header"><span class="card-manual manual-badge">' + esc(result.manual) + "</span></div>" +
             '<div class="diag-chips">' + matches + "</div>" +
             componentHtml +
-            '<div class="card-ctx">' + esc(result.context) + "</div>";
+            '<div class="card-ctx">' + esc(result.context) + "</div>" +
+            pdfButton;
 
         list.appendChild(card);
     });
@@ -866,13 +873,33 @@ function renderDiagnosticoAi(aiData, symptoms) {
     const card = document.createElement("article");
     card.className = "diag-ai-card";
 
+    // 1. Tarjetas PCB y Módulos
     const boardsChips = (aiData.associated_boards || []).map(b =>
         '<span class="diag-chip" style="background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.35);color:#d8b4fe">📍 ' + esc(b) + "</span>"
     ).join("");
 
-    const manualsChips = (aiData.manual_references || []).map(m =>
-        '<span class="diag-chip" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent)">📚 ' + esc(m) + "</span>"
+    // 2. Cables, Arneses y Conectores
+    const cablesChips = (aiData.cables_and_connectors || []).map(c =>
+        '<span class="diag-chip" style="background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.35);color:#93c5fd">🔌 ' + esc(c) + "</span>"
     ).join("");
+
+    // 3. Puntos de Prueba (TP) y Voltajes
+    const signalsChips = (aiData.test_points_and_signals || []).map(t =>
+        '<span class="diag-chip" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047">⚡ ' + esc(t) + "</span>"
+    ).join("");
+
+    // 4. Manuales con botón de apertura directa
+    const symsKw = symptoms.join(" ");
+    const manualsChips = (aiData.manual_references || []).map(m => {
+        const mStr = String(m || "").trim();
+        const match = mStr.match(/([a-z0-9_\s\-]+?)(?:\.pdf)?\s*(?:\([^\d]*(\d+)[^\)]*\))?$/i);
+        if (match && _r2url) {
+            const manualName = match[1].trim().toLowerCase();
+            const pageNum = parseInt(match[2], 10) || 1;
+            return '<button class="diag-chip" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent);cursor:pointer" onclick="verPDF(\'' + esc(manualName) + '\', ' + pageNum + ', \'' + esc(symsKw) + '\')">📖 ' + esc(mStr) + '</button>';
+        }
+        return '<span class="diag-chip" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent)">📚 ' + esc(mStr) + "</span>";
+    }).join("");
 
     const stepsHtml = (aiData.action_steps || []).map((step, idx) =>
         '<li data-step="' + (idx + 1) + '">' + esc(step) + "</li>"
@@ -884,25 +911,27 @@ function renderDiagnosticoAi(aiData, symptoms) {
 
     card.innerHTML =
         '<div class="diag-ai-top">' +
-            '<span class="diag-ai-badge">INFORME DE CAUSA RAÍZ</span>' +
+            '<span class="diag-ai-badge">INFORME DE CAUSA RAÍZ TÉCNICO</span>' +
             '<span style="font-size:.65rem;font-family:var(--mono);color:' + conf.color + '">' + conf.label + '</span>' +
         '</div>' +
         '<div class="diag-ai-root">' + esc(aiData.root_cause || "Causa no identificada") + '</div>' +
-        (boardsChips ? '<div class="diag-chips" style="margin-bottom:12px">' + boardsChips + '</div>' : '') +
+        (boardsChips ? '<div class="diag-chips" style="margin-bottom:8px">' + boardsChips + '</div>' : '') +
+        (cablesChips ? '<div class="diag-chips" style="margin-bottom:8px">' + cablesChips + '</div>' : '') +
+        (signalsChips ? '<div class="diag-chips" style="margin-bottom:12px">' + signalsChips + '</div>' : '') +
         '<div class="diag-ai-section">' +
-            '<div class="diag-ai-sectit">🧠 Análisis y Deducción Causal</div>' +
+            '<div class="diag-ai-sectit">🧠 Análisis y Deducción Causal de Circuitos</div>' +
             '<div class="diag-ai-body">' + esc(aiData.explanation || "") + '</div>' +
         '</div>' +
         (stepsHtml ?
             '<div class="diag-ai-section">' +
-                '<div class="diag-ai-sectit">🔧 Procedimiento de Inspección Sugerido</div>' +
+                '<div class="diag-ai-sectit">🔧 Procedimiento de Servicio e Inspección Paso a Paso</div>' +
                 '<ul class="diag-ai-steps">' + stepsHtml + '</ul>' +
             '</div>'
         : '') +
         (manualsChips ?
             '<div class="diag-ai-section">' +
-                '<div class="diag-ai-sectit">📖 Manuales de Referencia</div>' +
-                '<div class="diag-chips">' + manualsChips + '</div>' +
+                '<div class="diag-ai-sectit">📖 Esquemas y Manuales de Referencia (Clic para abrir)</div>' +
+                '<div class="diag-chips" style="gap:8px">' + manualsChips + '</div>' +
             '</div>'
         : '') +
         warningHtml;
