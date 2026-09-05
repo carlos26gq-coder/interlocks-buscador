@@ -66,7 +66,8 @@ def _phrase_pattern(value: object) -> re.Pattern | None:
     parts = tokens(value)
     if not parts:
         return None
-    return re.compile(r"\b" + r"[\W_]+".join(re.escape(part) for part in parts) + r"\b")
+    sep = r"(?:[\W_]+|[\W_]+(?:the|a|an|of|in|to|and|or|de|la|el|del|y|en)[\W_]+)"
+    return re.compile(r"\b" + sep.join(re.escape(part) for part in parts) + r"\b")
 
 
 def _context(text: str, query: str, before: int = 160, after: int = 320) -> str:
@@ -75,16 +76,23 @@ def _context(text: str, query: str, before: int = 160, after: int = 320) -> str:
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
     norm_text = normalize(cleaned)
-    norm_query = normalize(query).strip()
+    pat = _phrase_pattern(query)
+    match = pat.search(norm_text) if pat else None
 
-    position = norm_text.find(norm_query)
-    if position < 0:
-        positions = [norm_text.find(token) for token in _query_tokens(query)]
-        positions = [pos for pos in positions if pos >= 0]
-        position = min(positions, default=0)
+    if match:
+        position = match.start()
+        match_len = match.end() - match.start()
+    else:
+        norm_query = normalize(query).strip()
+        position = norm_text.find(norm_query)
+        match_len = len(norm_query)
+        if position < 0:
+            positions = [norm_text.find(token) for token in _query_tokens(query)]
+            positions = [pos for pos in positions if pos >= 0]
+            position = min(positions, default=0)
 
     start = max(0, position - before)
-    end = min(len(cleaned), position + max(len(norm_query), 1) + after)
+    end = min(len(cleaned), position + max(match_len, 1) + after)
     snippet = cleaned[start:end].strip()
     if start > 0:
         snippet = "... " + snippet
@@ -277,6 +285,8 @@ class SearchEngine:
     def _candidate_ids(self, query: str, manual: str = "") -> set[int]:
         query_terms = _query_tokens(query)
         if not query_terms:
+            query_terms = tokens(query)
+        if not query_terms:
             candidates = set(range(len(self.documents)))
         else:
             term_postings = []
@@ -284,21 +294,12 @@ class SearchEngine:
                 if t in self.postings:
                     term_postings.append(self.postings[t])
                 else:
-                    # Soporte de coincidencia por prefijo para palabras parciales
-                    p_set = set()
-                    for post_k, doc_ids in self.postings.items():
-                        if post_k.startswith(t):
-                            p_set.update(doc_ids)
-                    if p_set:
-                        term_postings.append(p_set)
+                    # Cada palabra exacta debe existir en el vocabulario de manuales
+                    return set()
 
-            if not term_postings:
-                candidates = set(range(len(self.documents)))
-            else:
-                term_postings.sort(key=len)
-                # Intentar intersección exacta para búsquedas multi-término
-                intersection = set.intersection(*term_postings)
-                candidates = intersection if intersection else set.union(*term_postings)
+            term_postings.sort(key=len)
+            # Intersección estricta: todos los términos de la consulta deben coincidir
+            candidates = set.intersection(*term_postings)
 
         manual = normalize(manual).strip()
         if manual:
@@ -308,45 +309,29 @@ class SearchEngine:
     # ─── BÚSQUEDA GENERAL (SEARCH TAB) ───────────────────────────────────────
 
     def search(self, query: str, manual: str = "", offset: int = 0, limit: int = 25) -> dict:
-        normalized_query = normalize(query).strip()
-        q_tokens = _query_tokens(query)
-        phrase_pattern = _phrase_pattern(query)
-        ranked = []
+        q_tokens = tokens(query)
+        if not q_tokens:
+            return {"results": [], "total": 0, "offset": offset, "limit": limit, "has_more": False}
 
+        phrase_pattern = _phrase_pattern(query)
+        if not phrase_pattern:
+            return {"results": [], "total": 0, "offset": offset, "limit": limit, "has_more": False}
+
+        ranked = []
         for document_id in self._candidate_ids(query, manual):
             document = self.documents[document_id]
-            raw_occurrences = document.normalized.count(normalized_query)
-            flexible_matches = list(phrase_pattern.finditer(document.normalized)) if phrase_pattern else []
 
-            token_hits = []
-            for t in q_tokens:
-                if t in document.token_set or any(dt.startswith(t) for dt in document.token_set):
-                    token_hits.append(t)
-
-            is_exact = raw_occurrences > 0 or len(flexible_matches) > 0
-            all_tokens_present = (len(token_hits) == len(q_tokens)) and len(q_tokens) > 0
-
-            # REGLA DE PRECISIÓN ESTRICTA:
-            # - Si la consulta tiene múltiples palabras: DEBE coincidir la frase exacta/flexible
-            #   O DEBEN estar presentes TODOS los términos (o sus prefijos) en el documento.
-            # - Si la consulta es de 1 sola palabra: DEBE coincidir el término exactamente o su prefijo.
-            # Esto previene resultados falsos donde páginas aisladas coinciden solo con 1 palabra suelta.
-            if not is_exact and not all_tokens_present:
+            # Buscar todas las coincidencias exactas con límites de palabra (\b)
+            matches = list(phrase_pattern.finditer(document.normalized))
+            if not matches:
                 continue
 
-            score = 0.0
-            if raw_occurrences:
-                score += raw_occurrences * 50  # Máxima prioridad para coincidencia exacta
-            if flexible_matches:
-                score += len(flexible_matches) * 40
-            if all_tokens_present and not is_exact:
-                score += 25
+            occurrences = len(matches)
+            score = occurrences * 50.0
 
-            first_position = document.normalized.find(normalized_query)
-            if first_position < 0 and flexible_matches:
-                first_position = flexible_matches[0].start()
-            if first_position >= 0:
-                score += max(0, 5 - first_position / 1000)
+            # Priorizar documentos donde la coincidencia exacta aparece más arriba
+            first_position = matches[0].start()
+            score += max(0.0, 10.0 - (first_position / 500.0))
 
             ranked.append((score, document))
 

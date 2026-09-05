@@ -210,7 +210,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
     </div>
     <div class="input-wrap" style="flex:1;min-width:130px">
       <span class="iicon">📁</span>
-      <select id="selManual">
+      <select id="manual">
         <option value="">Todos los manuales</option>
         <option value="accessory">Accessory</option>
         <option value="beam physics">Beam Physics</option>
@@ -234,20 +234,23 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
         <option value="apuntes">Mis Apuntes</option>
       </select>
     </div>
-    <button id="btnBuscar" class="btn btn-primary" onclick="ejecutarBusqueda(true)">Buscar</button>
+    <button id="btnBuscar" class="btn btn-primary" onclick="buscar()">Buscar</button>
   </div>
-  <div id="metaBar">
-    <div class="meta-count">Resultados: <span id="resCount">0</span></div>
-    <div class="meta-mode" id="modeIndicator">Modo red</div>
+  <div id="metaBar" style="display:none">
+    <div class="meta-count">Se encontraron <span id="countNum">0</span> resultados</div>
+    <div class="meta-mode" id="modeTag">ONLINE</div>
   </div>
-  <div id="spinner" class="spinner-wrap" style="display:none"><div class="spinner"></div></div>
-  <div id="emptyState" class="state-box">
+  <div id="welcomeState" class="state-box">
     <div class="icon">📖</div>
     <h2>Buscador Técnico de Manuales</h2>
     <p>Busca interlocks, códigos de error, tarjetas PCB, cables y esquemas técnicos.</p>
   </div>
+  <div id="spinnerState" style="display:none"><div class="spinner-wrap"><div class="spinner"></div></div></div>
+  <div id="emptyState" class="state-box" style="display:none">
+    <div class="icon">🔎</div><p>No se encontraron resultados.<br>Intenta con otra palabra clave.</p>
+  </div>
   <div id="resultsList"></div>
-  <button id="btnMore" class="btn btn-ghost load-more" onclick="cargarMasResultados()">Cargar más</button>
+  <button id="btnMasResultados" class="btn btn-ghost load-more" onclick="cargarMasResultados()" style="display:none">Ver más resultados</button>
   <div id="offlineInfo" class="offline-info" style="display:none"></div>
 </div>
 

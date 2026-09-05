@@ -49,6 +49,28 @@ class GraphEngineTests(unittest.TestCase):
         self.assertFalse(res["found"])
         self.assertEqual(res["reason"], "no_entities_resolved")
 
+    def test_natural_language_symptom_resolution(self):
+        import json
+        from search_engine import SearchEngine
+        manuals_path = ROOT / "data" / "all_manuals.json"
+        if manuals_path.exists():
+            with manuals_path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            se = SearchEngine(data)
+            # Prueba con los síntomas en lenguaje natural reportados por el usuario
+            t_dose = self.engine.trace_circuit(["dose rate mon"], search_engine=se)
+            self.assertTrue(t_dose["found"], "Debe resolver 'dose rate mon' mediante contexto en manuales")
+            self.assertGreaterEqual(len(t_dose["pcbs"]), 1)
+
+            t_ht2 = self.engine.trace_circuit(["check fail ht2"], search_engine=se)
+            self.assertTrue(t_ht2["found"], "Debe resolver 'check fail ht2' mediante contexto en manuales")
+            self.assertIn("PCB DIE ICB", t_ht2["pcbs"])
+
+            t_both = self.engine.trace_circuit(["dose rate mon", "check fail ht2"], search_engine=se)
+            self.assertTrue(t_both["found"])
+            self.assertIn("PCB DIE ICB", t_both["pcbs"])
+            self.assertIn("->", t_both["trace_diagram"])
+
     def test_graph_traversal_speed_benchmark(self):
         start = time.perf_counter()
         iterations = 100

@@ -377,7 +377,7 @@ def diagnose_graph():
 
         from graph_engine import get_graph_engine
         engine = get_graph_engine()
-        result = engine.trace_circuit(symptoms)
+        result = engine.trace_circuit(symptoms, search_engine=search_engine)
         result["r2_url"] = R2_PUBLIC_URL
         return jsonify(result), 200
     except ValidationError as val_err:

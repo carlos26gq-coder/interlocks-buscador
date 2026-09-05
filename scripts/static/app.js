@@ -87,12 +87,21 @@ function esc(s) {
 }
 function hi(txt, kw) {
     if (!kw) return esc(txt);
-    const terms = [...new Set(String(kw).trim().split(/\s+/).filter(Boolean))]
-        .sort((a,b) => b.length-a.length)
-        .map(term => term.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"));
-    if (!terms.length) return esc(txt);
-    const re = new RegExp(terms.join("|"),"gi");
-    return esc(txt).replace(re, m => "<mark>"+m+"</mark>");
+    const rawTerms = [...new Set(String(kw).trim().split(/\s+/).filter(Boolean))];
+    if (!rawTerms.length) return esc(txt);
+
+    const escapedTxt = esc(txt);
+    const escapedFull = rawTerms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[\\W_]+");
+    const phraseRe = new RegExp("\\b" + escapedFull + "\\b", "gi");
+    if (phraseRe.test(escapedTxt)) {
+        return escapedTxt.replace(phraseRe, m => "<mark>" + m + "</mark>");
+    }
+
+    const escapedWords = rawTerms
+        .sort((a, b) => b.length - a.length)
+        .map(term => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const wordRe = new RegExp("\\b(?:" + escapedWords.join("|") + ")\\b", "gi");
+    return escapedTxt.replace(wordRe, m => "<mark>" + m + "</mark>");
 }
 function toast(msg, tipo) {
     document.querySelectorAll(".toast").forEach(t => t.remove());
@@ -312,9 +321,7 @@ function resaltarEnPdf(pdfPage, viewport, canvas) {
                         // Verificar límites de palabra para no subrayar subcadenas falsas
                         const charBefore = idx > 0 ? itemStr[idx - 1] : " ";
                         const charAfter = (idx + term.length < itemStr.length) ? itemStr[idx + term.length] : " ";
-                        const isWordBoundary = /[\s\W_]/.test(charBefore) && /[\s\W_]/.test(charAfter);
-
-                        if (isWordBoundary || term === rawQuery) {
+                        if (isWordBoundary) {
                             // Calcular exactamente la posición y ancho de la palabra buscada dentro del bloque
                             const startFraction = idx / strLen;
                             const widthFraction = Math.min(term.length, strLen - idx) / strLen;

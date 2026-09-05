@@ -45,12 +45,27 @@ class SearchEngineTests(unittest.TestCase):
         self.assertEqual(len(result["results"]), 1)
         self.assertTrue(result["has_more"])
 
-    def test_partial_word_search_keeps_previous_behavior(self):
-        result = self.engine.search("interl", limit=10)
-        self.assertEqual(result["total"], 2)
+    def test_exact_word_search_rejects_partial_fragments_and_substrings(self):
+        # Rechaza fragmentos parciales ("interl" no es una palabra completa)
+        result_partial = self.engine.search("interl", limit=10)
+        self.assertEqual(result_partial["total"], 0, "No debe coincidir con palabras parciales")
 
-        phrase_result = self.engine.search("dose rate mon", limit=10)
+        # Coincide con la palabra completa exacta ("interlock")
+        result_exact = self.engine.search("interlock", limit=10)
+        self.assertEqual(result_exact["total"], 2)
+
+        # No coincide con subcadenas falsas ("art" dentro de "Restart" en pág 11)
+        result_art = self.engine.search("art", limit=10)
+        self.assertEqual(result_art["total"], 0, "No debe coincidir con 'art' dentro de 'Restart'")
+
+        # Frase exacta completa
+        phrase_result = self.engine.search("dose rate monitor", limit=10)
         self.assertEqual(phrase_result["total"], 1)
+
+    def test_multi_word_search_prevents_scattered_false_positives(self):
+        # Términos dispersos en documentos distintos sin formar frase técnica
+        scattered_res = self.engine.search("vacuum leaf", limit=10)
+        self.assertEqual(scattered_res["total"], 0, "Términos dispersos no deben coincidir como frase")
 
     def test_search_tolerates_punctuation_between_terms(self):
         result = self.engine.search("error 66", limit=10)

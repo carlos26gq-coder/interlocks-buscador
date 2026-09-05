@@ -38,7 +38,7 @@ class GraphEngine:
         self.adjacency: dict[str, list] = graph_data.get("adjacency", {})
         self.lookup: dict[str, str] = graph_data.get("lookup", {})
 
-    def resolve_entity(self, text: str) -> str | None:
+    def resolve_entity(self, text: str, search_engine: Any = None) -> str | None:
         """Resuelve un texto de síntoma o consulta a un ID canónico del grafo."""
         clean = _clean_key(text)
         if not clean:
@@ -77,6 +77,29 @@ class GraphEngine:
                 if cand in self.entities:
                     return cand
 
+        # 4. Coincidencia por subcadena en entidades (ej: "dose rate" -> "D_RATE 1")
+        for ent_id in self.entities:
+            ent_clean = _clean_key(ent_id)
+            if (len(clean) >= 4 and clean in ent_clean) or (len(ent_clean) >= 4 and ent_clean in clean):
+                return ent_id
+
+        # 5. Búsqueda contextual en los manuales para mapear síntomas en lenguaje natural a hardware
+        if search_engine is not None:
+            try:
+                s_res = search_engine.search(text, limit=3)
+                cands = []
+                for r in s_res.get("results", []):
+                    m, p = r.get("manual", ""), r.get("page", 0)
+                    for ent_id, ent in self.entities.items():
+                        if [m, p] in ent.get("pages", []):
+                            t_weight = 3 if ent.get("type") == "pcb" else (2 if ent.get("type") == "signal" else 1)
+                            cands.append((t_weight, ent_id))
+                if cands:
+                    cands.sort(key=lambda x: -x[0])
+                    return cands[0][1]
+            except Exception:
+                pass
+
         return None
 
     def find_shortest_path(self, start_id: str, target_id: str, max_depth: int = 4) -> list[dict] | None:
@@ -109,15 +132,43 @@ class GraphEngine:
 
         return None
 
-    def trace_circuit(self, symptoms: list[str]) -> dict[str, Any]:
+    def trace_circuit(self, symptoms: list[str], search_engine: Any = None) -> dict[str, Any]:
         """Calcula la traza física de circuito que conecta los síntomas ingresados."""
         resolved_nodes: list[str] = []
         for s in symptoms:
-            node_id = self.resolve_entity(s)
+            node_id = self.resolve_entity(s, search_engine=search_engine)
             if node_id and node_id not in resolved_nodes:
                 resolved_nodes.append(node_id)
 
+        # Si no se resolvió ningún nodo directamente, intentar buscar en manuales para obtener páginas de esquemas
         if not resolved_nodes:
+            fallback_pages = []
+            if search_engine is not None:
+                for s in symptoms:
+                    try:
+                        s_res = search_engine.search(s, limit=2)
+                        for r in s_res.get("results", []):
+                            ref = f"{r.get('manual', '')} (Pág {r.get('page', 0)})"
+                            if ref not in fallback_pages:
+                                fallback_pages.append(ref)
+                    except Exception:
+                        pass
+
+            if fallback_pages:
+                return {
+                    "found": True,
+                    "hub_node": "Conexión Técnica en Manuales",
+                    "resolved_nodes": symptoms,
+                    "trace_diagram": " -> ".join(symptoms[:3]),
+                    "pcbs": [],
+                    "cables": [],
+                    "connectors": [],
+                    "test_points": [],
+                    "areas": [],
+                    "manual_references": fallback_pages[:6],
+                    "confidence": "media",
+                }
+
             return {"found": False, "reason": "no_entities_resolved", "resolved_nodes": []}
 
         # Caso A: Múltiples nodos resueltos -> Buscar nodo común / intersección de caminos
@@ -212,6 +263,18 @@ class GraphEngine:
         manual_refs = []
 
         ent_info = self.entities.get(single, {})
+        stype = ent_info.get("type", "")
+        if stype == "pcb":
+            pcbs.append(single)
+        elif stype == "cable":
+            cables.append(single)
+        elif stype == "connector":
+            connectors.append(single)
+        elif stype == "test_point":
+            test_points.append(single)
+        elif stype == "area":
+            areas.append(single)
+
         for man, pg in ent_info.get("pages", []):
             manual_refs.append(f"{man} (Pág {pg})")
 
@@ -232,11 +295,14 @@ class GraphEngine:
             if ref_str not in manual_refs and len(manual_refs) < 6:
                 manual_refs.append(ref_str)
 
+        target_neigh = next((p for p in pcbs if p != single), None) or (neighbors[0][0] if neighbors else None)
+        trace_diag = f"{single} -> {target_neigh}" if target_neigh else f"{single} (Enfoque Directo)"
+
         return {
             "found": True,
             "hub_node": single,
             "resolved_nodes": [single],
-            "trace_diagram": f"{single} -> " + (pcbs[0] if pcbs else (neighbors[0][0] if neighbors else single)),
+            "trace_diagram": trace_diag,
             "pcbs": pcbs[:5],
             "cables": cables[:5],
             "connectors": connectors[:6],

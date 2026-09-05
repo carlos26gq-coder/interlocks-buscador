@@ -72,100 +72,61 @@ async function ensureManuals(manualFilter) {
 }
 
 function candidateIds(query, manualFilter) {
-    const terms = queryTokens(query);
-    let ids = new Set();
+    const terms = queryTokens(query).length ? queryTokens(query) : tokenize(query);
+    let ids = [];
     if (terms.length) {
         const termLists = [];
         for (const t of terms) {
             if (postings.has(t)) {
                 termLists.push(postings.get(t));
             } else {
-                // Prefijo para términos parciales
-                const pSet = [];
-                for (const [key, docList] of postings.entries()) {
-                    if (key.startsWith(t)) {
-                        for (let i = 0; i < docList.length; i++) pSet.push(docList[i]);
-                    }
-                }
-                if (pSet.length) termLists.push(pSet);
+                // Si alguna palabra exacta no existe en los manuales, no hay coincidencia exacta
+                return [];
             }
         }
 
-        if (!termLists.length) {
-            ids = new Set(documents.map(d => d.id));
-        } else {
-            termLists.sort((a, b) => a.length - b.length);
-            let intersection = new Set(termLists[0]);
-            for (let i = 1; i < termLists.length; i++) {
-                const nextSet = new Set(termLists[i]);
-                intersection = new Set([...intersection].filter(id => nextSet.has(id)));
-                if (!intersection.size) break;
-            }
-            if (intersection.size) {
-                ids = intersection;
-            } else {
-                for (const list of termLists) {
-                    for (let i = 0; i < list.length; i++) ids.add(list[i]);
-                }
-            }
+        termLists.sort((a, b) => a.length - b.length);
+        let intersection = new Set(termLists[0]);
+        for (let i = 1; i < termLists.length; i++) {
+            const nextSet = new Set(termLists[i]);
+            intersection = new Set([...intersection].filter(id => nextSet.has(id)));
+            if (!intersection.size) break;
         }
+        ids = [...intersection];
     } else {
-        ids = new Set(documents.map(d => d.id));
+        ids = documents.map(d => d.id);
     }
     if (manualFilter) {
         const allowed = new Set(manuals.get(manualFilter) || []);
-        ids = new Set([...ids].filter(id => allowed.has(id)));
+        ids = ids.filter(id => allowed.has(id));
     }
-    return [...ids];
+    return ids;
+}
+
+function phrasePattern(query) {
+    const parts = tokenize(query);
+    if (!parts.length) return null;
+    const escaped = parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const sep = "(?:[\\W_]+|[\\W_]+(?:the|a|an|of|in|to|and|or|de|la|el|del|y|en)[\\W_]+)";
+    return new RegExp("\\b" + escaped.join(sep) + "\\b", "gi");
 }
 
 function queryMatchInfo(document, query) {
     const text = document.normalized;
-    const normalizedQuery = normalize(query).trim();
-    const rawPosition = text.indexOf(normalizedQuery);
-    const parts = tokenize(query);
-    const qTokens = queryTokens(query);
+    const pattern = phrasePattern(query);
+    if (!pattern) return { matched: false, score: 0 };
 
-    let rawOccurrences = 0;
-    if (rawPosition >= 0) {
-        rawOccurrences = text.split(normalizedQuery).length - 1;
-    }
-
-    let flexibleMatches = 0;
-    let firstFlexiblePos = -1;
-    if (parts.length) {
-        const escaped = parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-        const pattern = new RegExp("\\b" + escaped.join("[\\W_]+") + "\\b", "g");
-        const matches = [...text.matchAll(pattern)];
-        flexibleMatches = matches.length;
-        if (flexibleMatches) firstFlexiblePos = matches[0].index;
-    }
-
-    const tokenHits = qTokens.filter(t => {
-        if (!document.tokenSet) return false;
-        if (document.tokenSet.has(t)) return true;
-        for (const dt of document.tokenSet) {
-            if (dt.startsWith(t)) return true;
-        }
-        return false;
-    });
-
-    const isExact = rawOccurrences > 0 || flexibleMatches > 0;
-    const allTokensPresent = (tokenHits.length === qTokens.length) && qTokens.length > 0;
-
-    // Regla de precisión: Coincidencia de frase O todos los términos presentes
-    if (!isExact && !allTokensPresent) {
+    const matches = [...text.matchAll(pattern)];
+    if (!matches.length) {
         return { matched: false, score: 0 };
     }
 
-    let score = 0;
-    if (rawOccurrences) score += rawOccurrences * 50;
-    if (flexibleMatches) score += flexibleMatches * 40;
-    if (allTokensPresent && !isExact) score += 25;
+    const occurrences = matches.length;
+    let score = occurrences * 50;
 
-    let firstPos = rawPosition >= 0 ? rawPosition : firstFlexiblePos;
+    const firstPos = matches[0].index;
     if (firstPos >= 0) {
-        score += Math.max(0, 5 - firstPos / 1000);
+        score += Math.max(0, 10 - firstPos / 500);
     }
 
     return { matched: true, score };
@@ -177,14 +138,26 @@ function makeContext(text, query, before = 160, after = 320) {
         .replace(/\s+/g, " ").trim();
 
     const normalizedText = normalize(cleaned);
-    const normalizedQuery = normalize(query).trim();
-    let position = normalizedText.indexOf(normalizedQuery);
-    if (position < 0) {
-        const positions = queryTokens(query).map(token => normalizedText.indexOf(token)).filter(pos => pos >= 0);
-        position = positions.length ? Math.min(...positions) : 0;
+    const pattern = phrasePattern(query);
+    let position = -1;
+    let matchLen = query.length;
+
+    if (pattern) {
+        const m = pattern.exec(normalizedText);
+        if (m) {
+            position = m.index;
+            matchLen = m[0].length;
+        }
     }
+
+    if (position < 0) {
+        const normQuery = normalize(query).trim();
+        position = normalizedText.indexOf(normQuery);
+        if (position < 0) position = 0;
+    }
+
     const start = Math.max(0, position - before);
-    const end = Math.min(cleaned.length, position + Math.max(normalizedQuery.length, 1) + after);
+    const end = Math.min(cleaned.length, position + Math.max(matchLen, 1) + after);
     let context = cleaned.substring(start, end).trim();
     if (start > 0) context = "... " + context;
     if (end < cleaned.length) context += " ...";
@@ -640,6 +613,37 @@ async function diagnoseGraphOffline(payload) {
                 if (graph.entities && graph.entities[cand]) return cand;
             }
         }
+        // 3. Coincidencia por subcadena en entidades
+        for (const entId in graph.entities) {
+            const entClean = cleanKey(entId);
+            if ((clean.length >= 4 && entClean.includes(clean)) || (entClean.length >= 4 && clean.includes(entClean))) {
+                return entId;
+            }
+        }
+
+        // 4. Búsqueda contextual en documentos offline
+        if (documents && documents.length) {
+            const cIds = candidateIds(text, "");
+            const cands = [];
+            for (let i = 0; i < Math.min(cIds.length, 3); i++) {
+                const doc = documents[cIds[i]];
+                if (!doc) continue;
+                for (const entId in graph.entities) {
+                    const pages = graph.entities[entId].pages || [];
+                    for (let p = 0; p < pages.length; p++) {
+                        if (pages[p][0] === doc.manual && pages[p][1] === doc.page) {
+                            const tWeight = graph.entities[entId].type === "pcb" ? 3 : (graph.entities[entId].type === "signal" ? 2 : 1);
+                            cands.push({ id: entId, weight: tWeight });
+                        }
+                    }
+                }
+            }
+            if (cands.length) {
+                cands.sort((a, b) => b.weight - a.weight);
+                return cands[0].id;
+            }
+        }
+
         return null;
     }
 
@@ -649,7 +653,38 @@ async function diagnoseGraphOffline(payload) {
         if (nid && !resolvedNodes.includes(nid)) resolvedNodes.push(nid);
     }
 
-    if (!resolvedNodes.length) return { found: false, reason: "no_entities_resolved", resolved_nodes: [] };
+    if (!resolvedNodes.length) {
+        // Fallback a páginas de manuales si no se resolvió entidad directa
+        const fallbackRefs = [];
+        if (documents && documents.length) {
+            for (const s of symptoms) {
+                const cIds = candidateIds(s, "");
+                for (let i = 0; i < Math.min(cIds.length, 2); i++) {
+                    const doc = documents[cIds[i]];
+                    if (doc) {
+                        const ref = doc.manual + " (Pág " + doc.page + ")";
+                        if (!fallbackRefs.includes(ref)) fallbackRefs.push(ref);
+                    }
+                }
+            }
+        }
+        if (fallbackRefs.length) {
+            return {
+                found: true,
+                hub_node: "Conexión Técnica en Manuales",
+                resolved_nodes: symptoms,
+                trace_diagram: symptoms.slice(0, 3).join(" -> "),
+                pcbs: [],
+                cables: [],
+                connectors: [],
+                test_points: [],
+                areas: [],
+                manual_references: fallbackRefs.slice(0, 6),
+                confidence: "media"
+            };
+        }
+        return { found: false, reason: "no_entities_resolved", resolved_nodes: [] };
+    }
 
     function findShortestPath(startId, targetId, maxDepth = 4) {
         if (!graph.adjacency[startId] || !graph.adjacency[targetId]) return null;
@@ -751,11 +786,15 @@ async function diagnoseGraphOffline(payload) {
         collectNodeHardware(neighs[i][0]);
     }
 
+    const otherPcb = pcbs.find(p => p !== single);
+    const targetNeigh = otherPcb || (neighs.length ? neighs[0][0] : null);
+    const traceDiag = targetNeigh ? (single + " -> " + targetNeigh) : (single + " (Enfoque Directo)");
+
     return {
         found: true,
         hub_node: single,
         resolved_nodes: [single],
-        trace_diagram: single + " -> " + (pcbs[0] || (neighs[0] ? neighs[0][0] : single)),
+        trace_diagram: traceDiag,
         pcbs: pcbs.slice(0, 5),
         cables: cables.slice(0, 5),
         connectors: connectors.slice(0, 6),
