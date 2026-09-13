@@ -235,21 +235,6 @@ def _token_specificity(token: str, postings: dict, total_docs: int) -> float:
     return 1.0
 
 
-def _code_near_any_label(text: str, value_tokens: set[str]) -> bool:
-    """Verifica si un código numérico aparece cerca de alguna etiqueta técnica."""
-    numeric_codes = [token for token in value_tokens if token.isdigit()]
-    if not numeric_codes:
-        return False
-    labels = r"interlock|inhibit|error|fault|alarm|code|item|i\d{1,4}|e\d{1,4}"
-    for code in numeric_codes:
-        code_pattern = rf"(?:i|e|item)?\s*{re.escape(code)}"
-        if re.search(rf"\b(?:{labels})\b[\W_]{{0,30}}\b{code_pattern}\b", text):
-            return True
-        if re.search(rf"\b{code_pattern}\b[\W_]{{0,30}}\b(?:{labels})\b", text):
-            return True
-    return False
-
-
 @dataclass(frozen=True)
 class IndexedDocument:
     manual: str

@@ -45,8 +45,18 @@ class AIServiceTests(unittest.TestCase):
 
     @patch("ai_service.genai.Client")
     def test_analyze_with_gemini_success_mock(self, mock_client_cls):
+        from ai_service import _DIAG_CACHE
+        _DIAG_CACHE.clear()
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
+        mock_resp = MagicMock()
+        mock_resp.text = '{"root_cause": "Falla en PCB 16N", "subsystem": "Gantry", "confidence": "alta", "explanation": "Prueba", "associated_boards": ["PCB 16N"], "cables_and_connectors": [], "test_points_and_signals": [], "manual_references": ["movement"], "action_steps": ["Paso 1"], "safety_warning": ""}'
+        mock_client.models.generate_content.return_value = mock_resp
+
+        res = analyze_with_gemini(["gantry rotation fault"], self.engine, api_key="fake-key")
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["data"]["root_cause"], "Falla en PCB 16N")
+
     def test_extract_json_safely(self):
         from ai_service import extract_json_safely
         raw = '''```json

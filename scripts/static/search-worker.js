@@ -12,6 +12,17 @@ const ACTION_WORDS = new Set([
     "corregir", "desconectar", "examinar", "inspeccionar", "reemplazar", "reiniciar",
     "restablecer", "verificar"
 ]);
+const DIAGNOSTIC_WORDS = new Set([
+    "interlock", "inhibit", "error", "fault", "alarm", "failure", "failed",
+    "calibration", "encoder", "motor", "beam", "dose", "mlc", "leaf", "gantry",
+    "collimator", "monitor", "sensor", "cable", "board", "driver", "power",
+    "supply", "voltage", "current", "temperature", "pressure", "vacuum",
+    "rf", "klystron", "modulator", "gun", "dose1", "dose2", "pcb", "card",
+    "tarjeta", "area", "module", "circuit", "switch", "relay", "valve"
+]);
+
+const MIN_RELATIVE_MATCH_DIAGNOSE = 25;
+const PDF_CONFIDENCE_THRESHOLD = 50;
 
 let catalog = null;
 const loadedManuals = new Set();
@@ -29,7 +40,7 @@ function tokenize(value) {
 
 function queryTokens(value) {
     return [...new Set(tokenize(value).filter(token =>
-        !STOP_WORDS.has(token) && (token.length >= 3 || /^\d+$/.test(token))
+        !STOP_WORDS.has(token) && (token.length >= 2 || /^\d+$/.test(token))
     ))];
 }
 
@@ -246,12 +257,12 @@ function codeNearLabel(text, field, valueTokens) {
 function codeNearAnyLabel(text, valueTokens) {
     const codes = [...valueTokens].filter(token => /^\d+$/.test(token));
     if (!codes.length) return false;
-    const labels = "(?:interlock|inhibit|error|fault|alarm|code)";
+    const labels = "(?:interlock|inhibit|error|fault|alarm|code|item|i\\d{1,4}|e\\d{1,4})";
     return codes.some(code => {
         const escapedCode = code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const codePattern = `(?:i|e)?\\s*${escapedCode}`;
-        return new RegExp(`\\b${labels}\\b[\\W_]{0,25}\\b${codePattern}\\b`).test(text) ||
-            new RegExp(`\\b${codePattern}\\b[\\W_]{0,25}\\b(?:interlock|inhibit|error|fault|alarm)\\b`).test(text);
+        const codePattern = `(?:i|e|item)?\\s*${escapedCode}`;
+        return new RegExp(`\\b${labels}\\b[\\W_]{0,30}\\b${codePattern}\\b`).test(text) ||
+            new RegExp(`\\b${codePattern}\\b[\\W_]{0,30}\\b${labels}\\b`).test(text);
     });
 }
 
@@ -268,9 +279,9 @@ async function diagnoseOffline(payload) {
 }
 
 function isNoisePage(normalizedText) {
-    if (normalizedText.substring(0, 500).includes("table of contents")) return true;
-    const dotDotCount = (normalizedText.substring(0, 500).match(/\. \. \./g) || []).length;
-    if (dotDotCount >= 3) return true;
+    if (normalizedText.substring(0, 400).includes("table of contents") && normalizedText.length < 400) return true;
+    const dotDotCount = (normalizedText.substring(0, 300).match(/\. \. \./g) || []).length;
+    if (dotDotCount >= 5) return true;
     return false;
 }
 
@@ -559,7 +570,11 @@ async function _diagnoseLegacyOffline(rawSignals) {
             signal_count: totalSignals
         })),
         signals: prepared.map(item => item.value),
-        message: selected.length && bestMatchedCount === totalSignals ? ""
+        message: selected.length && bestMatchedCount === totalSignals ? "" :
+            (selected.length > 1 ? "No todas las páginas reúnen todos los síntomas; se muestran las conexiones más relevantes." : "")
+    };
+}
+
 // ─── KNOWLEDGE GRAPH OFFLINE CIRCUIT TRACER (LAZY LOADED) ───────────────────
 let _graphData = null;
 let _graphLoadingPromise = null;
