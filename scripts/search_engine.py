@@ -118,9 +118,9 @@ def _best_line(text: str, signal_tokens: set[str]) -> str:
     return best[:140]
 
 
-def _extract_associated_components(text: str, signal_tokens: set[str]) -> str:
+def _extract_associated_components(text: str, signal_tokens: set[str] | None = None) -> str:
     """Extrae tarjetas (PCBs), módulos, áreas, cables, conectores, puntos de prueba e ITEMs técnicos."""
-    cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", text)
+    cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", str(text or "")[:12000])
 
     # 1. Items y Números de Parte (Elekta 12NC y códigos ITEM)
     items: list[str] = []
@@ -469,7 +469,7 @@ class SearchEngine:
                 "message": "No se encontraron relaciones directas en los manuales para las señales ingresadas.",
             }
 
-        max_score = selected[0][0]
+        max_score = max(selected[0][0], 1.0)
         total_signals = len(prepared)
         results = []
 

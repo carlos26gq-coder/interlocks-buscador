@@ -291,7 +291,7 @@ function tokenFrequency(token) {
 }
 
 function extractAssociatedComponents(text) {
-    const cleaned = text.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
+    const cleaned = String(text || "").slice(0, 12000).replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
 
     // 1. Items y Números de Parte
     const itemMatches = cleaned.match(/\b(?:ITEM\s*\d+|P\/N\s*[A-Z0-9\-]+|PART\s*NO\.?\s*[A-Z0-9\-]+|45\d{2}[\s\-]?\d{3}[\s\-]?\d{4,5})\b/gi) || [];
@@ -443,7 +443,7 @@ async function _diagnoseSymptomsOffline(symptomList) {
         message: "No se encontraron relaciones directas en los manuales para las señales ingresadas."
     };
 
-    const maxScore = selected[0].score;
+    const maxScore = (selected.length && selected[0].score > 0) ? selected[0].score : 1.0;
     const totalSignals = prepared.length;
     const results = [];
 
@@ -554,7 +554,7 @@ async function _diagnoseLegacyOffline(rawSignals) {
         selected.push({ ...item, title });
         if (selected.length >= 6) break;
     }
-    const maxScore = selected.length ? selected[0].score : 1;
+    const maxScore = (selected.length && selected[0].score > 0) ? selected[0].score : 1;
     const totalSignals = prepared.length;
     const bestMatchedCount = selected.reduce((best, item) => Math.max(best, item.matchedSignals.length), 0);
     return {
@@ -587,6 +587,18 @@ async function ensureGraphData() {
             const res = await fetch("/static/linac_graph.json");
             if (!res.ok) throw new Error("No se pudo cargar el grafo de conocimiento: " + res.status);
             _graphData = await res.json();
+            if (_graphData && _graphData.entities) {
+                const pageMap = new Map();
+                for (const entId in _graphData.entities) {
+                    const pages = _graphData.entities[entId].pages || [];
+                    for (let p = 0; p < pages.length; p++) {
+                        const key = pages[p][0] + "|" + pages[p][1];
+                        if (!pageMap.has(key)) pageMap.set(key, []);
+                        pageMap.get(key).push(entId);
+                    }
+                }
+                _graphData.pageMap = pageMap;
+            }
             return _graphData;
         } catch (e) {
             _graphLoadingPromise = null;
@@ -596,10 +608,190 @@ async function ensureGraphData() {
     return _graphLoadingPromise;
 }
 
+// ─── CIRCUIT SCHEMATICS OFFLINE MATCHER (LAZY LOADED) ──────────────────────
+let _schematicsData = null;
+let _schematicsLoadingPromise = null;
+
+async function ensureSchematicsData() {
+    if (_schematicsData) return _schematicsData;
+    if (_schematicsLoadingPromise) return _schematicsLoadingPromise;
+    _schematicsLoadingPromise = (async () => {
+        try {
+            const res = await fetch("/static/circuit_schematics.json");
+            if (!res.ok) return null;
+            _schematicsData = await res.json();
+            return _schematicsData;
+        } catch (e) {
+            _schematicsLoadingPromise = null;
+            return null;
+        }
+    })();
+    return _schematicsLoadingPromise;
+}
+
+const _SUB_KEYWORDS_OFFLINE = {
+    radiation_beam: [/\b(radiaci[oó]n|radiation|modulador|modulator|tiratron|thyratron|magnetron|pfn|rf|klistron|klystron)\b/i],
+    safety_loop: [/\b(seguridad|safety|bucle|loop|e-stop|estop|parada|puerta|door|colisi[oó]n|collision)\b/i],
+    dosimetry: [/\b(dosimetr[ií]a|dosimetry|dosis|dose|c[aá]mara|chamber|d_rate|d-rate|unidades|mu)\b/i],
+    gantry_collimator: [/\b(gantry|colimador|collimator|rotaci[oó]n|rotation|servo|encoder|dinamo|taquim[eé]trica|tacho|brake|freno)\b/i],
+    vacuum_gun: [/\b(vac[ií]o|vacuum|cañ[oó]n|canon|gun|vacion|vac-ion|filamento|filament|c[aá]todo|cathode|emisi[oó]n)\b/i]
+};
+
+const _GENERIC_MATCH_WORDS_OFFLINE = new Set([
+    "interlock", "intlk", "item", "cable", "pcb", "rele", "relay", "punto", "prueba",
+    "test", "point", "linea", "line", "para", "falla", "error", "alarma", "desde",
+    "hacia", "circuito", "bucle", "switch", "sensor", "fuente", "supply", "board"
+]);
+
+function _matchesNameWordsOffline(term, node) {
+    const termWords = String(term).toLowerCase().split(/\W+/).filter(w => w.length >= 4 && !_GENERIC_MATCH_WORDS_OFFLINE.has(w));
+    const nameWords = String(node.name || "").toLowerCase().split(/\W+/).filter(w => w.length >= 4 && !_GENERIC_MATCH_WORDS_OFFLINE.has(w));
+    const codeWords = String(node.code || "").toLowerCase().split(/\W+/).filter(w => w.length >= 4 && !_GENERIC_MATCH_WORDS_OFFLINE.has(w));
+    const allWords = nameWords.concat(codeWords);
+    for (const tw of termWords) {
+        for (const nw of allWords) {
+            if (tw === nw || (tw.length >= 5 && (tw.includes(nw) || nw.includes(tw)))) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function _getNodePatternsOffline(node) {
+    const pats = new Set();
+    const nid = String(node.id || "").toUpperCase().replace(/[\W_]+/g, "");
+    const code = String(node.code || "").toUpperCase().replace(/[\W_]+/g, "");
+    if (nid) pats.add(nid);
+    if (code) pats.add(code);
+
+    const fullStr = `${node.code || ""} ${node.id || ""} ${node.spec || ""}`;
+    const mItem = fullStr.match(/\bITEM_?(\d+)\b/i);
+    if (mItem) {
+        const num = mItem[1];
+        pats.add("ITEM" + num);
+        pats.add("INTERLOCK" + num);
+        pats.add("INTLK" + num);
+        pats.add(num);
+    }
+    const mIntlk = fullStr.match(/\b(?:INTERLOCK|INTLK)_?(\d+)\b/i);
+    if (mIntlk) {
+        const num = mIntlk[1];
+        pats.add("INTERLOCK" + num);
+        pats.add("INTLK" + num);
+        pats.add("ITEM" + num);
+        pats.add(num);
+    }
+    const mPcb = fullStr.match(/\bPCB_?(\w+)\b/i);
+    if (mPcb) {
+        pats.add("PCB" + mPcb[1].toUpperCase());
+        pats.add(mPcb[1].toUpperCase());
+    }
+    const mRelay = fullStr.match(/\bK\d+\b/i);
+    if (mRelay) {
+        pats.add(mRelay[0].toUpperCase());
+        pats.add("RELAY" + mRelay[0].toUpperCase());
+    }
+    return pats;
+}
+
+async function matchSubsystemForTraceOffline(components) {
+    if (!components || !components.length) {
+        return { subsystem_id: "safety_loop", matched_nodes: [] };
+    }
+    const schems = await ensureSchematicsData();
+    if (!schems) {
+        const compStr = components.join(" ").toLowerCase();
+        let sub = "safety_loop";
+        if (/\b(409|474|modulador|radiaci[oó]n|radiation|tiratron|magnetron|rf|pfn|pcb\s*22)\b/i.test(compStr)) sub = "radiation_beam";
+        else if (/\b(dosis|dose|camara|chamber|d_rate|327|332|66|pcb\s*17|pcb\s*18)\b/i.test(compStr)) sub = "dosimetry";
+        else if (/\b(gantry|colimador|collimator|motor|encoder|215|servo|pcb\s*25)\b/i.test(compStr)) sub = "gantry_collimator";
+        else if (/\b(vac[ií]o|vacuum|cañ[oó]n|canon|gun|112|118|vacion|pcb\s*14|pcb\s*12)\b/i.test(compStr)) sub = "vacuum_gun";
+        return { subsystem_id: sub, matched_nodes: [] };
+    }
+
+    const matchedBySub = {
+        safety_loop: [],
+        radiation_beam: [],
+        dosimetry: [],
+        gantry_collimator: [],
+        vacuum_gun: []
+    };
+
+    for (const sId in schems) {
+        const sub = schems[sId];
+        const nodes = sub.nodes || [];
+        for (const node of nodes) {
+            const pats = _getNodePatternsOffline(node);
+            for (const c of components) {
+                const cStr = String(c || "").trim();
+                if (!cStr) continue;
+                const normC = String(cStr).toUpperCase().replace(/[\W_]+/g, "");
+                let matched = false;
+                if (pats.has(normC)) {
+                    matched = true;
+                } else {
+                    for (const p of pats) {
+                        const escapedP = String(p).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                        if (p.length >= 3 && (p === normC || new RegExp("\\b" + escapedP + "\\b", "i").test(cStr))) {
+                            matched = true;
+                            break;
+                        }
+                    }
+                }
+                if (!matched && _matchesNameWordsOffline(cStr, node)) {
+                    matched = true;
+                }
+                if (matched && !matchedBySub[sId].includes(node.id)) {
+                    matchedBySub[sId].push(node.id);
+                }
+            }
+        }
+    }
+
+    const scores = {};
+    for (const sId in schems) {
+        scores[sId] = (matchedBySub[sId] || []).length * 10;
+    }
+    const fullText = components.map(c => String(c).toLowerCase()).join(" ");
+    for (const sId in _SUB_KEYWORDS_OFFLINE) {
+        for (const kw of _SUB_KEYWORDS_OFFLINE[sId]) {
+            if (kw.test(fullText)) {
+                scores[sId] = (scores[sId] || 0) + 5;
+            }
+        }
+    }
+
+    let bestSubsystem = "safety_loop";
+    let maxScore = -1;
+    for (const sId in scores) {
+        if (scores[sId] > maxScore) {
+            maxScore = scores[sId];
+            bestSubsystem = sId;
+        }
+    }
+
+    return {
+        subsystem_id: bestSubsystem,
+        matched_nodes: matchedBySub[bestSubsystem] || []
+    };
+}
+
 async function diagnoseGraphOffline(payload) {
     const graph = await ensureGraphData();
     const symptoms = Array.isArray(payload.symptoms) ? payload.symptoms : [];
     if (!symptoms.length) return { found: false, reason: "no_symptoms" };
+
+    async function finalizeTrace(res) {
+        if (!res || !res.found) return res;
+        const comps = [res.hub_node, ...(res.pcbs || []), ...(res.connectors || []), ...(res.test_points || []), ...symptoms];
+        try {
+            res.circuit_schematic = await matchSubsystemForTraceOffline(comps);
+        } catch (e) {
+            res.circuit_schematic = { subsystem_id: "safety_loop", matched_nodes: [] };
+        }
+        return res;
+    }
 
     function cleanKey(t) {
         return String(t || "").toLowerCase().replace(/[\W_]+/g, "");
@@ -637,20 +829,19 @@ async function diagnoseGraphOffline(payload) {
         }
 
         // 4. Búsqueda contextual en documentos offline
-        if (documents && documents.length) {
+        if (documents && documents.length && graph.pageMap) {
             const cIds = candidateIds(text, "");
             const cands = [];
             for (let i = 0; i < Math.min(cIds.length, 3); i++) {
                 const doc = documents[cIds[i]];
                 if (!doc) continue;
-                for (const entId in graph.entities) {
-                    const pages = graph.entities[entId].pages || [];
-                    for (let p = 0; p < pages.length; p++) {
-                        if (pages[p][0] === doc.manual && pages[p][1] === doc.page) {
-                            const tWeight = graph.entities[entId].type === "pcb" ? 3 : (graph.entities[entId].type === "signal" ? 2 : 1);
-                            cands.push({ id: entId, weight: tWeight });
-                        }
-                    }
+                const key = doc.manual + "|" + doc.page;
+                const matchingEnts = graph.pageMap.get(key) || [];
+                for (let k = 0; k < matchingEnts.length; k++) {
+                    const entId = matchingEnts[k];
+                    const ent = (graph.entities && graph.entities[entId]) || {};
+                    const tWeight = ent.type === "pcb" ? 3 : (ent.type === "signal" ? 2 : 1);
+                    cands.push({ id: entId, weight: tWeight });
                 }
             }
             if (cands.length) {
@@ -684,7 +875,7 @@ async function diagnoseGraphOffline(payload) {
             }
         }
         if (fallbackRefs.length) {
-            return {
+            return await finalizeTrace({
                 found: true,
                 hub_node: "Conexión Técnica en Manuales",
                 resolved_nodes: symptoms,
@@ -696,7 +887,7 @@ async function diagnoseGraphOffline(payload) {
                 areas: [],
                 manual_references: fallbackRefs.slice(0, 6),
                 confidence: "media"
-            };
+            });
         }
         return { found: false, reason: "no_entities_resolved", resolved_nodes: [] };
     }
@@ -778,7 +969,7 @@ async function diagnoseGraphOffline(payload) {
         for (const n of allNodes) collectNodeHardware(n);
 
         const traceSteps = paths.length ? paths[0].map(s => s.node) : resolvedNodes;
-        return {
+        return await finalizeTrace({
             found: true,
             hub_node: hubNode,
             resolved_nodes: resolvedNodes,
@@ -790,7 +981,7 @@ async function diagnoseGraphOffline(payload) {
             areas: areas.slice(0, 4),
             manual_references: manualRefs.slice(0, 6),
             confidence: paths.length ? "alta" : "media"
-        };
+        });
     }
 
     // 1 solo nodo
@@ -805,7 +996,7 @@ async function diagnoseGraphOffline(payload) {
     const targetNeigh = otherPcb || (neighs.length ? neighs[0][0] : null);
     const traceDiag = targetNeigh ? (single + " -> " + targetNeigh) : (single + " (Enfoque Directo)");
 
-    return {
+    return await finalizeTrace({
         found: true,
         hub_node: single,
         resolved_nodes: [single],
@@ -817,7 +1008,7 @@ async function diagnoseGraphOffline(payload) {
         areas: areas.slice(0, 4),
         manual_references: manualRefs.slice(0, 6),
         confidence: "alta"
-    };
+    });
 }
 
 self.onmessage = async event => {

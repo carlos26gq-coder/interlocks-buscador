@@ -235,8 +235,8 @@ class MassiveSOLVITestSuite(unittest.TestCase):
 
         # 3. PWA Assets
         for path in ["/manifest.json", "/sw.js", "/data/linac_graph.json", "/data/search/catalog.json"]:
-            r = self.client.get(path)
-            self.assertEqual(r.status_code, 200, f"Error cargando activo {path}")
+            with self.client.get(path) as r:
+                self.assertEqual(r.status_code, 200, f"Error cargando activo {path}")
 
         # 4. Search endpoint con paginación
         with self.client.get("/search?q=item+409&limit=5&offset=0") as r_search:
@@ -246,11 +246,11 @@ class MassiveSOLVITestSuite(unittest.TestCase):
             self.assertLessEqual(len(s_data["results"]), 5)
 
         # 5. Diagnose endpoint con array de síntomas
-        r_diag = self.client.post("/diagnose", json={"symptoms": ["dose rate mon", "ITEM 327"]})
-        self.assertEqual(r_diag.status_code, 200)
-        d_data = r_diag.get_json()
-        self.assertIn("results", d_data)
-        self.assertGreater(len(d_data["results"]), 0)
+        with self.client.post("/diagnose", json={"symptoms": ["dose rate mon", "ITEM 327"]}) as r_diag:
+            self.assertEqual(r_diag.status_code, 200)
+            d_data = r_diag.get_json()
+            self.assertIn("results", d_data)
+            self.assertGreater(len(d_data["results"]), 0)
 
         # 6. Diagnose graph endpoint
         r_graph = self.client.post("/diagnose/graph", json={"symptoms": ["ITEM 409", "ITEM 332"]})

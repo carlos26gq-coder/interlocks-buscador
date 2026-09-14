@@ -1,9 +1,11 @@
-// SOLVI Service Worker v24 — aplicación e índices offline por manual + grafo de conocimiento.
-const CACHE = "solvi-v24";
+// SOLVI Service Worker v25 — aplicación, índices offline y esquemas de circuitos SVG.
+const CACHE = "solvi-v25";
 const CORE = [
     "/",
     "/manifest.json",
     "/static/app.js",
+    "/static/circuit-visualizer.js",
+    "/static/circuit_schematics.json",
     "/static/search-worker.js",
     "/static/linac_graph.json",
     "/static/icon-192.png",
@@ -78,6 +80,7 @@ self.addEventListener("fetch", event => {
 
     if (url.pathname.startsWith("/search") ||
         url.pathname.startsWith("/diagnose") ||
+        url.pathname.startsWith("/circuits") ||
         url.pathname.startsWith("/notes") ||
         url.pathname.startsWith("/admin") ||
         url.pathname.startsWith("/health") ||

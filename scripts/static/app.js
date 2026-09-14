@@ -18,25 +18,58 @@ window.addEventListener("offline", actualizarRed);
 actualizarRed();
 
 // ─── DATOS ───────────────────────────────────────────────
-let _r2url = localStorage.getItem("r2url") || "";
+let _r2url = localStorage.getItem("r2url") || (typeof window !== "undefined" && window._INITIAL_R2_URL) || "";
+if (_r2url && !localStorage.getItem("r2url")) { try { localStorage.setItem("r2url", _r2url); } catch (_e) {} }
 let _workerSequence = 0;
 const _workerPending = new Map();
-const _searchWorker = new Worker("/static/search-worker.js");
+let _searchWorker = null;
+try {
+    if (typeof Worker !== "undefined") {
+        _searchWorker = new Worker("/static/search-worker.js");
+        _searchWorker.onmessage = event => {
+            const pending = _workerPending.get(event.data.id);
+            if (!pending) return;
+            _workerPending.delete(event.data.id);
+            if (event.data.ok) pending.resolve(event.data.data);
+            else pending.reject(new Error(event.data.error || "Error en la búsqueda offline"));
+        };
+        _searchWorker.onerror = err => {
+            console.error("Error en Search Worker offline:", err);
+            for (const [id, pending] of _workerPending.entries()) {
+                pending.reject(new Error("Fallo en la ejecución del worker offline"));
+            }
+            _workerPending.clear();
+        };
+    }
+} catch (err) {
+    console.warn("No se pudo iniciar el worker offline:", err);
+}
 let _searchState = { query:"", manual:"", offset:0, limit:25, total:0, hasMore:false, mode:"offline" };
 let _highlightQuery = "";  // palabra/s buscada/s para resaltar en el visor PDF
 
-_searchWorker.onmessage = event => {
-    const pending = _workerPending.get(event.data.id);
-    if (!pending) return;
-    _workerPending.delete(event.data.id);
-    if (event.data.ok) pending.resolve(event.data.data);
-    else pending.reject(new Error(event.data.error || "Error en la búsqueda offline"));
-};
-
 function workerRequest(type, payload) {
     return new Promise((resolve, reject) => {
+        if (!_searchWorker) {
+            return reject(new Error("Worker offline no disponible en este entorno"));
+        }
+        // Evitar fuga de memoria por acumulación de peticiones pendientes bajo ráfagas intensas
+        if (_workerPending.size > 50) {
+            for (const [oldId, oldPending] of _workerPending.entries()) {
+                oldPending.reject(new Error("Petición offline descartada por sobrecarga"));
+                _workerPending.delete(oldId);
+            }
+        }
         const id = ++_workerSequence;
-        _workerPending.set(id, {resolve, reject});
+        const timer = setTimeout(() => {
+            if (_workerPending.has(id)) {
+                _workerPending.delete(id);
+                reject(new Error("Tiempo de espera del proceso offline excedido"));
+            }
+        }, 15000);
+        _workerPending.set(id, {
+            resolve: val => { clearTimeout(timer); resolve(val); },
+            reject: err => { clearTimeout(timer); reject(err); }
+        });
         _searchWorker.postMessage({id, type, payload});
     });
 }
@@ -134,7 +167,9 @@ function cargarPdfJs(cb) {
 function verPDF(manual, page, keyword) {
     if (!_r2url) { toast("⚠️ PDFs no configurados","err"); return; }
     _highlightQuery = (keyword || "").trim();
-    const pdfUrl = _r2url + "/" + encodeURIComponent(manual + ".pdf");
+    const cleanManual = String(manual || "").trim();
+    const pdfFile = cleanManual.toLowerCase().endsWith(".pdf") ? cleanManual : (cleanManual + ".pdf");
+    const pdfUrl = _r2url + "/" + encodeURIComponent(pdfFile);
     
     const pageInt = parseInt(page, 10) || 1;
 
@@ -168,6 +203,15 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
         modal.style.cssText =
             "position:fixed;inset:0;z-index:9999;background:#1a1a2e;display:flex;flex-direction:column;";
         document.body.appendChild(modal);
+    }
+
+    if (window._pdfRenderTask) {
+        try { window._pdfRenderTask.cancel(); } catch (_e) {}
+        window._pdfRenderTask = null;
+    }
+    if (window._pdfDoc) {
+        try { window._pdfDoc.destroy(); } catch (_e) {}
+        window._pdfDoc = null;
     }
     
     modal.innerHTML =
@@ -321,6 +365,7 @@ function resaltarEnPdf(pdfPage, viewport, canvas) {
                         // Verificar límites de palabra para no subrayar subcadenas falsas
                         const charBefore = idx > 0 ? itemStr[idx - 1] : " ";
                         const charAfter = (idx + term.length < itemStr.length) ? itemStr[idx + term.length] : " ";
+                        const isWordBoundary = !/[a-z0-9]/i.test(charBefore) && !/[a-z0-9]/i.test(charAfter);
                         if (isWordBoundary) {
                             // Calcular exactamente la posición y ancho de la palabra buscada dentro del bloque
                             const startFraction = idx / strLen;
@@ -358,6 +403,8 @@ function cerrarVisorPDF() {
     if (canvas) {
         canvas.width = 1;
         canvas.height = 1;
+        canvas.dataset.zoomInitialized = "";
+        canvas.dataset.currentZoom = "1";
     }
     if (window._pdfDoc) {
         try { window._pdfDoc.destroy(); } catch (_e) {}
@@ -371,6 +418,8 @@ function activarZoomCanvas() {
     const canvas = document.getElementById("pdfCanvas");
     const container = document.getElementById("pdfScroll");
     if (!canvas || !container) return;
+    if (canvas.dataset.zoomInitialized === "true") return;
+    canvas.dataset.zoomInitialized = "true";
 
     let currentZoom = 1;
     let initialDistance = null;
@@ -667,7 +716,7 @@ const SYMPTOM_HINTS = [
 
 function _setupSymptomEnter(input) {
     input.addEventListener("keydown", e => {
-        if (e.key === "Enter") { e.preventDefault(); analizarDiagnostico(); }
+        if (e.key === "Enter") { e.preventDefault(); ejecutarTrazaGrafo(); }
     });
 }
 
@@ -773,7 +822,7 @@ function renderTrazaGrafo(data, symptoms) {
             '<div class="diagnostic-card" style="border-left-color:var(--muted)">' +
                 '<span class="graph-badge" style="background:rgba(255,255,255,.05);color:var(--muted);border-color:var(--border)">TRAZA DE CIRCUITO</span>' +
                 '<h3 style="color:#94a3b8;font-size:.85rem;margin:6px 0">No se detectaron conexiones físicas directas en el grafo</h3>' +
-                '<p style="font-size:.76rem;color:var(--muted)">Intenta con códigos específicos (ej: ITEM 409, D_RATE 1, Interlock 283) o usa el Diagnóstico Causal IA.</p>' +
+                '<p style="font-size:.76rem;color:var(--muted)">Intenta con códigos específicos (ej: ITEM 409, D_RATE 1, Interlock 283) o usa el Diagnóstico Causal Avanzado.</p>' +
             '</div>';
         return;
     }
@@ -837,8 +886,39 @@ function renderTrazaGrafo(data, symptoms) {
                     '<div class="diag-chips" style="gap:8px">' + manualsChips + '</div>' +
                 '</div>'
             : '') +
+            '<div style="margin-top:14px;border-top:1px solid rgba(0,212,255,.2);padding-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+                '<button class="btn btn-primary btn-sm" onclick="abrirEnEsquemaSvg()" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25)">' +
+                    '<span>⚡</span> Ver en Esquema SVG (Visualizador Interactivo)' +
+                '</button>' +
+                '<span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Resalta ruta activa en planos vectoriales</span>' +
+            '</div>' +
         '</div>';
     container.style.display = "block";
+    _ultimoResultadoGrafo = data;
+}
+
+let _ultimoResultadoGrafo = null;
+function abrirEnEsquemaSvg(traceData) {
+    const data = traceData || _ultimoResultadoGrafo;
+    if (!data) {
+        toast("No hay traza activa para visualizar", "err");
+        return;
+    }
+    if (typeof window.irA === "function") {
+        window.irA("Circuits");
+    } else if (typeof irA === "function") {
+        irA("Circuits");
+    }
+    const applyTrace = () => {
+        if (window.CircuitVisualizer && typeof window.CircuitVisualizer.loadAndHighlightFromTrace === "function") {
+            window.CircuitVisualizer.loadAndHighlightFromTrace(data);
+        }
+    };
+    if (window.requestAnimationFrame) {
+        window.requestAnimationFrame(() => setTimeout(applyTrace, 40));
+    } else {
+        setTimeout(applyTrace, 60);
+    }
 }
 
 let _isTracingGraph = false;
@@ -879,12 +959,16 @@ async function ejecutarTrazaGrafo() {
             }
         }
 
-        if (!resData && _worker) {
+        if (!resData && typeof _searchWorker !== "undefined") {
             const workerResp = await workerRequest("diagnose_graph", { symptoms });
             if (workerResp && workerResp.found !== undefined) resData = workerResp;
         }
 
         if (resData) {
+            if (resData.r2_url && resData.r2_url !== "No configurada") {
+                _r2url = resData.r2_url;
+                try { localStorage.setItem("r2url", _r2url); } catch (_e) {}
+            }
             renderTrazaGrafo(resData, symptoms);
         } else {
             await analizarDiagnostico();
@@ -905,20 +989,25 @@ function renderDiagnostico(data, mode, symptoms) {
     const meta    = document.getElementById("diagMeta");
     const notice  = document.getElementById("diagNotice");
     const diagram = document.getElementById("diagDiagram");
-    list.innerHTML = "";
-    diagram.style.display = "none";
+    if (list) list.innerHTML = "";
+    if (diagram) diagram.style.display = "none";
 
     const results = Array.isArray(data.results) ? data.results : [];
-    meta.textContent = (mode === "online" ? "ONLINE" : "OFFLINE") + " · " + results.length + " relaciones encontradas";
-    notice.textContent = data.message || "";
-    notice.style.display = (data.message && results.length) ? "block" : "none";
+    if (meta) meta.textContent = (mode === "online" ? "ONLINE" : "OFFLINE") + " · " + results.length + " relaciones encontradas";
+    if (notice) {
+        notice.textContent = data.message || "";
+        notice.style.display = (data.message && results.length) ? "block" : "none";
+    }
 
     if (!results.length) {
-        empty.style.display = "flex";
-        empty.querySelector("p").textContent = data.message || "No se encontraron relaciones suficientes.";
+        if (empty) {
+            empty.style.display = "flex";
+            const p = empty.querySelector("p");
+            if (p) p.textContent = data.message || "No se encontraron relaciones suficientes.";
+        }
         return;
     }
-    empty.style.display = "none";
+    if (empty) empty.style.display = "none";
 
     const allSymptoms = symptoms || (Array.isArray(data.signals) ? data.signals : []);
     renderDiagrama(results, allSymptoms);
@@ -998,11 +1087,11 @@ function renderDiagnosticoAi(aiData, symptoms) {
     const empty   = document.getElementById("diagEmpty");
     const meta    = document.getElementById("diagMeta");
     const notice  = document.getElementById("diagNotice");
-    list.innerHTML = "";
-    empty.style.display = "none";
+    if (list) list.innerHTML = "";
+    if (empty) empty.style.display = "none";
 
-    meta.textContent = "";
-    notice.style.display = "none";
+    if (meta) meta.textContent = "";
+    if (notice) notice.style.display = "none";
 
     const confMap = {
         alta: { color: "var(--green)", label: "⬤ Alta probabilidad" },
@@ -1011,7 +1100,7 @@ function renderDiagnosticoAi(aiData, symptoms) {
     };
     const conf = confMap[aiData.confidence] || confMap.alta;
 
-    // Renderizar diagrama dedicado para IA (exclusivo para la causa raíz de IA)
+    // Renderizar diagrama dedicado de causa raíz técnica
     renderDiagramaAi(aiData, symptoms);
 
     const card = document.createElement("article");
@@ -1053,11 +1142,22 @@ function renderDiagnosticoAi(aiData, symptoms) {
         ? '<div class="diag-ai-warning"><strong>⚠️ PRECAUCIÓN DE SEGURIDAD:</strong> ' + esc(aiData.safety_warning) + '</div>'
         : "";
 
+    let metaNoticeHtml = "";
+    if (aiData._diagnostic_meta) {
+        if (aiData._diagnostic_meta.truncated) {
+            metaNoticeHtml += '<div style="font-size:0.72rem;font-family:var(--mono);color:var(--warn);background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);padding:6px 10px;border-radius:6px;margin-bottom:10px;">⚠️ Aviso: Diagnóstico ajustado por límite de longitud. Verifique los puntos de prueba clave indicados.</div>';
+        }
+        if (aiData._diagnostic_meta.degraded_parse) {
+            metaNoticeHtml += '<div style="font-size:0.72rem;font-family:var(--mono);color:#94a3b8;background:rgba(148,163,184,.1);border:1px solid rgba(148,163,184,.25);padding:6px 10px;border-radius:6px;margin-bottom:10px;">ℹ️ Modo de compatibilidad sintáctica activo.</div>';
+        }
+    }
+
     card.innerHTML =
         '<div class="diag-ai-top">' +
             '<span class="diag-ai-badge">INFORME DE CAUSA RAÍZ TÉCNICO</span>' +
             '<span style="font-size:.65rem;font-family:var(--mono);color:' + conf.color + '">' + conf.label + '</span>' +
         '</div>' +
+        metaNoticeHtml +
         '<div class="diag-ai-root">' + esc(aiData.root_cause || "Causa no identificada") + '</div>' +
         (boardsChips ? '<div class="diag-chips" style="margin-bottom:8px">' + boardsChips + '</div>' : '') +
         (cablesChips ? '<div class="diag-chips" style="margin-bottom:8px">' + cablesChips + '</div>' : '') +
@@ -1078,9 +1178,24 @@ function renderDiagnosticoAi(aiData, symptoms) {
                 '<div class="diag-chips" style="gap:8px">' + manualsChips + '</div>' +
             '</div>'
         : '') +
-        warningHtml;
+        warningHtml +
+        '<div style="margin-top:14px;border-top:1px solid rgba(168,85,247,.25);padding-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+            '<button class="btn btn-primary btn-sm" onclick="abrirEnEsquemaSvg()" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25)">' +
+                '<span>⚡</span> Ver en Esquema SVG (Visualizador Interactivo)' +
+            '</button>' +
+            '<span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Resalta componentes identificados en planos vectoriales</span>' +
+        '</div>';
 
-    list.appendChild(card);
+    if (list) list.appendChild(card);
+    _ultimoResultadoGrafo = {
+        found: true,
+        hub_node: aiData.root_cause || "Causa Raíz",
+        resolved_nodes: symptoms,
+        pcbs: aiData.associated_boards || [],
+        cables: aiData.cables_and_connectors || [],
+        test_points: aiData.test_points_and_signals || [],
+        manual_references: aiData.manual_references || []
+    };
 }
 
 let _isAnalyzingAi = false;
@@ -1093,7 +1208,7 @@ async function analizarDiagnosticoAi() {
     }
 
     if (!navigator.onLine) {
-        toast("El análisis con IA requiere internet. Mostrando diagnóstico local...", "warn");
+        toast("El análisis causal avanzado requiere internet. Mostrando diagnóstico local...", "warn");
         return analizarDiagnostico();
     }
 
@@ -1104,14 +1219,16 @@ async function analizarDiagnosticoAi() {
     const empty   = document.getElementById("diagEmpty");
     const diagram = document.getElementById("diagDiagram");
 
-    empty.style.display   = "none";
-    diagram.style.display = "none";
-    list.innerHTML =
-        '<div class="diag-ai-loading">' +
-            '<div class="spinner"></div>' +
-            '<p>🧠 Analizando y deduciendo causas con los manuales...</p>' +
-            '<span style="font-size:.68rem;color:var(--muted);font-family:var(--mono)">Correlacionando síntomas con la arquitectura técnica de Elekta</span>' +
-        '</div>';
+    if (empty) empty.style.display   = "none";
+    if (diagram) diagram.style.display = "none";
+    if (list) {
+        list.innerHTML =
+            '<div class="diag-ai-loading">' +
+                '<div class="spinner"></div>' +
+                '<p>🧠 Analizando y deduciendo causas con los manuales...</p>' +
+                '<span style="font-size:.68rem;color:var(--muted);font-family:var(--mono)">Correlacionando síntomas con la arquitectura técnica de Elekta</span>' +
+            '</div>';
+    }
 
     if (btnAi)   { btnAi.disabled = true; btnAi.textContent = "Analizando..."; }
     if (btnDiag) { btnDiag.disabled = true; }
@@ -1140,18 +1257,35 @@ async function analizarDiagnosticoAi() {
         if (res && res.ok && res.data) {
             renderDiagnosticoAi(res.data, symptoms);
         } else {
-            throw new Error((res && (res.message || res.error)) || "Inconveniente al procesar con IA.");
+            throw new Error((res && (res.message || res.error)) || "Inconveniente al procesar el análisis causal.");
         }
     } catch (error) {
-        const errMsg = error.message || String(error);
-        const errData = error.data || {};
-        const errType = errData.error || "";
+        const isOfflineOrNetworkFail = !navigator.onLine ||
+            errMsg.includes("Failed to fetch") ||
+            errMsg.includes("NetworkError") ||
+            errMsg.includes("Load failed") ||
+            errMsg.includes("Network request failed");
 
-        if (errType === "no_api_key" || errMsg.includes("clave de API") || errMsg.includes("API_KEY") || errType === "invalid_api_key") {
+        if (isOfflineOrNetworkFail) {
+            list.innerHTML =
+                '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
+                    '<div class="diag-rank"><span style="color:var(--warn)">📴 MODO BÚNKER / SIN CONEXIÓN EXTERNA</span></div>' +
+                    '<h3 style="color:#f8fafc;font-size:.95rem;line-height:1.4;margin:6px 0">El análisis causal avanzado requiere acceso a internet.</h3>' +
+                    '<p style="font-size:.8rem;color:var(--muted);margin:8px 0 14px;line-height:1.5">' +
+                        'En el búnker de radioterapia o sin salida a internet, utiliza las herramientas offline integradas: ' +
+                        'el <strong>Diagnóstico Local</strong> (búsqueda relacional en catálogo) y la <strong>Traza de Circuito</strong> (topología física determinista), ' +
+                        'que operan 100% desconectadas en el navegador.' +
+                    '</p>' +
+                    '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+                        '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Diagnóstico local offline</button>' +
+                        '<button class="btn btn-ghost btn-sm" onclick="ejecutarTrazaGrafo()">🧭 Traza de circuito offline</button>' +
+                    '</div>' +
+                '</div>';
+        } else if (errType === "no_api_key" || errMsg.includes("clave de API") || errMsg.includes("API_KEY") || errType === "invalid_api_key") {
             list.innerHTML =
                 '<div class="diagnostic-card" style="border-left-color:#a855f7">' +
-                    '<div class="diag-ai-badge" style="margin-bottom:8px">CONFIGURACIÓN DE IA</div>' +
-                    '<h3 style="color:#f8fafc">Se requiere una Clave de API de Gemini</h3>' +
+                    '<div class="diag-ai-badge" style="margin-bottom:8px">CONFIGURACIÓN DE SERVICIO</div>' +
+                    '<h3 style="color:#f8fafc">Se requiere Clave de Servicio (Gemini)</h3>' +
                     '<p style="font-size:.8rem;color:#cbd5e1;line-height:1.5;margin-bottom:12px">' +
                         'La variable <code>GEMINI_API_KEY</code> no está configurada en Render o la clave no es válida.' +
                     '</p>' +
@@ -1167,16 +1301,16 @@ async function analizarDiagnosticoAi() {
                     '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">' + esc(errMsg) + '</h3>' +
                     '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">Espera 30 segundos y vuelve a intentar, o ejecuta el diagnóstico local ahora.</p>' +
                     '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Diagnóstico local instantáneo</button>' +
-                    ' <button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="analizarDiagnosticoAi()">🔄 Reintentar IA</button>' +
+                    ' <button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="analizarDiagnosticoAi()">🔄 Reintentar análisis</button>' +
                 '</div>';
         } else if (errMsg.includes("agotado") || errMsg.includes("AbortError") || errMsg.includes("timeout")) {
             list.innerHTML =
                 '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
                     '<div class="diag-rank"><span style="color:var(--warn)">⏱ TIEMPO DE RESPUESTA EXCEDIDO</span></div>' +
-                    '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">La IA tardó más de lo esperado en responder.</h3>' +
+                    '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">El servidor tardó más de lo esperado en responder.</h3>' +
                     '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">El análisis puede completarse en el siguiente intento. El diagnóstico local está disponible de inmediato.</p>' +
                     '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Diagnóstico local instantáneo</button>' +
-                    ' <button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="analizarDiagnosticoAi()">🔄 Reintentar IA</button>' +
+                    ' <button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="analizarDiagnosticoAi()">🔄 Reintentar análisis</button>' +
                 '</div>';
         } else {
             list.innerHTML =
@@ -1185,13 +1319,13 @@ async function analizarDiagnosticoAi() {
                     '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">' + esc(errMsg) + '</h3>' +
                     '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
                         '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Diagnóstico local</button>' +
-                        '<button class="btn btn-ghost btn-sm" onclick="analizarDiagnosticoAi()">🔄 Reintentar IA</button>' +
+                        '<button class="btn btn-ghost btn-sm" onclick="analizarDiagnosticoAi()">🔄 Reintentar análisis</button>' +
                     '</div>' +
                 '</div>';
         }
     } finally {
         _isAnalyzingAi = false;
-        if (btnAi)   { btnAi.disabled = false; btnAi.textContent = "🧠 Analizar causas"; }
+        if (btnAi)   { btnAi.disabled = false; btnAi.textContent = "🧠 Diagnóstico Causal Avanzado"; }
         if (btnDiag) { btnDiag.disabled = false; }
     }
 }
@@ -1223,8 +1357,10 @@ async function analizarDiagnostico() {
     diagram.style.display = "none";
     list.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div>' +
         '<p style="font-size:.8rem;color:var(--muted);margin-top:10px">Relacionando síntomas...</p></div>';
-    button.disabled    = true;
-    button.textContent = "Analizando...";
+    if (button) {
+        button.disabled    = true;
+        button.textContent = "Analizando...";
+    }
     try {
         let data, mode = "offline";
         if (navigator.onLine) {
@@ -1247,8 +1383,10 @@ async function analizarDiagnostico() {
     } catch(error) {
         list.innerHTML = '<div class="result-card"><span style="color:var(--danger)">❌ ' + esc(error.message) + "</span></div>";
     } finally {
-        button.disabled    = false;
-        button.textContent = "Relacionar";
+        if (button) {
+            button.disabled    = false;
+            button.textContent = "🔍 Relacionar en Manuales";
+        }
     }
 }
 
@@ -1399,6 +1537,17 @@ function editarNota(id) {
     f.scrollIntoView({behavior:"smooth"});
 }
 
+function generarUUID() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        try { return crypto.randomUUID(); } catch (_e) {}
+    }
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        const v = c === "x" ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
 async function guardarNota() {
     const id    = document.getElementById("editId").value.trim();
     const title = document.getElementById("notaTit").value.trim();
@@ -1414,7 +1563,7 @@ async function guardarNota() {
         toast("La edición administrativa requiere conexión para evitar conflictos", "err");
         return;
     }
-    const nota = { id: id || crypto.randomUUID(), title, text, tags };
+    const nota = { id: id || generarUUID(), title, text, tags };
     let savedAsPending = false;
 
     if (navigator.onLine) {
@@ -1514,3 +1663,32 @@ async function cargarListaManuales() {
         div.innerHTML = d.map(m=>'<div class="manual-row"><span style="color:var(--text)">'+esc(m.manual)+'</span><span>'+m.pages+' págs.</span></div>').join("");
     } catch(e) { div.innerHTML='<p style="color:var(--danger)">Error: '+esc(e.message)+'</p>'; }
 }
+
+// ─── EXPORTACIONES GLOBALES PARA MANEJADORES DE INTERFAZ ─────────────────────
+window.toast = toast;
+window.verPDF = verPDF;
+window.buscar = buscar;
+window.cargarMasResultados = cargarMasResultados;
+window.quitarSintoma = quitarSintoma;
+window.agregarSintoma = agregarSintoma;
+window.ejecutarTrazaGrafo = ejecutarTrazaGrafo;
+window.analizarDiagnostico = analizarDiagnostico;
+window.analizarDiagnosticoAi = analizarDiagnosticoAi;
+window.guardarYReintentarAi = guardarYReintentarAi;
+window.abrirEnEsquemaSvg = abrirEnEsquemaSvg;
+window.cargarNotas = cargarNotas;
+window.abrirFormNota = abrirFormNota;
+window.guardarNota = guardarNota;
+window.cerrarFormNota = cerrarFormNota;
+window.editarNota = editarNota;
+window.eliminarNota = eliminarNota;
+window.verNota = verNotaEnGrande;
+window.verNotaEnGrande = verNotaEnGrande;
+window.cerrarVisorNota = cerrarVisorNota;
+window.pdfPagAnterior = pdfPagAnterior;
+window.pdfPagSiguiente = pdfPagSiguiente;
+window.cerrarVisorPDF = cerrarVisorPDF;
+window.adminEntrar = adminEntrar;
+window.adminSalir = adminSalir;
+window.cargarListaManuales = cargarListaManuales;
+

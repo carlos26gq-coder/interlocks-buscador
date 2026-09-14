@@ -6,7 +6,9 @@ from functools import wraps
 import json
 import os
 from pathlib import Path
+import re
 import secrets
+import threading
 import time
 import uuid
 
@@ -59,6 +61,7 @@ with DATA_PATH.open("r", encoding="utf-8") as file:
 search_engine = SearchEngine(manuals)
 BUILD_TIME = str(int(time.time()))
 _notes_cache = {"loaded_at": 0.0, "data": []}
+_notes_lock = threading.Lock()
 
 app.logger.info(
     "SOLVI iniciado: %s páginas, %s manuales, Supabase=%s, R2=%s",
@@ -88,7 +91,32 @@ def security_headers(response):
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+            "worker-src 'self' blob: https://cdnjs.cloudflare.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "img-src 'self' data: blob: https://*; "
+            "connect-src 'self' https://* blob:; "
+            "object-src 'none'; "
+            "base-uri 'self';"
+        ),
+    )
     return response
+
+
+def _sanitize_error_message(text: object) -> str:
+    """Enmascara posibles claves API o tokens en mensajes de error antes de registrarlos o emitirlos."""
+    if not text:
+        return ""
+    msg = str(text)
+    msg = re.sub(r"AIza[0-9A-Za-z_-]{20,60}", "[CLAVE_ENMASCARADA]", msg)
+    msg = re.sub(r"(Bearer\s+)[A-Za-z0-9\-_.]+", r"\1[TOKEN_ENMASCARADO]", msg, flags=re.IGNORECASE)
+    msg = re.sub(r"((?:api[-_]?key|key)\s*[=:]\s*)[A-Za-z0-9\-_]+", r"\1[CLAVE_ENMASCARADA]", msg, flags=re.IGNORECASE)
+    return msg
 
 
 def json_body() -> dict:
@@ -162,25 +190,29 @@ def require_admin(function):
 
 
 def invalidate_notes_cache() -> None:
-    _notes_cache["loaded_at"] = 0.0
-    _notes_cache["data"] = []
+    with _notes_lock:
+        _notes_cache["loaded_at"] = 0.0
+        _notes_cache["data"] = []
 
 
 def notes_load(*, force: bool = False) -> list[dict]:
     if not supabase:
         return []
     now = time.monotonic()
-    if not force and now - _notes_cache["loaded_at"] < NOTES_CACHE_SECONDS:
-        return list(_notes_cache["data"])
+    with _notes_lock:
+        if not force and now - _notes_cache["loaded_at"] < NOTES_CACHE_SECONDS:
+            return list(_notes_cache["data"])
     try:
         response = supabase.table("notes").select("*").execute()
         data = response.data if isinstance(response.data, list) else []
-        _notes_cache["loaded_at"] = now
-        _notes_cache["data"] = data
+        with _notes_lock:
+            _notes_cache["loaded_at"] = now
+            _notes_cache["data"] = data
         return list(data)
     except Exception:
         app.logger.exception("Error al leer apuntes de Supabase")
-        return list(_notes_cache["data"])
+        with _notes_lock:
+            return list(_notes_cache["data"])
 
 
 def note_search(query: str) -> list[dict]:
@@ -236,7 +268,7 @@ def handle_server_error(error):
 
 @app.route("/")
 def home():
-    return no_cache(make_response(render_template("index.html", build_time=BUILD_TIME)))
+    return no_cache(make_response(render_template("index.html", build_time=BUILD_TIME, r2_url=R2_PUBLIC_URL)))
 
 
 @app.route("/reset")
@@ -300,9 +332,9 @@ def search():
     if len(query) > MAX_QUERY_LENGTH:
         raise ValidationError(f"La búsqueda admite hasta {MAX_QUERY_LENGTH} caracteres.")
     try:
-        offset = max(0, int(request.args.get("offset", 0)))
+        offset = min(100_000, max(0, int(request.args.get("offset", 0))))
         limit = min(50, max(1, int(request.args.get("limit", 25))))
-    except ValueError as exc:
+    except (ValueError, TypeError) as exc:
         raise ValidationError("La paginación no es válida.") from exc
 
     manual_total = 0
@@ -339,14 +371,16 @@ def diagnose():
     data = json_body()
     # New format: {"symptoms": ["...", "...", ...]} — up to 4 free-form symptom strings
     symptoms_raw = data.get("symptoms")
+    if isinstance(symptoms_raw, str):
+        symptoms_raw = [symptoms_raw]
     if isinstance(symptoms_raw, list):
         symptoms = []
         for item in symptoms_raw[:4]:
             if not isinstance(item, str):
-                raise ValidationError("Cada síntoma debe ser texto.")
+                item = str(item)
             cleaned = item.strip()
-            if len(cleaned) > 200:
-                raise ValidationError("Cada síntoma admite hasta 200 caracteres.")
+            if len(cleaned) > 300:
+                raise ValidationError("Cada síntoma admite hasta 300 caracteres.")
             if cleaned:
                 symptoms.append(cleaned)
         result = search_engine.diagnose_symptoms(symptoms, limit=3)
@@ -369,9 +403,19 @@ def diagnose_graph():
     try:
         data = json_body()
         symptoms_raw = data.get("symptoms", [])
+        if isinstance(symptoms_raw, str):
+            symptoms_raw = [symptoms_raw]
         if not isinstance(symptoms_raw, list) or not symptoms_raw:
             raise ValidationError("Debes ingresar al menos un síntoma o código de hardware.")
-        symptoms = [str(s).strip() for s in symptoms_raw[:4] if str(s).strip()]
+        symptoms = []
+        for s in symptoms_raw[:4]:
+            if not isinstance(s, str):
+                s = str(s)
+            cleaned = s.strip()
+            if len(cleaned) > 300:
+                raise ValidationError("Cada síntoma admite hasta 300 caracteres.")
+            if cleaned:
+                symptoms.append(cleaned)
         if not symptoms:
             raise ValidationError("Ingresa al menos un síntoma o código de hardware.")
 
@@ -379,12 +423,65 @@ def diagnose_graph():
         engine = get_graph_engine()
         result = engine.trace_circuit(symptoms, search_engine=search_engine)
         result["r2_url"] = R2_PUBLIC_URL
+
+        # Correlacionar con esquema SVG interactivo
+        try:
+            from circuit_data import match_subsystem_for_trace
+            comps = list(symptoms) + (result.get("pcbs") or []) + (result.get("cables") or []) + (result.get("test_points") or [])
+            result["circuit_schematic"] = match_subsystem_for_trace(comps)
+        except Exception:
+            pass
+
         return jsonify(result), 200
     except ValidationError as val_err:
         return jsonify({"found": False, "error": "validation_error", "message": str(val_err)}), 400
     except Exception as exc:
         app.logger.exception("Error en endpoint /diagnose/graph")
-        return jsonify({"found": False, "error": "server_exception", "message": str(exc)}), 500
+        return jsonify({"found": False, "error": "server_exception", "message": _sanitize_error_message(exc)}), 500
+
+
+@app.route("/circuits/subsystems", methods=["GET"])
+def circuits_subsystems():
+    try:
+        from circuit_data import get_all_subsystems
+        return jsonify({"ok": True, "subsystems": get_all_subsystems()}), 200
+    except Exception as exc:
+        app.logger.exception("Error en /circuits/subsystems")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
+@app.route("/circuits/<subsystem_id>", methods=["GET"])
+def circuit_subsystem_detail(subsystem_id):
+    try:
+        from circuit_data import get_subsystem
+        sub_id = str(subsystem_id).strip()[:64]
+        sub = get_subsystem(sub_id)
+        if not sub:
+            return jsonify({"ok": False, "error": f"Subsistema '{sub_id}' no encontrado."}), 404
+        return jsonify({"ok": True, "subsystem": sub}), 200
+    except Exception as exc:
+        app.logger.exception("Error en /circuits/<subsystem_id>")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
+@app.route("/circuits/match", methods=["POST"])
+def circuit_match():
+    try:
+        data = json_body()
+        components_raw = data.get("components", [])
+        if isinstance(components_raw, str):
+            components_raw = [components_raw]
+        if not isinstance(components_raw, list):
+            raise ValidationError("'components' debe ser una lista de identificadores o síntomas.")
+        components = [str(c).strip()[:100] for c in components_raw[:50] if c is not None and str(c).strip()]
+        from circuit_data import match_subsystem_for_trace
+        res = match_subsystem_for_trace(components)
+        return jsonify({"ok": True, **res}), 200
+    except ValidationError as val_err:
+        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error en /circuits/match")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
 
 
 @app.route("/diagnose/ai", methods=["POST"])
@@ -393,13 +490,15 @@ def diagnose_ai():
     try:
         data = json_body()
         symptoms_raw = data.get("symptoms", [])
+        if isinstance(symptoms_raw, str):
+            symptoms_raw = [symptoms_raw]
         if not isinstance(symptoms_raw, list) or not symptoms_raw:
             raise ValidationError("Debes ingresar al menos un síntoma o descripción técnica.")
 
         symptoms = []
         for item in symptoms_raw[:4]:
             if not isinstance(item, str):
-                raise ValidationError("Cada síntoma debe ser texto.")
+                item = str(item)
             cleaned = item.strip()
             if len(cleaned) > 300:
                 raise ValidationError("Cada síntoma admite hasta 300 caracteres.")
@@ -409,8 +508,8 @@ def diagnose_ai():
         if not symptoms:
             raise ValidationError("Ingresa al menos un síntoma o descripción técnica.")
 
-        client_key = request.headers.get("X-Gemini-Key", "").strip() or str(data.get("api_key", "")).strip()
-        model_override = str(data.get("model", "")).strip() or request.headers.get("X-Gemini-Model", "").strip()
+        client_key = (request.headers.get("X-Gemini-Key", "").strip() or str(data.get("api_key", "")).strip())[:256]
+        model_override = (str(data.get("model", "")).strip() or request.headers.get("X-Gemini-Model", "").strip())[:100]
         ai_result = analyze_with_gemini(symptoms, search_engine, api_key=client_key, model=model_override)
 
         if not ai_result.get("ok"):
@@ -421,17 +520,20 @@ def diagnose_ai():
                 status_code = 429
             else:
                 status_code = 503
+            if "message" in ai_result:
+                ai_result["message"] = _sanitize_error_message(ai_result["message"])
             return jsonify(ai_result), status_code
 
         return jsonify(ai_result), 200
     except ValidationError as val_err:
         return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
     except Exception as exc:
-        app.logger.exception("Error en endpoint /diagnose/ai")
+        clean_err = _sanitize_error_message(exc)
+        app.logger.error("Error en endpoint /diagnose/ai: %s", clean_err)
         return jsonify({
             "ok": False,
             "error": "server_exception",
-            "message": f"Inconveniente temporal en el servidor: {str(exc)[:120]}",
+            "message": f"Inconveniente temporal en el servidor: {clean_err[:120]}",
         }), 503
 
 
@@ -531,6 +633,70 @@ def admin_config():
         "build": BUILD_TIME,
         "search_engine": "inverted-index-v1",
     })
+
+
+@app.route("/openapi.json")
+def openapi_spec():
+    spec = {
+        "openapi": "3.0.3",
+        "info": {
+            "title": "SOLVI API - Linear Accelerator Technical Engineering",
+            "version": "2.1.0",
+            "description": "API técnica para búsqueda documental, diagnóstico causal, traza topológica de interlocks y esquemas SVG en aceleradores lineales Elekta.",
+        },
+        "paths": {
+            "/search": {
+                "get": {
+                    "summary": "Búsqueda exacta en manuales técnicos",
+                    "parameters": [
+                        {"name": "q", "in": "query", "required": True, "schema": {"type": "string"}},
+                        {"name": "manual", "in": "query", "required": False, "schema": {"type": "string"}},
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 25}},
+                        {"name": "offset", "in": "query", "schema": {"type": "integer", "default": 0}},
+                    ],
+                    "responses": {"200": {"description": "Resultados de búsqueda"}},
+                }
+            },
+            "/diagnose": {
+                "post": {
+                    "summary": "Diagnóstico relacional de síntomas",
+                    "responses": {"200": {"description": "Convergencia de síntomas en manuales"}},
+                }
+            },
+            "/diagnose/graph": {
+                "post": {
+                    "summary": "Traza determinista de circuito de hardware en grafo",
+                    "responses": {"200": {"description": "Ruta de conexión física, hub PCB y cables"}},
+                }
+            },
+            "/diagnose/ai": {
+                "post": {
+                    "summary": "Diagnóstico causal avanzado asistido por LLM",
+                    "responses": {"200": {"description": "Causa raíz técnica, puntos TP y citas deterministas"}},
+                }
+            },
+            "/circuits/subsystems": {
+                "get": {
+                    "summary": "Listado de subsistemas de esquemas eléctricos SVG",
+                    "responses": {"200": {"description": "Lista de subsistemas"}},
+                }
+            },
+            "/circuits/{subsystem_id}": {
+                "get": {
+                    "summary": "Detalle y topología esquemática de un subsistema",
+                    "responses": {"200": {"description": "Nodos y cables esquemáticos"}},
+                }
+            },
+            "/notes": {
+                "get": {"summary": "Obtener apuntes de campo"},
+                "post": {"summary": "Crear apunte de campo"},
+            },
+            "/health": {
+                "get": {"summary": "Estado del servidor y servicios conectados"},
+            },
+        },
+    }
+    return jsonify(spec)
 
 
 if __name__ == "__main__":

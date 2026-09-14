@@ -12,6 +12,7 @@ from collections import defaultdict, deque
 import json
 from pathlib import Path
 import re
+import threading
 from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -27,19 +28,92 @@ class GraphEngine:
     """Motor de recorrido de grafo para diagnóstico de aceleradores lineales."""
 
     def __init__(self, graph_data: dict[str, Any] | None = None):
+        enrich_circuits = False
         if graph_data is None:
             if not GRAPH_FILE.exists():
                 raise FileNotFoundError(f"Archivo de grafo no encontrado en {GRAPH_FILE}")
             with open(GRAPH_FILE, "r", encoding="utf-8") as f:
                 graph_data = json.load(f)
+            enrich_circuits = True
 
         self.version: str = graph_data.get("version", "2.0")
         self.entities: dict[str, dict] = graph_data.get("entities", {})
         self.adjacency: dict[str, list] = graph_data.get("adjacency", {})
         self.lookup: dict[str, str] = graph_data.get("lookup", {})
+        self.page_to_entities: dict[tuple[str, int], list[str]] = defaultdict(list)
+
+        if enrich_circuits:
+            self._enrich_with_circuit_schematics()
+
+        # Índice invertido de (manual, página) -> lista de entidades para búsquedas O(1)
+        for ent_id, ent in self.entities.items():
+            for page in ent.get("pages", []):
+                if isinstance(page, (list, tuple)) and len(page) >= 2:
+                    self.page_to_entities[(str(page[0]), int(page[1]))].append(ent_id)
+
+    def _enrich_with_circuit_schematics(self) -> None:
+        """Enriquece entidades y topología con los 5 esquemas de circuitos de ingeniería."""
+        try:
+            from circuit_data import SUBSYSTEMS
+            for sub_id, sub in SUBSYSTEMS.items():
+                man_refs = sub.get("manual_references", [])
+                sub_page = 14
+                sub_man = "diagrams"
+                if man_refs:
+                    m = re.search(r"(\w+)\s*\(P[aá]g\s*(\d+)\)", man_refs[0], re.I)
+                    if m:
+                        sub_man, sub_page = m.group(1), int(m.group(2))
+                sub_pcbs = [n.get("code") or n.get("id") for n in sub.get("nodes", []) if n.get("type") == "pcb"]
+                for n in sub.get("nodes", []):
+                    code = n.get("code") or n.get("id")
+                    nid = n.get("id")
+                    ntype = n.get("type", "circuit_component")
+                    nname = n.get("name", code)
+                    man = n.get("manual", sub_man)
+                    page = int(n.get("page", sub_page))
+                    for key in [code, nid]:
+                        if not key:
+                            continue
+                        k_clean = _clean_key(key)
+                        if k_clean and k_clean not in self.lookup:
+                            self.lookup[k_clean] = key
+                        if key not in self.entities:
+                            self.entities[key] = {
+                                "id": key,
+                                "type": ntype,
+                                "name": nname,
+                                "pages": [[man, page]],
+                            }
+                    if ntype != "pcb" and sub_pcbs and code:
+                        for pcb in sub_pcbs:
+                            edge = [pcb, "controlled_by", 5, man, page]
+                            self.adjacency.setdefault(code, [])
+                            if edge not in self.adjacency[code]:
+                                self.adjacency[code].append(edge)
+                for wire in sub.get("wires", []):
+                    u = wire.get("from")
+                    v = wire.get("to")
+                    for n in sub.get("nodes", []):
+                        if n.get("id") == u:
+                            u = n.get("code") or u
+                        if n.get("id") == v:
+                            v = n.get("code") or v
+                    if u and v:
+                        wtype = wire.get("type", "wire")
+                        edge_uv = [v, wtype, 5, sub_man, sub_page]
+                        edge_vu = [u, wtype, 5, sub_man, sub_page]
+                        self.adjacency.setdefault(u, [])
+                        self.adjacency.setdefault(v, [])
+                        if edge_uv not in self.adjacency[u]:
+                            self.adjacency[u].append(edge_uv)
+                        if edge_vu not in self.adjacency[v]:
+                            self.adjacency[v].append(edge_vu)
+        except Exception:
+            pass
 
     def resolve_entity(self, text: str, search_engine: Any = None) -> str | None:
         """Resuelve un texto de síntoma o consulta a un ID canónico del grafo."""
+        text = str(text or "")[:300].strip()
         clean = _clean_key(text)
         if not clean:
             return None
@@ -78,9 +152,13 @@ class GraphEngine:
                     return cand
 
         # 4. Coincidencia por subcadena en entidades (ej: "dose rate" -> "D_RATE 1")
+        clean_digits = re.findall(r"\d+", clean)
         for ent_id in self.entities:
             ent_clean = _clean_key(ent_id)
             if (len(clean) >= 4 and clean in ent_clean) or (len(ent_clean) >= 4 and ent_clean in clean):
+                ent_digits = re.findall(r"\d+", ent_clean)
+                if clean_digits and ent_digits and clean_digits != ent_digits:
+                    continue
                 return ent_id
 
         # 5. Búsqueda contextual en los manuales para mapear síntomas en lenguaje natural a hardware
@@ -89,11 +167,11 @@ class GraphEngine:
                 s_res = search_engine.search(text, limit=3)
                 cands = []
                 for r in s_res.get("results", []):
-                    m, p = r.get("manual", ""), r.get("page", 0)
-                    for ent_id, ent in self.entities.items():
-                        if [m, p] in ent.get("pages", []):
-                            t_weight = 3 if ent.get("type") == "pcb" else (2 if ent.get("type") == "signal" else 1)
-                            cands.append((t_weight, ent_id))
+                    m, p = str(r.get("manual", "")), int(r.get("page", 0))
+                    for ent_id in self.page_to_entities.get((m, p), []):
+                        ent = self.entities.get(ent_id, {})
+                        t_weight = 3 if ent.get("type") == "pcb" else (2 if ent.get("type") == "signal" else 1)
+                        cands.append((t_weight, ent_id))
                 if cands:
                     cands.sort(key=lambda x: -x[0])
                     return cands[0][1]
@@ -117,7 +195,14 @@ class GraphEngine:
             if len(path) > max_depth:
                 continue
 
-            for neighbor, relation, weight, manual, page in self.adjacency.get(current, []):
+            for edge in self.adjacency.get(current, []):
+                if not edge or not isinstance(edge, (list, tuple)):
+                    continue
+                neighbor = str(edge[0])
+                relation = str(edge[1]) if len(edge) > 1 else "connected"
+                manual = str(edge[3]) if len(edge) > 3 else ""
+                page = int(edge[4]) if len(edge) > 4 and isinstance(edge[4], (int, float)) else 0
+
                 if neighbor == target_id:
                     return path + [{"node": neighbor, "relation": relation, "manual": manual, "page": page}]
 
@@ -134,6 +219,11 @@ class GraphEngine:
 
     def trace_circuit(self, symptoms: list[str], search_engine: Any = None) -> dict[str, Any]:
         """Calcula la traza física de circuito que conecta los síntomas ingresados."""
+        if isinstance(symptoms, str):
+            symptoms = [symptoms]
+        elif not isinstance(symptoms, list):
+            symptoms = []
+        symptoms = [str(s).strip()[:300] for s in symptoms[:6] if str(s).strip()]
         resolved_nodes: list[str] = []
         for s in symptoms:
             node_id = self.resolve_entity(s, search_engine=search_engine)
@@ -187,20 +277,24 @@ class GraphEngine:
                         for step in path:
                             common_candidates[step["node"]] += 1
 
-            # Ordenar candidatos comunes priorizando PCBs y módulos
-            def candidate_rank(node_name: str) -> tuple[int, int]:
+            # Ordenar candidatos comunes priorizando frecuencia, tipo y nombre alfabético como desempate determinista
+            def candidate_rank(node_name: str) -> tuple[int, int, str]:
                 ent_type = self.entities.get(node_name, {}).get("type", "")
                 type_weight = 3 if ent_type == "pcb" else (2 if ent_type == "cable" else 1)
-                return (common_candidates[node_name], type_weight)
+                return (-common_candidates[node_name], -type_weight, node_name)
 
-            sorted_candidates = sorted(common_candidates.keys(), key=candidate_rank, reverse=True)
+            sorted_candidates = sorted(common_candidates.keys(), key=candidate_rank)
             hub_node = sorted_candidates[0] if sorted_candidates else resolved_nodes[0]
 
-            # Colectar componentes físicos en la traza
-            all_involved_nodes = set(resolved_nodes)
+            # Colectar componentes físicos en la traza en orden determinista de descubrimiento
+            all_involved_nodes: list[str] = []
+            for n in resolved_nodes:
+                if n not in all_involved_nodes:
+                    all_involved_nodes.append(n)
             for p in paths:
                 for step in p:
-                    all_involved_nodes.add(step["node"])
+                    if step["node"] not in all_involved_nodes:
+                        all_involved_nodes.append(step["node"])
 
             pcbs = []
             cables = []
@@ -313,12 +407,15 @@ class GraphEngine:
         }
 
 
-# Instancia única reutilizable en el servidor
+# Instancia única reutilizable en el servidor (Thread-safe)
 _GLOBAL_ENGINE: GraphEngine | None = None
+_GRAPH_LOCK = threading.Lock()
 
 
 def get_graph_engine() -> GraphEngine:
     global _GLOBAL_ENGINE
     if _GLOBAL_ENGINE is None:
-        _GLOBAL_ENGINE = GraphEngine()
+        with _GRAPH_LOCK:
+            if _GLOBAL_ENGINE is None:
+                _GLOBAL_ENGINE = GraphEngine()
     return _GLOBAL_ENGINE
