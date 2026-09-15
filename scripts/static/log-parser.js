@@ -14,32 +14,66 @@ class LogParser {
         }
     }
 
-    static parseTimestamp(ts_str) {
+    static detectDateLocale(text) {
+        if (!text) return false;
+        const regex = /\b(\d{2})\/(\d{2})\/(\d{4})\b/g;
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+            let p1 = parseInt(match[1], 10);
+            let p2 = parseInt(match[2], 10);
+            if (p1 > 12 && p2 <= 12) return false; // Dia > 12 -> DD/MM/YYYY (Euro)
+            if (p1 <= 12 && p2 > 12) return true;  // Dia > 12 en segunda posicion -> MM/DD/YYYY (US)
+        }
+        return false; // Por defecto Euro
+    }
+
+    static parseTimestamp(ts_str, isUs = null) {
         if (!ts_str) return 0.0;
         let match = ts_str.match(/\b\d{13}\b/);
-        if (match) return parseFloat(match[0]) / 1000.0;
+        if (match) {
+            let val = parseFloat(match[0]) / 1000.0;
+            return Number.isFinite(val) ? val : 0.0;
+        }
 
         match = ts_str.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
         if (match) {
             let [_, y, m, d, h, min, s, ms] = match;
-            let dObj = new Date(`${y}-${m}-${d}T${h}:${min}:${s}.${ms?ms.substring(0,3):'000'}Z`);
-            return dObj.getTime() / 1000.0;
+            let msStr = ms ? ms.padEnd(3, '0').substring(0, 3) : '000';
+            let dObj = new Date(`${y}-${m}-${d}T${h}:${min}:${s}.${msStr}Z`);
+            let t = dObj.getTime();
+            return Number.isFinite(t) ? t / 1000.0 : 0.0;
         }
         match = ts_str.match(/(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
         if (match) {
             let [_, p1, p2, y, h, min, s, ms] = match;
             let p1Int = parseInt(p1, 10);
-            let d = p1, m = p2;
-            if (p1Int <= 12) {
-                m = p1; d = p2;
+            let p2Int = parseInt(p2, 10);
+            let d, m;
+            let targetIsUs = isUs;
+            if (targetIsUs === null || targetIsUs === undefined) {
+                if (p1Int <= 12 && p2Int > 12) targetIsUs = true;
+                else if (p1Int > 12 && p2Int <= 12) targetIsUs = false;
+                else targetIsUs = false;
             }
-            let dObj = new Date(`${y}-${m}-${d}T${h}:${min}:${s}.${ms?ms.substring(0,3):'000'}Z`);
-            return dObj.getTime() / 1000.0;
+
+            if (targetIsUs) {
+                m = p1; d = p2;
+            } else {
+                d = p1; m = p2;
+            }
+
+            if (parseInt(m, 10) > 12 && parseInt(d, 10) <= 12) {
+                let tmp = m; m = d; d = tmp;
+            }
+            let msStr = ms ? ms.padEnd(3, '0').substring(0, 3) : '000';
+            let dObj = new Date(`${y}-${m}-${d}T${h}:${min}:${s}.${msStr}Z`);
+            let t = dObj.getTime();
+            return Number.isFinite(t) ? t / 1000.0 : 0.0;
         }
         return 0.0;
     }
 
-    static parseChunk(lines, startIndex) {
+    static parseChunk(lines, startIndex, isUs = false) {
         const events = [];
         const SEV_REGEX = /\b(FATAL|CR[ÍI]TICO|ERROR|WARNING|ADVERTENCIA|INFO)\b/i;
         const ID_REGEX = /\b(INTERLOCK \d+|ITEM \d+|ERROR \d+|PCB \w+|W\d+|COLLISION|VAC_ION)\b/gi;
@@ -54,7 +88,7 @@ class LogParser {
             let ts_match = line.match(TS_REGEX);
             if (ts_match) {
                 ts_str = ts_match[0];
-                ts_val = this.parseTimestamp(ts_str);
+                ts_val = this.parseTimestamp(ts_str, isUs);
             }
 
             let sev = "INFO";
@@ -77,20 +111,43 @@ class LogParser {
                 timestamp: ts_val,
                 timestamp_str: ts_str,
                 severity: sev,
-                identifiers: ids
+                identifiers: ids,
+                precursors: []
             });
         }
         return events;
     }
 
     static async parseFileClientSide(file) {
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             const chunkSize = 1024 * 1024;
             let offset = 0;
-            let events = [];
+            let chunkResults = [];
             let remainingString = "";
             let totalLines = 0;
 
+            let isUs = false;
+            if (typeof file.slice === "function") {
+                try {
+                    const sampleSlice = file.slice(0, Math.min(file.size, 512 * 1024));
+                    let sampleText = "";
+                    if (typeof sampleSlice.text === "function") {
+                        sampleText = await sampleSlice.text();
+                    } else {
+                        sampleText = await new Promise((res) => {
+                            const r = new FileReader();
+                            r.onload = () => res(r.result || "");
+                            r.onerror = () => res("");
+                            r.readAsText(sampleSlice);
+                        });
+                    }
+                    isUs = LogParser.detectDateLocale(sampleText);
+                } catch (e) {
+                    // Fall back a Euro por defecto
+                }
+            }
+
+            const decoder = new TextDecoder("utf-8");
             const reader = new FileReader();
             
             const renderProgress = (processed) => {
@@ -102,11 +159,14 @@ class LogParser {
             };
 
             reader.onload = function(e) {
-                let text = remainingString + e.target.result;
+                const hasMore = (offset + chunkSize) < file.size;
+                const textChunk = decoder.decode(e.target.result, { stream: hasMore });
+                let text = remainingString + textChunk;
                 let lines = text.split(/\r?\n/);
-                remainingString = lines.pop();
+                remainingString = lines.pop() || "";
 
-                events = events.concat(LogParser.parseChunk(lines, totalLines));
+                const chunkEvents = LogParser.parseChunk(lines, totalLines, isUs);
+                chunkResults.push(chunkEvents);
                 totalLines += lines.length;
 
                 offset += chunkSize;
@@ -116,8 +176,15 @@ class LogParser {
                     setTimeout(() => readNextChunk(), 0);
                 } else {
                     if (remainingString) {
-                        events = events.concat(LogParser.parseChunk([remainingString], totalLines));
+                        chunkResults.push(LogParser.parseChunk([remainingString], totalLines, isUs));
                         totalLines++;
+                    }
+                    const events = [];
+                    for (let c = 0; c < chunkResults.length; c++) {
+                        const cArr = chunkResults[c];
+                        for (let j = 0; j < cArr.length; j++) {
+                            events.push(cArr[j]);
+                        }
                     }
                     resolve(LogParser.aggregate(events, totalLines));
                 }
@@ -127,7 +194,7 @@ class LogParser {
 
             function readNextChunk() {
                 let slice = file.slice(offset, offset + chunkSize);
-                reader.readAsText(slice);
+                reader.readAsArrayBuffer(slice);
             }
 
             readNextChunk();
@@ -135,7 +202,7 @@ class LogParser {
     }
 
     static aggregate(events, totalLines) {
-        events.sort((a, b) => a.timestamp - b.timestamp);
+        events.sort((a, b) => (a.timestamp - b.timestamp) || (a.line_number - b.line_number));
         let cascades = [];
         let current_cascade = [];
         
@@ -151,7 +218,16 @@ class LogParser {
             if (current_cascade.length === 0) {
                 current_cascade.push(ev);
             } else {
-                if (ev.timestamp - current_cascade[0].timestamp <= 2.0) {
+                let inCascade = false;
+                if (ev.timestamp > 0 && current_cascade[0].timestamp > 0) {
+                    let diff = ev.timestamp - current_cascade[0].timestamp;
+                    inCascade = (diff >= 0 && diff <= 2.0);
+                } else {
+                    // Si falta timestamp, solo agrupar lineas consecutivas inmediatas (<= 2 lineas)
+                    inCascade = Math.abs(ev.line_number - current_cascade[current_cascade.length - 1].line_number) <= 2;
+                }
+
+                if (inCascade) {
                     current_cascade.push(ev);
                 } else {
                     cascades.push(current_cascade);
@@ -161,9 +237,75 @@ class LogParser {
         }
         if (current_cascade.length > 0) cascades.push(current_cascade);
 
+        // P3: Deteccion de eventos WARNING precursores (ventana corta de 5s previo al evento raiz)
+        const usedPrecursors = new Set();
+        for (let cascade of cascades) {
+            const root = cascade[0];
+            const rootT = root.timestamp;
+            const rootLine = root.line_number;
+            const precursors = [];
+
+            for (let ev of events) {
+                if (ev.severity !== "WARNING") continue;
+                if (usedPrecursors.has(ev.line_number)) continue;
+
+                let isCandidate = false;
+                if (rootT > 0 && ev.timestamp > 0) {
+                    const diff = rootT - ev.timestamp;
+                    if (diff >= 0 && diff <= 5.0 && ev.line_number < rootLine) {
+                        isCandidate = true;
+                    }
+                } else if (rootLine - ev.line_number > 0 && rootLine - ev.line_number <= 5) {
+                    isCandidate = true;
+                }
+
+                if (isCandidate) {
+                    precursors.push(ev);
+                    usedPrecursors.add(ev.line_number);
+                }
+            }
+            root.precursors = precursors;
+            cascade.precursors = precursors;
+        }
+
         return { ok: true, total_lines: totalLines, events, cascades, summary };
     }
     
+    static actionSearch(id) {
+        irA('Search');
+        const qEl = document.getElementById('q');
+        if (qEl) qEl.value = id || '';
+        if (typeof buscar === 'function') buscar();
+        else if (typeof window.buscar === 'function') window.buscar();
+    }
+
+    static actionCircuits(id) {
+        irA('Circuits');
+        if (window.CircuitVisualizer && typeof window.CircuitVisualizer.buscarEnEsquema === 'function') {
+            window.CircuitVisualizer.buscarEnEsquema(id || '');
+        }
+    }
+
+    static actionMultimeter(tp) {
+        irA('Multimeter');
+        if (typeof window.dmmSelTp === 'function') {
+            window.dmmSelTp(tp);
+        } else if (window.Multimeter && typeof window.Multimeter.seleccionarPuntoDePrueba === 'function') {
+            window.Multimeter.seleccionarPuntoDePrueba(tp);
+        }
+    }
+
+    static actionDiagnose(id) {
+        irA('Diagnose');
+        const inputs = document.querySelectorAll('.symptom-input');
+        if (inputs.length > 0) inputs[0].value = id || '';
+        if (typeof window.ejecutarTrazaGrafo === 'function') {
+            window.ejecutarTrazaGrafo();
+        } else if (typeof ejecutarTrazaGrafo === 'function') {
+            ejecutarTrazaGrafo();
+        }
+    }
+
     static renderResults(data) {
         const container = document.getElementById("logResults");
         if (!container) return;
@@ -182,17 +324,24 @@ class LogParser {
                     <h5 style="color:var(--danger)">Cascada ${idx + 1}</h5>`;
                 
                 const rootEvent = cascade[0];
-                html += `<p style="font-size:0.8rem; margin:5px 0;"><strong>Causa Raíz:</strong> ${rootEvent.timestamp_str} - ${rootEvent.severity} - ${rootEvent.identifiers.join(", ")}</p>`;
+                const rootIds = (rootEvent.identifiers && rootEvent.identifiers.length > 0) ? rootEvent.identifiers.join(", ") : "Sin identificador";
+                html += `<p style="font-size:0.8rem; margin:5px 0;"><strong>Causa Raíz:</strong> ${rootEvent.timestamp_str} - ${rootEvent.severity} - ${rootIds}</p>`;
                 
-                const primaryId = identifiers[0] || '';
+                if (rootEvent.precursors && rootEvent.precursors.length > 0) {
+                    const precList = rootEvent.precursors.map(p => `${p.timestamp_str ? p.timestamp_str + ' · ' : ''}${p.raw.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}`).join('<br>');
+                    html += `<p style="font-size:0.78rem; margin:4px 0; color:var(--warn, #e6a23c);">⚠️ <strong>Posible precursor:</strong><br>${precList}</p>`;
+                }
+
+                // P0-1: Corregido ReferenceError: identifiers no estaba en scope
+                const primaryId = (rootEvent.identifiers && rootEvent.identifiers[0]) || '';
                 const suggestedTp = LogParser.mapIdentifierToTP(primaryId);
                 
                 html += `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:10px;">
-                    <button class="btn btn-ghost btn-sm" onclick="irA('Search'); document.getElementById('q').value='${primaryId}'; buscar();">🔍 Ver en Manuales</button>
-                    <button class="btn btn-ghost btn-sm" onclick="irA('Circuits'); if(window.CircuitVisualizer) window.CircuitVisualizer.buscarEnEsquema('${primaryId}');">⚡ Ver en Esquema SVG</button>
-                    <button class="btn btn-ghost btn-sm" onclick="irA('Multimeter'); if (window.dmmSelTp) window.dmmSelTp('${suggestedTp}');">📟 Medir con Multímetro (${suggestedTp})</button>
+                    <button class="btn btn-ghost btn-sm" onclick="LogParser.actionSearch('${primaryId}')">🔍 Ver en Manuales</button>
+                    <button class="btn btn-ghost btn-sm" onclick="LogParser.actionCircuits('${primaryId}')">⚡ Ver en Esquema SVG</button>
+                    <button class="btn btn-ghost btn-sm" onclick="LogParser.actionMultimeter('${suggestedTp}')">📟 Medir con Multímetro (${suggestedTp})</button>
                     <button class="btn btn-primary btn-sm" onclick="LogParser.exportToNotes(${idx})">📝 Exportar a Mis Apuntes</button>
-                    <button class="btn btn-ghost btn-sm" onclick="irA('Diagnose'); let inputs = document.querySelectorAll('.symptom-input'); if(inputs.length > 0) inputs[0].value='${primaryId}'; if(window.ejecutarTrazaGrafo) window.ejecutarTrazaGrafo();">🧭 Ver Traza Topológica</button>
+                    <button class="btn btn-ghost btn-sm" onclick="LogParser.actionDiagnose('${primaryId}')">🧭 Ver Traza Topológica</button>
                 </div>`;
                 html += `</div>`;
             });
@@ -210,40 +359,73 @@ class LogParser {
 
         const viewer = document.getElementById("logViewerContainer");
         if (viewer) {
-            let pageSize = 500;
+            // P2-2: Limite de seguridad de elementos DOM para fluidez en tablets de baja RAM
+            const MAX_DOM_EVENTS = 2000;
+            let pageSize = 200;
             let rendered = 0;
             const eventsToRender = data.events.filter(e => e.severity === "FATAL" || e.severity === "ERROR" || e.severity === "WARNING");
             
             if (eventsToRender.length === 0) {
                 viewer.innerHTML = `<span style="color:var(--muted)">No hay errores, advertencias o eventos críticos para mostrar.</span>`;
-            }
-            
-            const renderPage = () => {
-                let toRender = eventsToRender.slice(rendered, rendered + pageSize);
-                if (toRender.length === 0) return;
+            } else {
+                let ceilingReached = false;
+                const renderPage = () => {
+                    if (ceilingReached) return;
+                    if (rendered >= MAX_DOM_EVENTS) {
+                        ceilingReached = true;
+                        let notice = document.createElement("div");
+                        notice.style.padding = "8px";
+                        notice.style.textAlign = "center";
+                        notice.style.color = "var(--warn, #e6a23c)";
+                        notice.style.borderTop = "1px dashed var(--border)";
+                        notice.style.marginTop = "6px";
+                        notice.style.fontStyle = "italic";
+                        notice.textContent = `Mostrando los primeros ${MAX_DOM_EVENTS} eventos de ${eventsToRender.length} totales (límite de seguridad para fluidez en pantalla).`;
+                        viewer.appendChild(notice);
+                        return;
+                    }
+
+                    let end = Math.min(rendered + pageSize, MAX_DOM_EVENTS, eventsToRender.length);
+                    let toRender = eventsToRender.slice(rendered, end);
+                    if (toRender.length === 0) return;
+                    
+                    let df = document.createDocumentFragment();
+                    for (let ev of toRender) {
+                        let d = document.createElement("div");
+                        d.style.marginBottom = "4px";
+                        d.style.padding = "4px";
+                        d.style.borderBottom = "1px solid var(--border)";
+                        let color = ev.severity === "FATAL" ? "var(--danger)" : (ev.severity === "ERROR" ? "var(--warn)" : "var(--accent)");
+                        let rawEscaped = String(ev.raw || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                        d.innerHTML = `<span style="color:${color}; width:60px; display:inline-block;">${ev.severity}</span> 
+                                       <span style="color:var(--muted); margin-right:10px;">${ev.timestamp_str}</span> 
+                                       ${rawEscaped}`;
+                        df.appendChild(d);
+                    }
+                    viewer.appendChild(df);
+                    rendered = end;
+
+                    if (rendered >= MAX_DOM_EVENTS && rendered < eventsToRender.length && !ceilingReached) {
+                        ceilingReached = true;
+                        let notice = document.createElement("div");
+                        notice.style.padding = "8px";
+                        notice.style.textAlign = "center";
+                        notice.style.color = "var(--warn, #e6a23c)";
+                        notice.style.borderTop = "1px dashed var(--border)";
+                        notice.style.marginTop = "6px";
+                        notice.style.fontStyle = "italic";
+                        notice.textContent = `Mostrando los primeros ${MAX_DOM_EVENTS} eventos de ${eventsToRender.length} totales (límite de seguridad para fluidez en pantalla).`;
+                        viewer.appendChild(notice);
+                    }
+                };
                 
-                let df = document.createDocumentFragment();
-                for (let ev of toRender) {
-                    let d = document.createElement("div");
-                    d.style.marginBottom = "4px";
-                    d.style.padding = "4px";
-                    d.style.borderBottom = "1px solid var(--border)";
-                    let color = ev.severity === "FATAL" ? "var(--danger)" : (ev.severity === "ERROR" ? "var(--warn)" : "var(--accent)");
-                    d.innerHTML = `<span style="color:${color}; width:60px; display:inline-block;">${ev.severity}</span> 
-                                   <span style="color:var(--muted); margin-right:10px;">${ev.timestamp_str}</span> 
-                                   ${ev.raw.replace(/</g, "&lt;").replace(/>/g, "&gt;")}`;
-                    df.appendChild(d);
-                }
-                viewer.appendChild(df);
-                rendered += pageSize;
-            };
-            
-            renderPage();
-            viewer.addEventListener("scroll", () => {
-                if (viewer.scrollTop + viewer.clientHeight >= viewer.scrollHeight - 50) {
-                    renderPage();
-                }
-            });
+                renderPage();
+                viewer.addEventListener("scroll", () => {
+                    if (viewer.scrollTop + viewer.clientHeight >= viewer.scrollHeight - 50) {
+                        renderPage();
+                    }
+                });
+            }
         }
     }
     
@@ -253,18 +435,30 @@ class LogParser {
         if (!cascade) return;
         
         const rootEvent = cascade[0];
-        const identifiers = [...new Set(cascade.flatMap(e => e.identifiers))].join(", ");
+        const identifiers = [...new Set(cascade.reduce((acc, e) => acc.concat(e.identifiers || []), []))].join(", ");
         
-        const noteText = `Análisis Cronológico de Secuencia de Falla\n\nCascada iniciada: ${rootEvent.timestamp_str}\nSeveridad: ${rootEvent.severity}\nComponentes/IDs involucrados: ${identifiers}\n\nDetalle eventos:\n` +
+        let noteText = `Análisis Cronológico de Secuencia de Falla\n\nCascada iniciada: ${rootEvent.timestamp_str}\nSeveridad: ${rootEvent.severity}\nComponentes/IDs involucrados: ${identifiers}\n`;
+        
+        if (rootEvent.precursors && rootEvent.precursors.length > 0) {
+            noteText += `\n⚠️ Posibles precursores detectados (5s previos):\n` +
+                rootEvent.precursors.map(p => `- ${p.timestamp_str}: ${p.raw}`).join("\n") + "\n";
+        }
+
+        noteText += `\nDetalle eventos:\n` +
             cascade.map(e => `- ${e.timestamp_str}: ${e.raw}`).join("\n");
             
         irA('Notes');
-        if (typeof abrirFormNota === 'function') {
-            abrirFormNota();
+        const abrirFn = (typeof window.abrirFormNota === 'function') ? window.abrirFormNota : ((typeof abrirFormNota === 'function') ? abrirFormNota : null);
+        if (abrirFn) {
+            abrirFn();
             setTimeout(() => {
-                document.getElementById('notaTit').value = "Falla detectada: " + (identifiers.split(",")[0] || "Desconocida");
-                document.getElementById('notaTxt').value = noteText;
-                document.getElementById('notaTags').value = "log, cascade";
+                const elTit = document.getElementById('notaTit');
+                const elTxt = document.getElementById('notaTxt');
+                const elTags = document.getElementById('notaTags');
+                const firstId = (identifiers.split(",")[0] || "").trim();
+                if (elTit) elTit.value = "Falla detectada: " + (firstId || "Desconocida");
+                if (elTxt) elTxt.value = noteText;
+                if (elTags) elTags.value = "log, cascade";
             }, 100);
         }
     }
@@ -283,8 +477,10 @@ class LogParser {
         
         const f = files[0];
         
-        document.getElementById("logParsingSpinner").style.display = "block";
-        document.getElementById("logResults").innerHTML = "";
+        const spinner = document.getElementById("logParsingSpinner");
+        if (spinner) spinner.style.display = "block";
+        const resEl = document.getElementById("logResults");
+        if (resEl) resEl.innerHTML = "";
         
         try {
             const data = await LogParser.parseFileClientSide(f);
@@ -292,26 +488,33 @@ class LogParser {
         } catch (err) {
             alert("Error analizando el archivo: " + err);
         } finally {
-            document.getElementById("logParsingSpinner").style.display = "none";
+            if (spinner) spinner.style.display = "none";
+            if (evt.target && evt.target.value) {
+                try { evt.target.value = ""; } catch (e) {}
+            }
         }
     }
     
     static async handlePaste() {
-        const text = document.getElementById("logPasteArea").value;
+        const pasteArea = document.getElementById("logPasteArea");
+        const text = pasteArea ? pasteArea.value : "";
         if (!text.trim()) return;
         
-        document.getElementById("logParsingSpinner").style.display = "block";
-        document.getElementById("logResults").innerHTML = "";
+        const spinner = document.getElementById("logParsingSpinner");
+        if (spinner) spinner.style.display = "block";
+        const resEl = document.getElementById("logResults");
+        if (resEl) resEl.innerHTML = "";
         
         try {
+            const isUs = LogParser.detectDateLocale(text);
             let lines = text.split(/\r?\n/);
-            let events = LogParser.parseChunk(lines, 0);
+            let events = LogParser.parseChunk(lines, 0, isUs);
             let data = LogParser.aggregate(events, lines.length);
             LogParser.renderResults(data);
         } catch (err) {
             alert("Error analizando el texto: " + err);
         } finally {
-            document.getElementById("logParsingSpinner").style.display = "none";
+            if (spinner) spinner.style.display = "none";
         }
     }
     
@@ -322,24 +525,25 @@ class LogParser {
 2026-09-15 10:55:58.800 FATAL INTERLOCK 283 tripped cascade
 2026-09-15 10:55:59.100 FATAL W12 signal lost
 2026-09-15 10:56:10.000 INFO Recovery started`;
-        document.getElementById("logPasteArea").value = sample;
+        const pasteArea = document.getElementById("logPasteArea");
+        if (pasteArea) pasteArea.value = sample;
         LogParser.handlePaste();
     }
 
     static mapIdentifierToTP(identifier) {
         if (!identifier) return "TP1";
-        const id = String(identifier).toUpperCase();
-        if (id.includes("283") || id.includes("DOOR") || id.includes("INTERLOCK 2")) return "TP2";
-        if (id.includes("FS1") || id.includes("24V") || id.includes("PSU")) return "GEN_VOLT_24";
-        if (id.includes("GUN") || id.includes("FILAMENT")) return "TP_GUN";
-        if (id.includes("VAC") || id.includes("VAC_ION")) return "TP_VAC";
-        if (id.includes("DOSE") || id.includes("DOSIS") || id.includes("100")) return "TP100";
-        if (id.includes("HT") || id.includes("MODULAT") || id.includes("PFN")) return "TP_HT";
-        if (id.includes("3") || id.includes("PULSE") || id.includes("THYRATRON")) return "TP3";
-        if (id.includes("RF")) return "TP_RF";
-        if (id.includes("SPEED") || id.includes("TACHO")) return "TP_SPEED";
-        if (id.includes("POS") || id.includes("GANTRY")) return "TP_POS";
-        if (id.includes("16N") || id.includes("K1") || id.includes("K2") || id.includes("5")) return "TP5";
+        const id = String(identifier).trim().toUpperCase();
+        if (/\b(TP2|INTERLOCK\s*(?:283|2\b)|DOOR|E-?STOP)\b/i.test(id)) return "TP2";
+        if (/\b(FS1|24V|PSU)\b/i.test(id)) return "GEN_VOLT_24";
+        if (/\b(GUN|FILAMENT)\b/i.test(id)) return "TP_GUN";
+        if (/\b(TP_VAC|VAC\w*|VAC_ION|ITEM\s*112)\b/i.test(id)) return "TP_VAC";
+        if (/\b(TP100|DOS(?:E|IS)\w*|ION\s*CHAMBER)\b/i.test(id)) return "TP100";
+        if (/\b(TP_HT|MODULAT\w*|PFN|HT(?:\s*SUPPLY)?)\b/i.test(id)) return "TP_HT";
+        if (/\b(TP3|THYRATRON|PCB\s*(?:22|3\b)|ITEM\s*474|PULSE)\b/i.test(id)) return "TP3";
+        if (/\b(TP_RF|RF|MAGNETRON|KLYSTRON)\b/i.test(id)) return "TP_RF";
+        if (/\b(TP_SPEED|SPEED|TACHO|TG1)\b/i.test(id)) return "TP_SPEED";
+        if (/\b(TP_POS|POS|GANTRY|ENCODER)\b/i.test(id)) return "TP_POS";
+        if (/\b(TP5|PCB\s*(?:16N?|5\b)|16N|RELAY\s*K[12]|K1|K2|W12)\b/i.test(id)) return "TP5";
         return "TP1";
     }
 }
