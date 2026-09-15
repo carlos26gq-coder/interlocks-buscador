@@ -6,6 +6,7 @@ const CORE = [
     "/static/app.js",
     "/static/circuit-visualizer.js",
     "/static/multimeter.js",
+    "/static/log-parser.js",
     "/static/circuit_schematics.json",
     "/static/search-worker.js",
     "/static/linac_graph.json",

@@ -636,11 +636,50 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   </div>
 </div>
 
+<div id="screenLogs" class="screen">
+  <div class="cv-header">
+    <div class="cv-title-group">
+      <h2>📋 Analizador Cronológico de Secuencias</h2>
+      <span class="cv-subsystem-badge">LOG PARSER</span>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:4px;line-height:1.4">
+        Analiza archivos de registro (Logs) de Elekta Linac. Detecta automáticamente cascadas de interlocks y falla de componentes.
+      </p>
+    </div>
+  </div>
+  
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;">
+    <div id="logDropZone" style="border:2px dashed var(--border);border-radius:8px;padding:20px;text-align:center;margin-bottom:10px;">
+        <p style="color:var(--muted);font-size:0.8rem;margin-bottom:10px;">Arrastra un archivo de log (.txt, .log) aquí, o usa el botón:</p>
+        <input type="file" id="logFileInput" accept=".txt,.log,.csv" style="display:none;">
+        <button class="btn btn-primary btn-sm" onclick="logTriggerFileInput()">Seleccionar Archivo</button>
+    </div>
+    
+    <div style="text-align:center;margin:10px 0;">
+        <span style="color:var(--muted);font-size:0.75rem;">O pega un fragmento de texto:</span>
+    </div>
+    
+    <textarea id="logPasteArea" placeholder="Pega el texto del log aquí..." style="width:100%;height:100px;margin-bottom:10px;"></textarea>
+    
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="logHandlePaste()">Analizar Texto</button>
+        <button class="btn btn-ghost" onclick="logLoadSample()">Cargar Log de Prueba</button>
+    </div>
+  </div>
+  
+  <div id="logParsingSpinner" style="display:none;text-align:center;padding:20px;">
+    <div class="spinner-wrap" style="padding:10px 0"><div class="spinner"></div></div>
+    <p style="color:var(--accent);font-family:var(--mono);font-size:0.8rem;">Procesando eventos y detectando cascadas...</p>
+  </div>
+  
+  <div id="logResults"></div>
+</div>
+
 <nav class="bottom-nav">
   <button class="nav-btn active" id="navS" onclick="irA('Search')"><span class="icon">🔍</span>Buscar</button>
   <button class="nav-btn" id="navD" onclick="irA('Diagnose')"><span class="icon">🧭</span>Relacionar</button>
   <button class="nav-btn" id="navC" onclick="irA('Circuits')"><span class="icon">⚡</span>Esquemas</button>
   <button class="nav-btn" id="navM" onclick="irA('Multimeter')"><span class="icon">📟</span>Multímetro</button>
+  <button class="nav-btn" id="navL" onclick="irA('Logs')"><span class="icon">📋</span>Registros</button>
   <button class="nav-btn" id="navN" onclick="irA('Notes')"><span class="icon">📝</span>Apuntes</button>
   <button class="nav-btn" id="navA" onclick="irA('Admin')"><span class="icon">⚙️</span>Admin</button>
 </nav>
@@ -649,7 +688,13 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 <script src="/static/app.js?v={{ build_time }}"></script>
 <script src="/static/circuit-visualizer.js?v={{ build_time }}"></script>
 <script src="/static/multimeter.js?v={{ build_time }}"></script>
+<script src="/static/log-parser.js?v={{ build_time }}"></script>
 <script>
+// Manejadores globales para Analizador Cronológico de Archivos de Registro
+function logTriggerFileInput() { if (window.LogParser) window.LogParser.triggerFileInput(); }
+function logHandlePaste() { if (window.LogParser) window.LogParser.handlePaste(); }
+function logLoadSample() { if (window.LogParser) window.LogParser.loadSample(); }
+
 // Manejadores globales para Multímetro Digital
 function dmmKeypad(c) { if (window.Multimeter) window.Multimeter.keypadPress(c); }
 function dmmPreset(v) { if (window.Multimeter) window.Multimeter.aplicarPreset(v); }
@@ -669,10 +714,10 @@ function dmmToggleBuzzer(en) { if (window.Multimeter) window.Multimeter.toggleBu
 
 // Navegación entre pantallas
 function irA(name) {
-    ['Search','Diagnose','Circuits','Multimeter','Notes','Admin'].forEach(n => {
+    ['Search','Diagnose','Circuits','Multimeter','Logs','Notes','Admin'].forEach(n => {
         const scr = document.getElementById('screen'+n);
         if (scr) scr.classList.toggle('active', n===name);
-        const navId = 'nav' + (n === 'Multimeter' ? 'M' : n[0]);
+        const navId = 'nav' + (n === 'Multimeter' ? 'M' : (n === 'Logs' ? 'L' : n[0]));
         const navEl = document.getElementById(navId);
         if (navEl) navEl.classList.toggle('active', n===name);
     });

@@ -813,6 +813,12 @@ def openapi_spec():
             "/health": {
                 "get": {"summary": "Estado del servidor y servicios conectados"},
             },
+            "/logs/parse": {
+                "post": {
+                    "summary": "Analizador Cronológico de Archivos de Registro",
+                    "responses": {"200": {"description": "Resultados del parseo de logs"}},
+                }
+            },
         },
         "components": {
             "schemas": {
@@ -838,6 +844,25 @@ def openapi_spec():
         },
     }
     return jsonify(spec)
+
+
+@app.route("/logs/parse", methods=["POST"])
+@limiter.limit("600 per hour")
+def logs_parse():
+    try:
+        data = request.get_json(silent=True) or {}
+        text = data.get("text", "")
+        if not text:
+            raise ValidationError("Debe enviar texto de registro (log text).")
+            
+        from log_parser_service import parse_log_text
+        result = parse_log_text(text)
+        return jsonify(result), 200
+    except ValidationError as val_err:
+        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error en /logs/parse")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
 
 
 if __name__ == "__main__":
