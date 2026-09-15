@@ -122,7 +122,7 @@
             id: "TP_POS", code: "TP_POS", name: "Punto de Prueba TP_POS",
             subsystem: "gantry_collimator", subsystem_name: "Accionamiento de Gantry y Colimador",
             mode: "voltage_dc", unit: "V", nominal: 5.0,
-            tolerance_min: 0.0, tolerance_max: 10.0, warning_low: 0.0, warning_high: 10.0,
+            tolerance_min: 0.0, tolerance_max: 10.0, warning_low: 0.5, warning_high: 9.5,
             spec: "0-10V DC correspondiente exactamente a 0° - 360°",
             manual: "movement", page: 57,
             role: "Comprobación de linealidad del potenciómetro angular",
@@ -263,9 +263,9 @@
     }
 
     // ─── RESOLUCIÓN INTELIGENTE DE PUNTOS DE PRUEBA ──────────────────────
-    function resolverPuntoDePrueba(idOrCode) {
+    function resolverPuntoDePrueba(idOrCode, fallbackDefault = false) {
         const raw = String(idOrCode || "").trim();
-        if (!raw) return OFFLINE_CATALOG["TP1"];
+        if (!raw) return fallbackDefault ? OFFLINE_CATALOG["TP1"] : null;
         if (OFFLINE_CATALOG[raw]) return OFFLINE_CATALOG[raw];
 
         const upper = raw.toUpperCase();
@@ -285,13 +285,41 @@
             return OFFLINE_CATALOG[match[1]];
         }
 
-        return OFFLINE_CATALOG["TP1"];
+        return fallbackDefault ? OFFLINE_CATALOG["TP1"] : null;
     }
 
     // ─── EVALUADOR DE TOLERANCIAS 100% OFFLINE ───────────────────────────
     function evaluarLectura(tpId, valorMedido) {
         const val = safeNumber(valorMedido, 0.0);
-        const tp = resolverPuntoDePrueba(tpId);
+        const tp = resolverPuntoDePrueba(tpId, false);
+
+        if (!tp) {
+            return {
+                test_point_id: tpId,
+                test_point_code: tpId || "DESCONOCIDO",
+                test_point_name: `Punto no catalogado (${tpId || "N/D"})`,
+                subsystem: "unknown",
+                subsystem_name: "Punto Desconocido",
+                role: "Punto de prueba auxiliar no registrado en manuales",
+                manual: "",
+                page: 0,
+                measured_value: val,
+                nominal_value: null,
+                tolerance_min: null,
+                tolerance_max: null,
+                unit: "V",
+                delta: 0,
+                percent_error: null,
+                status: "FUERA_DE_TOLERANCIA",
+                status_badge: "DESCONOCIDO",
+                status_label: "PUNTO NO IDENTIFICADO",
+                color: "var(--muted)",
+                recommendation: `El punto de prueba "${tpId}" no está en el catálogo. Verifique el identificador o consulte esquemas del Linac.`,
+                notes: "Punto no catalogado. Requiere verificación previa de planos antes de evaluar tolerancias.",
+                is_known_test_point: false,
+                timestamp: new Date().toISOString()
+            };
+        }
 
         const nominal = tp.nominal;
         const tMin = tp.tolerance_min;
@@ -300,12 +328,16 @@
         const wHigh = tp.warning_high !== undefined ? tp.warning_high : tMax;
 
         const delta = Math.round((val - nominal) * 10000) / 10000;
-        let percentError = 0;
+        let percentError = null;
         if (Math.abs(nominal) > 1e-5) {
-            percentError = Math.round((delta / nominal) * 10000) / 100;
+            percentError = Math.round((delta / Math.abs(nominal)) * 10000) / 100;
         } else {
-            percentError = Math.round(delta * 10000) / 100;
+            percentError = null;
         }
+
+        const pctStr = (percentError !== null && percentError !== undefined && !isNaN(percentError))
+            ? `${percentError >= 0 ? '+' : ''}${percentError}%`
+            : "N/A";
 
         let status = "DENTRO_DE_TOLERANCIA";
         let statusBadge = "OK";
@@ -329,13 +361,13 @@
             }
         } else {
             status = "FUERA_DE_TOLERANCIA";
-            statusBadge = "CRÍTICO";
+            statusBadge = "FALLA";
             statusLabel = "FUERA DE TOLERANCIA";
             color = "#ef4444"; // Rojo
             if (val < tMin) {
-                recommendation = `Tensión/lectura inferior al mínimo (${val.toFixed(2)} ${tp.unit} < ${tMin.toFixed(2)} ${tp.unit}). Δ = ${delta >= 0 ? '+' : ''}${delta.toFixed(2)} ${tp.unit} (${percentError >= 0 ? '+' : ''}${percentError}%). ${tp.notes}`;
+                recommendation = `Tensión/lectura inferior al mínimo (${val.toFixed(2)} ${tp.unit} < ${tMin.toFixed(2)} ${tp.unit}). Δ = ${delta >= 0 ? '+' : ''}${delta.toFixed(2)} ${tp.unit} (${pctStr}). ${tp.notes}`;
             } else {
-                recommendation = `Tensión/lectura superior al máximo (${val.toFixed(2)} ${tp.unit} > ${tMax.toFixed(2)} ${tp.unit}). Δ = ${delta >= 0 ? '+' : ''}${delta.toFixed(2)} ${tp.unit} (${percentError >= 0 ? '+' : ''}${percentError}%). Riesgo de sobrevoltaje. ${tp.notes}`;
+                recommendation = `Tensión/lectura superior al máximo (${val.toFixed(2)} ${tp.unit} > ${tMax.toFixed(2)} ${tp.unit}). Δ = ${delta >= 0 ? '+' : ''}${delta.toFixed(2)} ${tp.unit} (${pctStr}). Riesgo de sobrevoltaje. ${tp.notes}`;
             }
         }
 
@@ -361,13 +393,29 @@
             color: color,
             recommendation: recommendation,
             notes: tp.notes,
+            is_known_test_point: true,
             timestamp: new Date().toISOString()
         };
     }
 
     // ─── GENERADOR DE LECTURAS DE BANCO SIMULADO ─────────────────────────
     function generarLecturaSimulada(tpId, faultType) {
-        const tp = resolverPuntoDePrueba(tpId);
+        const tp = resolverPuntoDePrueba(tpId, false);
+        if (!tp) {
+            return {
+                test_point_id: tpId,
+                test_point_code: tpId || "DESCONOCIDO",
+                test_point_name: `Punto no catalogado (${tpId || "N/D"})`,
+                status: "FUERA_DE_TOLERANCIA",
+                status_badge: "DESCONOCIDO",
+                status_label: "PUNTO DESCONOCIDO",
+                color: "var(--muted)",
+                recommendation: `No se puede simular lectura para el punto de prueba desconocido "${tpId}".`,
+                is_known_test_point: false,
+                is_simulation: true,
+                fault_injected: String(faultType || "normal").toLowerCase()
+            };
+        }
         const nominal = tp.nominal;
         const fault = String(faultType || "normal").toLowerCase();
 
@@ -410,19 +458,33 @@
             if (!_audioContext) {
                 _audioContext = new AudioCtx();
             }
+            const dur = (duracionMs || 100) / 1000;
+            const playTone = () => {
+                try {
+                    const osc = _audioContext.createOscillator();
+                    const gain = _audioContext.createGain();
+                    osc.type = "sine";
+                    osc.frequency.setValueAtTime(frecuencia || 1760, _audioContext.currentTime); // Tono tipo multímetro Fluke
+                    gain.gain.setValueAtTime(0.08, _audioContext.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, _audioContext.currentTime + dur);
+                    osc.connect(gain);
+                    gain.connect(_audioContext.destination);
+                    osc.onended = () => {
+                        try {
+                            osc.disconnect();
+                            gain.disconnect();
+                        } catch (_) {}
+                    };
+                    osc.start();
+                    osc.stop(_audioContext.currentTime + dur);
+                } catch (_) {}
+            };
+
             if (_audioContext.state === "suspended") {
-                _audioContext.resume().catch(() => {});
+                _audioContext.resume().then(playTone).catch(() => {});
+            } else {
+                playTone();
             }
-            const osc = _audioContext.createOscillator();
-            const gain = _audioContext.createGain();
-            osc.type = "sine";
-            osc.frequency.setValueAtTime(frecuencia || 1760, _audioContext.currentTime); // Tono tipo multímetro Fluke
-            gain.gain.setValueAtTime(0.08, _audioContext.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, _audioContext.currentTime + ((duracionMs || 100) / 1000));
-            osc.connect(gain);
-            gain.connect(_audioContext.destination);
-            osc.start();
-            osc.stop(_audioContext.currentTime + ((duracionMs || 100) / 1000));
         } catch (e) {
             // Silencioso en caso de bloqueo de reproducción por políticas del navegador
         }
@@ -483,7 +545,7 @@
     }
 
     function actualizarDisplayManual() {
-        const tp = resolverPuntoDePrueba(_activeTpId);
+        const tp = resolverPuntoDePrueba(_activeTpId, true);
         const strToShow = (_currentInputStr === "" || _currentInputStr === "-") ? "0.00" : _currentInputStr;
 
         // Pantalla principal
@@ -765,7 +827,7 @@
                 <div><span style="color:var(--muted);">Medido:</span> <strong style="color:${ev.color}">${ev.measured_value.toFixed(2)} ${esc(ev.unit)}</strong></div>
                 <div><span style="color:var(--muted);">Nominal:</span> <strong>${ev.nominal_value.toFixed(2)} ${esc(ev.unit)}</strong></div>
                 <div><span style="color:var(--muted);">Tolerancia:</span> <strong>${ev.tolerance_min.toFixed(1)} a ${ev.tolerance_max.toFixed(1)} ${esc(ev.unit)}</strong></div>
-                <div><span style="color:var(--muted);">Desviación:</span> <strong style="color:${ev.delta >= 0 ? 'var(--green)' : 'var(--danger)'}">${ev.delta >= 0 ? '+' : ''}${ev.delta.toFixed(2)} ${esc(ev.unit)} (${ev.percent_error >= 0 ? '+' : ''}${ev.percent_error}%)</strong></div>
+                <div><span style="color:var(--muted);">Desviación:</span> <strong style="color:${ev.delta >= 0 ? 'var(--green)' : 'var(--danger)'}">${ev.delta >= 0 ? '+' : ''}${ev.delta.toFixed(2)} ${esc(ev.unit)} (${(ev.percent_error !== null && ev.percent_error !== undefined && isFinite(ev.percent_error)) ? `${ev.percent_error >= 0 ? '+' : ''}${ev.percent_error}%` : 'N/A'})</strong></div>
             </div>
 
             <div style="font-size:0.8rem;color:#cbd5e1;line-height:1.5;margin-bottom:12px;background:rgba(255,255,255,0.02);padding:8px 10px;border-radius:6px;border-left:2px solid ${ev.color};">
@@ -837,7 +899,7 @@
 
     // ─── PRESETS DINÁMICOS ADAPTADOS AL PUNTO ACTIVO ─────────────────────
     function renderizarPresetsDinamicos() {
-        const tp = resolverPuntoDePrueba(_activeTpId);
+        const tp = resolverPuntoDePrueba(_activeTpId, true);
         const presets = [];
 
         // 1. Preset nominal directo del punto
@@ -905,7 +967,7 @@ RESULTADOS ELÉCTRICOS:
 - Valor Medido:    ${ev.measured_value.toFixed(2)} ${ev.unit}
 - Valor Nominal:   ${ev.nominal_value.toFixed(2)} ${ev.unit}
 - Rango Permitido: ${ev.tolerance_min.toFixed(2)} a ${ev.tolerance_max.toFixed(2)} ${ev.unit}
-- Desviación (Δ):  ${ev.delta >= 0 ? '+' : ''}${ev.delta.toFixed(2)} ${ev.unit} (${ev.percent_error >= 0 ? '+' : ''}${ev.percent_error}%)
+- Desviación (Δ):  ${ev.delta >= 0 ? '+' : ''}${ev.delta.toFixed(2)} ${ev.unit} (${(ev.percent_error !== null && ev.percent_error !== undefined && isFinite(ev.percent_error)) ? `${ev.percent_error >= 0 ? '+' : ''}${ev.percent_error}%` : 'N/A'})
 - Estado:          ${ev.status_label}
 
 DIAGNÓSTICO Y RECOMENDACIÓN:
@@ -945,7 +1007,7 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
 
     // ─── NAVEGACIÓN Y SINCRONIZACIÓN CON ESQUEMAS Y TRAZAS ────────────────
     function verEnPlanoSvg(tpId) {
-        const tp = resolverPuntoDePrueba(tpId || _activeTpId);
+        const tp = resolverPuntoDePrueba(tpId || _activeTpId, true);
         cerrarInspectorModal();
 
         if (typeof window.irA === "function") {
@@ -998,7 +1060,7 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
 
     // ─── CAMBIO DE PUNTO DE PRUEBA ACTIVO ────────────────────────────────
     function seleccionarPuntoDePrueba(tpId) {
-        const tp = resolverPuntoDePrueba(tpId);
+        const tp = resolverPuntoDePrueba(tpId, true);
         _activeTpId = tp.id;
         _currentInputStr = ""; // Limpiar entrada previa para evitar falsas alarmas de desviación
 
@@ -1058,7 +1120,7 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
 
         if (modal) {
             modal.style.display = "flex";
-            const tp = resolverPuntoDePrueba(_activeTpId);
+            const tp = resolverPuntoDePrueba(_activeTpId, true);
             const tit = document.getElementById("dmmModalTitle");
             if (tit) tit.textContent = `${tp.code} · ${tp.name}`;
 
@@ -1091,7 +1153,7 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
             }
         });
 
-        const tp = resolverPuntoDePrueba(_activeTpId);
+        const tp = resolverPuntoDePrueba(_activeTpId, true);
 
         div.innerHTML = `
         <div style="background:var(--surface);border:1px solid var(--border);border-top:4px solid var(--accent);border-radius:12px;width:100%;max-width:520px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 15px 40px rgba(0,0,0,0.7);overflow:hidden;" onclick="event.stopPropagation()">

@@ -41,6 +41,7 @@ class GraphEngine:
         self.adjacency: dict[str, list] = graph_data.get("adjacency", {})
         self.lookup: dict[str, str] = graph_data.get("lookup", {})
         self.page_to_entities: dict[tuple[str, int], list[str]] = defaultdict(list)
+        self.enriched_circuits: bool = False
 
         if enrich_circuits:
             self._enrich_with_circuit_schematics()
@@ -108,8 +109,11 @@ class GraphEngine:
                             self.adjacency[u].append(edge_uv)
                         if edge_vu not in self.adjacency[v]:
                             self.adjacency[v].append(edge_vu)
-        except Exception:
-            pass
+            self.enriched_circuits = True
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Error al enriquecer grafo con esquemas de circuito: %s", exc)
+            self.enriched_circuits = False
 
     def resolve_entity(self, text: str, search_engine: Any = None) -> str | None:
         """Resuelve un texto de síntoma o consulta a un ID canónico del grafo."""
@@ -151,15 +155,28 @@ class GraphEngine:
                 if cand in self.entities:
                     return cand
 
-        # 4. Coincidencia por subcadena en entidades (ej: "dose rate" -> "D_RATE 1")
+        # 4. Coincidencia en entidades
         clean_digits = re.findall(r"\d+", clean)
+
+        # 4a. Coincidencia exacta limpia con ent_id
+        for ent_id in self.entities:
+            ent_clean = _clean_key(ent_id)
+            if clean == ent_clean:
+                return ent_id
+
+        # 4b. Coincidencias por subcadena ordenadas por especificidad (longitud descendente) y desempate alfabético
+        candidates: list[str] = []
         for ent_id in self.entities:
             ent_clean = _clean_key(ent_id)
             if (len(clean) >= 4 and clean in ent_clean) or (len(ent_clean) >= 4 and ent_clean in clean):
                 ent_digits = re.findall(r"\d+", ent_clean)
                 if clean_digits and ent_digits and clean_digits != ent_digits:
                     continue
-                return ent_id
+                candidates.append(ent_id)
+
+        if candidates:
+            candidates.sort(key=lambda eid: (-len(_clean_key(eid)), eid))
+            return candidates[0]
 
         # 5. Búsqueda contextual en los manuales para mapear síntomas en lenguaje natural a hardware
         if search_engine is not None:
@@ -182,10 +199,19 @@ class GraphEngine:
 
     def find_shortest_path(self, start_id: str, target_id: str, max_depth: int = 4) -> list[dict] | None:
         """Encuentra el camino topológico más corto entre dos nodos mediante BFS."""
-        if start_id not in self.adjacency or target_id not in self.adjacency:
+        if start_id not in self.entities or target_id not in self.entities:
             return None
+
+        # Soportar nodos sumidero garantizando claves en self.adjacency
+        self.adjacency.setdefault(start_id, [])
+        self.adjacency.setdefault(target_id, [])
+
         if start_id == target_id:
-            return [{"node": start_id, "relation": "self", "manual": "diagrams", "page": 1}]
+            ent = self.entities.get(start_id, {})
+            pages = ent.get("pages", [])
+            man = pages[0][0] if pages else "diagrams"
+            page = int(pages[0][1]) if pages and len(pages[0]) > 1 else 1
+            return [{"node": start_id, "relation": "self", "manual": man, "page": page}]
 
         queue = deque([(start_id, [{"node": start_id, "relation": "start", "manual": "", "page": 0}])])
         visited = {start_id}

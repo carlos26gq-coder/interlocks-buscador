@@ -120,14 +120,14 @@ class MultimeterIntegrationSuite(unittest.TestCase):
         self.assertIn("superior al máximo", res["recommendation"])
 
     def test_evaluate_measurement_zero_nominal_safe_division(self):
-        """Puntos de prueba con valor nominal 0 (ej: TP_SPEED estático) no causan ZeroDivisionError."""
+        """Puntos de prueba con valor nominal 0 (ej: TP_SPEED estático) no causan ZeroDivisionError y retornan None (P0-5)."""
         res = evaluate_measurement("TP_SPEED", 0.0, "V")
         self.assertEqual(res["status"], "DENTRO_DE_TOLERANCIA")
-        self.assertTrue(math.isfinite(res["percent_error"]))
+        self.assertIsNone(res["percent_error"])
 
         res_moved = evaluate_measurement("TP_SPEED", 4.5, "V")
         self.assertEqual(res_moved["status"], "DENTRO_DE_TOLERANCIA")
-        self.assertTrue(math.isfinite(res_moved["percent_error"]))
+        self.assertIsNone(res_moved["percent_error"])
 
     def test_evaluate_measurement_custom_nominal_and_tolerance(self):
         """Soporta evaluación de puntos personalizados con nominal y tolerancia arbitrarios."""

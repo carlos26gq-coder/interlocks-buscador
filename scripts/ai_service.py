@@ -14,11 +14,14 @@ from collections import OrderedDict
 import copy
 from enum import Enum
 import json
+import logging
 import os
 import re
 import threading
 import time
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from pydantic import BaseModel, Field
 
@@ -362,11 +365,13 @@ def analyze_with_gemini(
         models_to_try.append(env_model)
 
     default_chain = [
-        "gemini-3.5-flash",
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
-        "gemini-3.6-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-flash",
         "gemini-flash-latest",
+        "gemini-3.5-flash",
     ]
     for default_m in default_chain:
         if default_m not in models_to_try:
@@ -385,7 +390,8 @@ SÍNTOMAS / SEÑALES INGRESADOS POR EL TÉCNICO:
 Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:"""
 
     try:
-        client = genai.Client(api_key=key)
+        http_opts = types.HttpOptions(timeout=30.0)
+        client = genai.Client(api_key=key, http_options=http_opts)
         last_error = None
         quota_hit = False
 
@@ -400,6 +406,7 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
                         response_mime_type="application/json",
                         response_schema=GeminiDiagnosis,
                         max_output_tokens=2048,
+                        http_options=http_opts,
                     ),
                 )
 
@@ -471,8 +478,10 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
                 if truncated:
                     data.setdefault("_diagnostic_meta", {})["truncated"] = True
 
-                # Guardar en caché para futuros usuarios o consultas idénticas
-                set_cached_diagnosis(symptoms, data, current_model)
+                # P0-8: Guardar en caché solo si la respuesta es íntegra y sin degradación sintáctica
+                meta = data.get("_diagnostic_meta", {})
+                if not (meta.get("truncated") or meta.get("degraded_parse")):
+                    set_cached_diagnosis(symptoms, data, current_model)
 
                 return {
                     "ok": True,
@@ -483,6 +492,14 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
             except Exception as model_err:
                 last_error = model_err
                 err_str = str(model_err)
+                sanitized_err = _sanitize_error_message(err_str)
+
+                # P2-2 & P2-3: Registrar advertencia saneada en el logger del servidor al saltar de modelo
+                logger.warning(
+                    "Fallo con modelo '%s' en cascada de diagnóstico: %s",
+                    current_model,
+                    sanitized_err,
+                )
 
                 # Si es error 429 (cuota de ese modelo específico agotada), intentar siguiente modelo
                 if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:

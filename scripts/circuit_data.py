@@ -1096,42 +1096,78 @@ def _matches_name_words(term: str, node: dict[str, Any]) -> bool:
     return False
 
 
+_SUBSYSTEM_NODE_INDEX: list[dict[str, Any]] | None = None
+
+
+def _get_subsystem_node_index() -> list[dict[str, Any]]:
+    global _SUBSYSTEM_NODE_INDEX
+    if _SUBSYSTEM_NODE_INDEX is not None:
+        return _SUBSYSTEM_NODE_INDEX
+    index = []
+    for s_id, sub in SUBSYSTEMS.items():
+        for node in sub["nodes"]:
+            pats = _get_node_patterns(node)
+            name_words = [w for w in re.split(r"\W+", str(node.get("name", "")).lower()) if len(w) >= 4 and w not in _GENERIC_MATCH_WORDS]
+            code_words = [w for w in re.split(r"\W+", str(node.get("code", "")).lower()) if len(w) >= 4 and w not in _GENERIC_MATCH_WORDS]
+            index.append({
+                "subsystem_id": s_id,
+                "node_id": node["id"],
+                "pats": pats,
+                "node_words": name_words + code_words,
+            })
+    _SUBSYSTEM_NODE_INDEX = index
+    return _SUBSYSTEM_NODE_INDEX
+
+
 def match_subsystem_for_trace(components: list[str]) -> dict[str, Any]:
     """Determina el mejor subsistema y los nodos coincidentes a partir de una traza o lista de síntomas."""
     if isinstance(components, str):
         components = [components]
     elif not isinstance(components, list):
         components = []
-    components = [str(c).strip()[:100] for c in components[:50] if str(c).strip()]
-    if not components:
+    raw_components = [str(c).strip()[:100] for c in components[:300] if c is not None and str(c).strip()]
+    if not raw_components:
         return {"subsystem_id": "safety_loop", "matched_nodes": []}
 
-    matched_by_sub: dict[str, list[str]] = {s_id: [] for s_id in SUBSYSTEMS}
+    prepared: list[tuple[str, str, list[str]]] = []
+    for c_str in raw_components:
+        norm_c = _normalize_token(c_str)
+        c_words = [w for w in re.split(r"\W+", c_str.lower()[:200]) if len(w) >= 4 and w not in _GENERIC_MATCH_WORDS]
+        prepared.append((c_str, norm_c, c_words))
 
-    for s_id, sub in SUBSYSTEMS.items():
-        for node in sub["nodes"]:
-            pats = _get_node_patterns(node)
-            for c in components:
-                c_str = str(c).strip()
-                if not c_str:
-                    continue
-                norm_c = _normalize_token(c_str)
-                matched = False
-                if norm_c in pats:
-                    matched = True
-                else:
-                    for p in pats:
-                        if len(p) >= 3 and (p == norm_c or re.search(r"\b" + re.escape(p) + r"\b", c_str, re.IGNORECASE)):
+    matched_by_sub: dict[str, list[str]] = {s_id: [] for s_id in SUBSYSTEMS}
+    node_index = _get_subsystem_node_index()
+
+    for item in node_index:
+        s_id = item["subsystem_id"]
+        nid = item["node_id"]
+        pats = item["pats"]
+        nw_list = item["node_words"]
+
+        for c_str, norm_c, c_words in prepared:
+            matched = False
+            if norm_c in pats:
+                matched = True
+            else:
+                for p in pats:
+                    if len(p) >= 3 and p in norm_c:
+                        if p == norm_c or re.search(r"\b" + re.escape(p) + r"\b", c_str, re.IGNORECASE):
                             matched = True
                             break
-                if not matched and _matches_name_words(c_str, node):
-                    matched = True
+            if not matched and c_words and nw_list:
+                for tw in c_words:
+                    for nw in nw_list:
+                        if tw == nw or (len(tw) >= 5 and (tw in nw or nw in tw)):
+                            matched = True
+                            break
+                    if matched:
+                        break
 
-                if matched and node["id"] not in matched_by_sub[s_id]:
-                    matched_by_sub[s_id].append(node["id"])
+            if matched and nid not in matched_by_sub[s_id]:
+                matched_by_sub[s_id].append(nid)
 
     scores = {s_id: len(matched_by_sub[s_id]) * 10 for s_id in SUBSYSTEMS}
-    full_text = " ".join(str(c).lower() for c in components)
+    full_text = " ".join(str(c).lower() for c in raw_components)
     for s_id, kw_list in _SUB_KEYWORDS.items():
         for kw in kw_list:
             if re.search(kw, full_text, re.IGNORECASE):

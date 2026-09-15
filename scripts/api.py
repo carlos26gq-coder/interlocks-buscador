@@ -240,12 +240,12 @@ def note_search(query: str) -> list[dict]:
 
 @app.errorhandler(ValidationError)
 def handle_validation_error(error):
-    return jsonify({"error": str(error)}), 400
+    return jsonify({"ok": False, "error": "validation_error", "message": str(error)}), 400
 
 
 @app.errorhandler(413)
 def handle_too_large(_error):
-    return jsonify({"error": "La solicitud supera el tamaño permitido."}), 413
+    return jsonify({"ok": False, "error": "payload_too_large", "message": "La solicitud supera el tamaño permitido."}), 413
 
 
 @app.errorhandler(429)
@@ -301,9 +301,12 @@ def service_worker():
 
 @app.route("/data/<path:filename>")
 def serve_data(filename):
-    target = DATA_DIR / filename
+    data_dir_resolved = DATA_DIR.resolve()
+    target = (DATA_DIR / filename).resolve()
+    if not target.is_relative_to(data_dir_resolved):
+        return jsonify({"ok": False, "error": "not_found", "message": "Archivo no encontrado."}), 404
     if not target.is_file():
-        return jsonify({"error": "Archivo no encontrado."}), 404
+        return jsonify({"ok": False, "error": "not_found", "message": "Archivo no encontrado."}), 404
     return send_from_directory(DATA_DIR, filename)
 
 
@@ -325,6 +328,7 @@ def health():
 
 
 @app.route("/search")
+@limiter.limit("1200 per hour; 120 per minute")
 def search():
     query = request.args.get("q", "").strip()
     manual_filter = request.args.get("manual", "").strip().lower()
@@ -442,6 +446,7 @@ def diagnose_graph():
 
 
 @app.route("/circuits/subsystems", methods=["GET"])
+@limiter.limit("1200 per hour; 120 per minute")
 def circuits_subsystems():
     try:
         from circuit_data import get_all_subsystems
@@ -452,13 +457,14 @@ def circuits_subsystems():
 
 
 @app.route("/circuits/<subsystem_id>", methods=["GET"])
+@limiter.limit("1200 per hour; 120 per minute")
 def circuit_subsystem_detail(subsystem_id):
     try:
         from circuit_data import get_subsystem
         sub_id = str(subsystem_id).strip()[:64]
         sub = get_subsystem(sub_id)
         if not sub:
-            return jsonify({"ok": False, "error": f"Subsistema '{sub_id}' no encontrado."}), 404
+            return jsonify({"ok": False, "error": "not_found", "message": f"Subsistema '{sub_id}' no encontrado."}), 404
         return jsonify({"ok": True, "subsystem": sub}), 200
     except Exception as exc:
         app.logger.exception("Error en /circuits/<subsystem_id>")
@@ -466,6 +472,7 @@ def circuit_subsystem_detail(subsystem_id):
 
 
 @app.route("/circuits/match", methods=["POST"])
+@limiter.limit("1200 per hour; 120 per minute")
 def circuit_match():
     try:
         data = json_body()
@@ -542,7 +549,7 @@ def multimeter_evaluate():
             custom_tolerance_pct=custom_tol,
         )
         return jsonify({"ok": True, "evaluation": result}), 200
-    except ValidationError as val_err:
+    except (ValidationError, ValueError) as val_err:
         return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
     except Exception as exc:
         app.logger.exception("Error en /multimeter/evaluate")
@@ -561,7 +568,7 @@ def multimeter_simulate():
         from multimeter_service import simulate_reading
         result = simulate_reading(tp_id=tp_id, fault_type=fault, add_noise=add_noise)
         return jsonify({"ok": True, "simulation": result}), 200
-    except ValidationError as val_err:
+    except (ValidationError, ValueError) as val_err:
         return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
     except Exception as exc:
         app.logger.exception("Error en /multimeter/simulate")
@@ -781,13 +788,21 @@ def openapi_spec():
             "/multimeter/evaluate": {
                 "post": {
                     "summary": "Evaluación de lectura de multímetro contra tolerancias nominales",
-                    "responses": {"200": {"description": "Estado de tolerancia, delta y diagnóstico técnico"}},
+                    "responses": {
+                        "200": {"description": "Estado de tolerancia, delta y diagnóstico técnico"},
+                        "400": {"description": "Error de validación o unidad incompatible", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}},
+                        "500": {"description": "Error interno del servidor", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+                    },
                 }
             },
             "/multimeter/simulate": {
                 "post": {
                     "summary": "Simulador de banco de pruebas Linac con inyección de fallas y telemetría",
-                    "responses": {"200": {"description": "Lectura simulada con ruido y evaluación"}},
+                    "responses": {
+                        "200": {"description": "Lectura simulada con ruido y evaluación"},
+                        "400": {"description": "Punto de prueba inválido", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}},
+                        "500": {"description": "Error interno del servidor", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+                    },
                 }
             },
             "/notes": {
@@ -798,9 +813,39 @@ def openapi_spec():
                 "get": {"summary": "Estado del servidor y servicios conectados"},
             },
         },
+        "components": {
+            "schemas": {
+                "ErrorResponse": {
+                    "type": "object",
+                    "properties": {
+                        "ok": {"type": "boolean", "example": False},
+                        "error": {"type": "string", "example": "server_error"},
+                        "message": {"type": "string", "example": "Descripción del error técnico."}
+                    },
+                    "required": ["ok", "error"]
+                },
+                "ValidationErrorResponse": {
+                    "type": "object",
+                    "properties": {
+                        "ok": {"type": "boolean", "example": False},
+                        "error": {"type": "string", "example": "validation_error"},
+                        "message": {"type": "string", "example": "Parámetro o unidad incompatible."}
+                    },
+                    "required": ["ok", "error", "message"]
+                }
+            }
+        },
     }
     return jsonify(spec)
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=os.environ.get("FLASK_DEBUG") == "1")
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", 5000))
+    debug_requested = os.environ.get("FLASK_DEBUG") == "1"
+    is_loopback = host in ("127.0.0.1", "localhost", "::1")
+    # P1-6: Prevenir que debug=True se ejecute si el host está expuesto fuera de loopback
+    debug_mode = debug_requested and is_loopback
+    if debug_requested and not is_loopback:
+        app.logger.warning("FLASK_DEBUG deshabilitado por seguridad: el host '%s' no es loopback.", host)
+    app.run(host=host, port=port, debug=debug_mode)

@@ -214,8 +214,8 @@ TEST_POINTS_CATALOG: dict[str, dict[str, Any]] = {
         "nominal": 5.0,
         "tolerance_min": 0.0,
         "tolerance_max": 10.0,
-        "warning_low": 0.0,
-        "warning_high": 10.0,
+        "warning_low": 0.5,
+        "warning_high": 9.5,
         "spec": "0-10V DC correspondiente exactamente a 0° - 360°",
         "manual": "movement",
         "page": 57,
@@ -483,8 +483,40 @@ def evaluate_measurement(
         role = tp["role"]
         notes = tp["notes"]
         expected_unit = tp["unit"]
+        is_known = True
+
+        # P0-7: Validar que la unidad suministrada sea compatible con la unidad esperada del TP
+        if unit:
+            u_clean = str(unit).strip().lower()
+            exp_clean = expected_unit.lower()
+            volt_aliases = {"v", "volt", "volts", "vdc", "vac"}
+            ohm_aliases = {"ω", "ohm", "ohms", "o"}
+            if exp_clean in volt_aliases:
+                if u_clean not in volt_aliases:
+                    raise ValueError(
+                        f"Unidad incompatible '{unit}' para el punto de prueba '{tp['id']}'. "
+                        f"Se requiere '{expected_unit}'."
+                    )
+            elif exp_clean in ohm_aliases:
+                if u_clean not in ohm_aliases:
+                    raise ValueError(
+                        f"Unidad incompatible '{unit}' para el punto de prueba '{tp['id']}'. "
+                        f"Se requiere '{expected_unit}'."
+                    )
+            elif u_clean != exp_clean:
+                raise ValueError(
+                    f"Unidad incompatible '{unit}' para el punto de prueba '{tp['id']}'. "
+                    f"Se requiere '{expected_unit}'."
+                )
     else:
-        nominal = float(custom_nominal if custom_nominal is not None else 24.0)
+        # P0-3: Si el TP no existe en catálogo y no se suministra un nominal personalizado, rechazar con error
+        if custom_nominal is None:
+            raise ValueError(
+                f"Punto de prueba desconocido '{tp_id}'. "
+                "Especifique un identificador válido o proporcione un valor nominal personalizado."
+            )
+        is_known = False
+        nominal = float(custom_nominal)
         tol_pct = float(custom_tolerance_pct if custom_tolerance_pct is not None else 5.0)
         margin = abs(nominal * (tol_pct / 100.0))
         if margin == 0:
@@ -501,10 +533,11 @@ def evaluate_measurement(
 
     delta = round(val - nominal, 4)
 
+    # P0-5: Con nominal negativo, no invertir el signo de delta; con nominal cero, retornar None (N/A en frontend)
     if abs(nominal) > 1e-6:
-        percent_error = round((delta / nominal) * 100.0, 2)
+        percent_error: float | None = round((delta / abs(nominal)) * 100.0, 2)
     else:
-        percent_error = round(delta * 100.0, 2)
+        percent_error = None
 
     if t_min <= val <= t_max:
         if w_low <= val <= w_high:
@@ -527,23 +560,27 @@ def evaluate_measurement(
         status_badge = "FALLA"
         status_label = "Fuera de tolerancia requerida"
         color = "#ef4444"
+        err_fmt = f"{percent_error:+g}%" if percent_error is not None else "N/A"
         if val < t_min:
             recommendation = (
                 f"Tensión/valor inferior al mínimo permitido ({val:.2f} {expected_unit} < {t_min:.2f} {expected_unit}). "
-                f"Δ = {delta:+.2f} {expected_unit} ({percent_error:+g}%). {notes}"
+                f"Δ = {delta:+.2f} {expected_unit} ({err_fmt}). {notes}"
             )
         else:
             recommendation = (
                 f"Tensión/valor superior al máximo permitido ({val:.2f} {expected_unit} > {t_max:.2f} {expected_unit}). "
-                f"Δ = {delta:+.2f} {expected_unit} ({percent_error:+g}%). Riesgo de sobretensión. "
+                f"Δ = {delta:+.2f} {expected_unit} ({err_fmt}). Riesgo de sobretensión. "
                 "Inspeccionar reguladores y fuentes antes de operar."
             )
 
     return {
         "test_point_id": tp_id,
+        "test_point_code": tp.get("code", tp_id) if tp else tp_id,
         "test_point_name": tp_name,
         "subsystem": subsystem,
         "role": role,
+        "manual": tp.get("manual", "") if tp else "",
+        "page": tp.get("page", 0) if tp else 0,
         "measured_value": round(val, 4),
         "nominal_value": nominal,
         "tolerance_min": round(t_min, 4),
@@ -557,6 +594,7 @@ def evaluate_measurement(
         "color": color,
         "recommendation": recommendation,
         "technical_notes": notes,
+        "is_known_test_point": is_known,
     }
 
 
@@ -577,7 +615,7 @@ def simulate_reading(
     """
     tp = get_test_point(tp_id)
     if not tp:
-        tp = TEST_POINTS_CATALOG["TP1"]
+        raise ValueError(f"Punto de prueba desconocido para simulación: '{tp_id}'.")
 
     nominal = float(tp["nominal"])
     mode = tp["mode"]

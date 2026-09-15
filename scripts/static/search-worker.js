@@ -820,12 +820,32 @@ async function diagnoseGraphOffline(payload) {
                 if (graph.entities && graph.entities[cand]) return cand;
             }
         }
-        // 3. Coincidencia por subcadena en entidades
+        // 3a. Coincidencia exacta limpia con entId
+        for (const entId in graph.entities) {
+            const entClean = cleanKey(entId);
+            if (clean === entClean) return entId;
+        }
+
+        // 3b. Coincidencias por subcadena ordenadas por especificidad (longitud descendente) y desempate alfabético
+        const cleanDigits = clean.match(/\d+/g) || [];
+        const candidates = [];
         for (const entId in graph.entities) {
             const entClean = cleanKey(entId);
             if ((clean.length >= 4 && entClean.includes(clean)) || (entClean.length >= 4 && clean.includes(entClean))) {
-                return entId;
+                const entDigits = entClean.match(/\d+/g) || [];
+                if (cleanDigits.length && entDigits.length && cleanDigits.join() !== entDigits.join()) {
+                    continue;
+                }
+                candidates.push(entId);
             }
+        }
+        if (candidates.length) {
+            candidates.sort((a, b) => {
+                const diff = cleanKey(b).length - cleanKey(a).length;
+                if (diff !== 0) return diff;
+                return a.localeCompare(b);
+            });
+            return candidates[0];
         }
 
         // 4. Búsqueda contextual en documentos offline
@@ -860,22 +880,24 @@ async function diagnoseGraphOffline(payload) {
     }
 
     if (!resolvedNodes.length) {
-        // Fallback a páginas de manuales si no se resolvió entidad directa
+        // Modo fallback: buscar en manuales para sugerir esquemas clave
         const fallbackRefs = [];
         if (documents && documents.length) {
-            for (const s of symptoms) {
-                const cIds = candidateIds(s, "");
+            for (const sym of symptoms) {
+                const cIds = candidateIds(sym, "");
                 for (let i = 0; i < Math.min(cIds.length, 2); i++) {
-                    const doc = documents[cIds[i]];
-                    if (doc) {
-                        const ref = doc.manual + " (Pág " + doc.page + ")";
+                    const d = documents[cIds[i]];
+                    if (d) {
+                        const ref = d.manual + " (Pág " + d.page + ")";
                         if (!fallbackRefs.includes(ref)) fallbackRefs.push(ref);
                     }
                 }
             }
         }
         if (fallbackRefs.length) {
-            return await finalizeTrace({
+            return postMessage({
+                type: "diagnoseGraphResult",
+                id,
                 found: true,
                 hub_node: "Conexión Técnica en Manuales",
                 resolved_nodes: symptoms,
@@ -893,7 +915,10 @@ async function diagnoseGraphOffline(payload) {
     }
 
     function findShortestPath(startId, targetId, maxDepth = 4) {
-        if (!graph.adjacency[startId] || !graph.adjacency[targetId]) return null;
+        if (!graph.entities || !graph.entities[startId] || !graph.entities[targetId]) return null;
+        if (!graph.adjacency) graph.adjacency = {};
+        if (!graph.adjacency[startId]) graph.adjacency[startId] = [];
+        if (!graph.adjacency[targetId]) graph.adjacency[targetId] = [];
         if (startId === targetId) return [{ node: startId, relation: "self" }];
         const queue = [[startId, [{ node: startId, relation: "start" }]]];
         const visited = new Set([startId]);

@@ -1114,7 +1114,7 @@ function renderDiagnosticoAi(aiData, symptoms) {
     const confMap = {
         alta: { color: "var(--green)", label: "⬤ Alta probabilidad" },
         media: { color: "var(--warn)", label: "⬤ Probabilidad media" },
-        baja: { color: "var(--muted)", label: "⬤ Probabilidad media" }
+        baja: { color: "var(--muted)", label: "⬤ Probabilidad baja" }
     };
     const conf = confMap[aiData.confidence] || confMap.alta;
 
@@ -1283,6 +1283,8 @@ async function analizarDiagnosticoAi() {
             throw new Error((res && (res.message || res.error)) || "Inconveniente al procesar el análisis causal.");
         }
     } catch (error) {
+        const errMsg = String((error && error.message) || "Inconveniente al procesar el análisis causal.");
+        const errType = (error && error.data && error.data.error) || "";
         const isOfflineOrNetworkFail = !navigator.onLine ||
             errMsg.includes("Failed to fetch") ||
             errMsg.includes("NetworkError") ||
