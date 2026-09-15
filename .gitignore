@@ -9,3 +9,6 @@ AGENTS.md
 .geminirules
 .vscode/
 .env.example
+
+# Pruebas automatizadas (QA local; excluidas de despliegue en producción Render)
+tests/

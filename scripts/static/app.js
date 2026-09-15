@@ -116,7 +116,7 @@ async function apiRequest(url, options = {}) {
 // ─── HELPERS ─────────────────────────────────────────────
 function esc(s) {
     if (s === undefined || s === null) return "";
-    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 function hi(txt, kw) {
     if (!kw) return esc(txt);
@@ -1315,7 +1315,7 @@ async function analizarDiagnosticoAi() {
                         'La variable <code>GEMINI_API_KEY</code> no está configurada en Render o la clave no es válida.' +
                     '</p>' +
                     '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-                        '<input id="promptGeminiKey" type="password" placeholder="Pega tu clave AIzaSy..." style="flex:1;min-width:200px;background:var(--s2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--mono);font-size:.8rem">' +
+                        '<input id="promptGeminiKey" type="password" placeholder="Pega tu clave de servicio..." style="flex:1;min-width:200px;background:var(--s2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--mono);font-size:.8rem">' +
                         '<button class="btn btn-ai" onclick="guardarYReintentarAi()">Guardar y Analizar</button>' +
                     '</div>' +
                 '</div>';

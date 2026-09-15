@@ -493,6 +493,7 @@ def circuit_match():
 
 
 @app.route("/multimeter/test-points", methods=["GET"])
+@limiter.limit("1200 per hour; 120 per minute")
 def multimeter_test_points():
     try:
         from multimeter_service import get_all_test_points

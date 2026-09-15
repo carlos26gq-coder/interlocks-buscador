@@ -14,13 +14,17 @@ En el diagnóstico:
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from dataclasses import dataclass
+import functools
 import re
 import unicodedata
 
 
 TOKEN_RE = re.compile(r"[a-z0-9]+")
+_RE_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
+_RE_PUNCT_CLEAN = re.compile(r"[^\w\s\.\,\-\:\;\(\)\/]")
+_RE_WHITESPACE = re.compile(r"\s+")
 STOP_WORDS = {
     "a", "al", "and", "are", "as", "at", "be", "by", "con", "de", "del",
     "el", "en", "es", "for", "from", "in", "is", "la", "las", "los", "of",
@@ -49,11 +53,30 @@ def normalize(value: object) -> str:
     )
 
 
+@functools.lru_cache(maxsize=2048)
+def _tokens_cached(text: str) -> tuple[str, ...]:
+    return tuple(TOKEN_RE.findall(normalize(text)))
+
+
 def tokens(value: object) -> list[str]:
+    if isinstance(value, str) and len(value) < 128:
+        return list(_tokens_cached(value))
     return TOKEN_RE.findall(normalize(value))
 
 
+@functools.lru_cache(maxsize=1024)
+def _query_tokens_cached(text: str) -> tuple[str, ...]:
+    result = []
+    for token in tokens(text):
+        if token not in STOP_WORDS and (len(token) >= 2 or token.isdigit()):
+            if token not in result:
+                result.append(token)
+    return tuple(result)
+
+
 def _query_tokens(value: object) -> list[str]:
+    if isinstance(value, str) and len(value) < 128:
+        return list(_query_tokens_cached(value))
     result = []
     for token in tokens(value):
         if token not in STOP_WORDS and (len(token) >= 2 or token.isdigit()):
@@ -62,7 +85,18 @@ def _query_tokens(value: object) -> list[str]:
     return result
 
 
+@functools.lru_cache(maxsize=1024)
+def _phrase_pattern_cached(val: str) -> re.Pattern | None:
+    parts = tokens(val)
+    if not parts:
+        return None
+    sep = r"(?:[\W_]+|[\W_]+(?:the|a|an|of|in|to|and|or|de|la|el|del|y|en)[\W_]+)"
+    return re.compile(r"\b" + sep.join(re.escape(part) for part in parts) + r"\b")
+
+
 def _phrase_pattern(value: object) -> re.Pattern | None:
+    if isinstance(value, str):
+        return _phrase_pattern_cached(value)
     parts = tokens(value)
     if not parts:
         return None
@@ -71,9 +105,9 @@ def _phrase_pattern(value: object) -> re.Pattern | None:
 
 
 def _context(text: str, query: str, before: int = 160, after: int = 320) -> str:
-    cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]+", " ", text)
-    cleaned = re.sub(r"[^\w\s\.\,\-\:\;\(\)\/]", " ", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = _RE_CONTROL_CHARS.sub(" ", text)
+    cleaned = _RE_PUNCT_CLEAN.sub(" ", cleaned)
+    cleaned = _RE_WHITESPACE.sub(" ", cleaned).strip()
 
     norm_text = normalize(cleaned)
     pat = _phrase_pattern(query)
@@ -266,6 +300,8 @@ class SearchEngine:
             for token in token_set:
                 if len(token) >= 2 or token.isdigit():
                     self.postings[token].add(document_id)
+        self._search_cache: OrderedDict[tuple, dict] = OrderedDict()
+        self._search_cache_max: int = 512
 
     def _candidate_ids(self, query: str, manual: str = "") -> set[int]:
         query_terms = _query_tokens(query)
@@ -298,6 +334,18 @@ class SearchEngine:
         if not q_tokens:
             return {"results": [], "total": 0, "offset": offset, "limit": limit, "has_more": False}
 
+        cache_key = (query, manual, offset, limit)
+        if cache_key in self._search_cache:
+            self._search_cache.move_to_end(cache_key)
+            hit = self._search_cache[cache_key]
+            return {
+                "results": list(hit["results"]),
+                "total": hit["total"],
+                "offset": hit["offset"],
+                "limit": hit["limit"],
+                "has_more": hit["has_more"],
+            }
+
         phrase_pattern = _phrase_pattern(query)
         if not phrase_pattern:
             return {"results": [], "total": 0, "offset": offset, "limit": limit, "has_more": False}
@@ -306,24 +354,21 @@ class SearchEngine:
         for document_id in self._candidate_ids(query, manual):
             document = self.documents[document_id]
 
-            # Buscar todas las coincidencias exactas con límites de palabra (\b)
-            matches = list(phrase_pattern.finditer(document.normalized))
-            if not matches:
+            # Buscar la primera coincidencia exacta con límites de palabra (\b)
+            first_match = phrase_pattern.search(document.normalized)
+            if not first_match:
                 continue
 
-            occurrences = len(matches)
-            score = occurrences * 50.0
-
-            # Priorizar documentos donde la coincidencia exacta aparece más arriba
-            first_position = matches[0].start()
-            score += max(0.0, 10.0 - (first_position / 500.0))
+            first_position = first_match.start()
+            occurrences = len(phrase_pattern.findall(document.normalized))
+            score = occurrences * 50.0 + max(0.0, 10.0 - (first_position / 500.0))
 
             ranked.append((score, document))
 
         ranked.sort(key=lambda item: (-item[0], item[1].manual, item[1].page))
         total = len(ranked)
         page_items = ranked[offset:offset + limit]
-        return {
+        res = {
             "results": [
                 {
                     "type": "manual",
@@ -338,6 +383,10 @@ class SearchEngine:
             "limit": limit,
             "has_more": offset + limit < total,
         }
+        if len(self._search_cache) >= self._search_cache_max:
+            self._search_cache.popitem(last=False)
+        self._search_cache[cache_key] = res
+        return res
 
 
     # ─── DIAGNÓSTICO LEGACY (CAMPOS NOMBRADOS) ───────────────────────────────

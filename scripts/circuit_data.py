@@ -1085,6 +1085,12 @@ _SUB_KEYWORDS: dict[str, list[str]] = {
 }
 
 
+_SUB_KEYWORDS_COMPILED: dict[str, list[re.Pattern]] = {
+    s_id: [re.compile(kw, re.IGNORECASE) for kw in kw_list]
+    for s_id, kw_list in _SUB_KEYWORDS.items()
+}
+
+
 def _matches_name_words(term: str, node: dict[str, Any]) -> bool:
     term_words = [w for w in re.split(r"\W+", str(term or "").lower()[:200]) if len(w) >= 4 and w not in _GENERIC_MATCH_WORDS]
     name_words = [w for w in re.split(r"\W+", str(node.get("name", "")).lower()) if len(w) >= 4 and w not in _GENERIC_MATCH_WORDS]
@@ -1109,10 +1115,12 @@ def _get_subsystem_node_index() -> list[dict[str, Any]]:
             pats = _get_node_patterns(node)
             name_words = [w for w in re.split(r"\W+", str(node.get("name", "")).lower()) if len(w) >= 4 and w not in _GENERIC_MATCH_WORDS]
             code_words = [w for w in re.split(r"\W+", str(node.get("code", "")).lower()) if len(w) >= 4 and w not in _GENERIC_MATCH_WORDS]
+            pat_pairs = [(p, re.compile(r"\b" + re.escape(p) + r"\b", re.IGNORECASE) if len(p) >= 3 else None) for p in pats]
             index.append({
                 "subsystem_id": s_id,
                 "node_id": node["id"],
                 "pats": pats,
+                "pat_pairs": pat_pairs,
                 "node_words": name_words + code_words,
             })
     _SUBSYSTEM_NODE_INDEX = index
@@ -1136,12 +1144,14 @@ def match_subsystem_for_trace(components: list[str]) -> dict[str, Any]:
         prepared.append((c_str, norm_c, c_words))
 
     matched_by_sub: dict[str, list[str]] = {s_id: [] for s_id in SUBSYSTEMS}
+    matched_by_sub_set: dict[str, set[str]] = {s_id: set() for s_id in SUBSYSTEMS}
     node_index = _get_subsystem_node_index()
 
     for item in node_index:
         s_id = item["subsystem_id"]
         nid = item["node_id"]
         pats = item["pats"]
+        pat_pairs = item["pat_pairs"]
         nw_list = item["node_words"]
 
         for c_str, norm_c, c_words in prepared:
@@ -1149,9 +1159,9 @@ def match_subsystem_for_trace(components: list[str]) -> dict[str, Any]:
             if norm_c in pats:
                 matched = True
             else:
-                for p in pats:
+                for p, preg in pat_pairs:
                     if len(p) >= 3 and p in norm_c:
-                        if p == norm_c or re.search(r"\b" + re.escape(p) + r"\b", c_str, re.IGNORECASE):
+                        if p == norm_c or (preg is not None and preg.search(c_str)):
                             matched = True
                             break
             if not matched and c_words and nw_list:
@@ -1163,14 +1173,17 @@ def match_subsystem_for_trace(components: list[str]) -> dict[str, Any]:
                     if matched:
                         break
 
-            if matched and nid not in matched_by_sub[s_id]:
-                matched_by_sub[s_id].append(nid)
+            if matched:
+                if nid not in matched_by_sub_set[s_id]:
+                    matched_by_sub_set[s_id].add(nid)
+                    matched_by_sub[s_id].append(nid)
+                break
 
     scores = {s_id: len(matched_by_sub[s_id]) * 10 for s_id in SUBSYSTEMS}
     full_text = " ".join(str(c).lower() for c in raw_components)
-    for s_id, kw_list in _SUB_KEYWORDS.items():
-        for kw in kw_list:
-            if re.search(kw, full_text, re.IGNORECASE):
+    for s_id, kw_regexes in _SUB_KEYWORDS_COMPILED.items():
+        for kw_re in kw_regexes:
+            if kw_re.search(full_text):
                 scores[s_id] += 5
 
     best_subsystem = max(scores.keys(), key=lambda k: scores[k])
