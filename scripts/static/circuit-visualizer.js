@@ -804,7 +804,10 @@
                         📖 Ver en ${escSvg(node.manual)} (Pág. ${node.page || 1})
                     </button>` : ''}
                 </div>
-                <div style="display:flex;gap:6px;">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <button class="btn btn-ghost btn-sm" onclick="CircuitVisualizer.medirEnMultimetro('${node.id}')" style="color:#fde047;border-color:rgba(253,224,71,0.35);background:rgba(253,224,71,0.08);">
+                        📟 Medir con Multímetro
+                    </button>
                     <button class="btn btn-ghost btn-sm" onclick="CircuitVisualizer.trazarEnDiagnostico('${escSvg(node.code)}')">
                         🧭 Trazar en Relacionar
                     </button>
@@ -860,6 +863,22 @@
                     window.ejecutarTrazaGrafo();
                 }
             }
+        }
+    }
+
+    function medirEnMultimetro(nodeId) {
+        cerrarInspector();
+        if (window.Multimeter) {
+            if (typeof window.Multimeter.abrirInspectorModal === "function") {
+                window.Multimeter.abrirInspectorModal(nodeId);
+            } else if (typeof window.irA === "function") {
+                window.irA("Multimeter");
+                if (typeof window.Multimeter.seleccionarPuntoDePrueba === "function") {
+                    window.Multimeter.seleccionarPuntoDePrueba(nodeId);
+                }
+            }
+        } else if (typeof window.irA === "function") {
+            window.irA("Multimeter");
         }
     }
 
@@ -1026,6 +1045,7 @@
         inspeccionarCable,
         cerrarInspector,
         trazarEnDiagnostico,
+        medirEnMultimetro,
         zoomIn,
         zoomOut,
         resetZoom,

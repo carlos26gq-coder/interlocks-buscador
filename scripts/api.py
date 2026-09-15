@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import wraps
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -484,6 +485,90 @@ def circuit_match():
         return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
 
 
+@app.route("/multimeter/test-points", methods=["GET"])
+def multimeter_test_points():
+    try:
+        from multimeter_service import get_all_test_points
+        return jsonify({"ok": True, "test_points": get_all_test_points()}), 200
+    except Exception as exc:
+        app.logger.exception("Error en /multimeter/test-points")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
+@app.route("/multimeter/evaluate", methods=["POST"])
+@limiter.limit("1200 per hour; 120 per minute")
+def multimeter_evaluate():
+    try:
+        data = json_body()
+        tp_id = str(data.get("test_point_id") or "GEN_VOLT_24").strip()[:64]
+
+        val_raw = data.get("measured_value")
+        if val_raw is None:
+            raise ValidationError("El parámetro 'measured_value' es obligatorio.")
+        try:
+            measured_val = float(val_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("El parámetro 'measured_value' debe ser numérico.") from exc
+
+        if not math.isfinite(measured_val):
+            raise ValidationError("El parámetro 'measured_value' debe ser finito.")
+
+        unit = str(data.get("unit") or "V").strip()[:10]
+
+        custom_nom = data.get("custom_nominal")
+        if custom_nom is not None:
+            try:
+                custom_nom = float(custom_nom)
+                if not math.isfinite(custom_nom):
+                    raise ValidationError("El parámetro 'custom_nominal' debe ser finito.")
+            except (TypeError, ValueError) as exc:
+                raise ValidationError("El parámetro 'custom_nominal' debe ser numérico.") from exc
+
+        custom_tol = data.get("custom_tolerance_pct")
+        if custom_tol is not None:
+            try:
+                custom_tol = float(custom_tol)
+                if not math.isfinite(custom_tol) or custom_tol <= 0:
+                    raise ValidationError("El parámetro 'custom_tolerance_pct' debe ser positivo y finito.")
+            except (TypeError, ValueError) as exc:
+                raise ValidationError("El parámetro 'custom_tolerance_pct' debe ser numérico.") from exc
+
+        from multimeter_service import evaluate_measurement
+        result = evaluate_measurement(
+            tp_id=tp_id,
+            measured_value=measured_val,
+            unit=unit,
+            custom_nominal=custom_nom,
+            custom_tolerance_pct=custom_tol,
+        )
+        return jsonify({"ok": True, "evaluation": result}), 200
+    except ValidationError as val_err:
+        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error en /multimeter/evaluate")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
+@app.route("/multimeter/simulate", methods=["POST"])
+@limiter.limit("1200 per hour; 120 per minute")
+def multimeter_simulate():
+    try:
+        data = json_body()
+        tp_id = str(data.get("test_point_id") or "TP1").strip()[:64]
+        fault = str(data.get("fault_type") or "normal").strip()[:32]
+        add_noise = bool(data.get("add_noise", True))
+
+        from multimeter_service import simulate_reading
+        result = simulate_reading(tp_id=tp_id, fault_type=fault, add_noise=add_noise)
+        return jsonify({"ok": True, "simulation": result}), 200
+    except ValidationError as val_err:
+        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error en /multimeter/simulate")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
+
 @app.route("/diagnose/ai", methods=["POST"])
 @limiter.limit("300 per hour; 30 per minute")
 def diagnose_ai():
@@ -685,6 +770,24 @@ def openapi_spec():
                 "get": {
                     "summary": "Detalle y topología esquemática de un subsistema",
                     "responses": {"200": {"description": "Nodos y cables esquemáticos"}},
+                }
+            },
+            "/multimeter/test-points": {
+                "get": {
+                    "summary": "Catálogo de puntos de prueba TP y especificaciones de tolerancia Linac",
+                    "responses": {"200": {"description": "Puntos de prueba con nominales y tolerancias"}},
+                }
+            },
+            "/multimeter/evaluate": {
+                "post": {
+                    "summary": "Evaluación de lectura de multímetro contra tolerancias nominales",
+                    "responses": {"200": {"description": "Estado de tolerancia, delta y diagnóstico técnico"}},
+                }
+            },
+            "/multimeter/simulate": {
+                "post": {
+                    "summary": "Simulador de banco de pruebas Linac con inyección de fallas y telemetría",
+                    "responses": {"200": {"description": "Lectura simulada con ruido y evaluación"}},
                 }
             },
             "/notes": {

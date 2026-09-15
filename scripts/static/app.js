@@ -842,7 +842,7 @@ function renderTrazaGrafo(data, symptoms) {
     ).join("");
 
     const tpsChips = (data.test_points || []).map(tp =>
-        '<span class="diag-chip" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047">⚡ ' + esc(tp) + '</span>'
+        '<button class="diag-chip" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047;cursor:pointer" onclick="abrirMultimetroConTp(\'' + esc(tp) + '\')">⚡ ' + esc(tp) + ' (Medir)</button>'
     ).join("");
 
     const areasChips = (data.areas || []).map(ar =>
@@ -865,6 +865,12 @@ function renderTrazaGrafo(data, symptoms) {
         ? '<div class="graph-flow-box">' +
             '<span>📐 RUTA FÍSICA:</span> <b>' + esc(data.trace_diagram) + '</b>' +
           '</div>'
+        : '';
+
+    const tpMeasureBtn = (data.test_points && data.test_points.length > 0)
+        ? '<button class="btn btn-ghost btn-sm" onclick="abrirMultimetroConTp(\'' + esc(data.test_points[0]) + '\')" style="display:inline-flex;align-items:center;gap:6px;color:#fde047;border-color:rgba(253,224,71,0.35);background:rgba(253,224,71,0.08)">' +
+            '<span>📟</span> Medir ' + esc(data.test_points[0]) + ' en Multímetro' +
+          '</button>'
         : '';
 
     container.innerHTML =
@@ -890,6 +896,7 @@ function renderTrazaGrafo(data, symptoms) {
                 '<button class="btn btn-primary btn-sm" onclick="abrirEnEsquemaSvg()" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25)">' +
                     '<span>⚡</span> Ver en Esquema SVG (Visualizador Interactivo)' +
                 '</button>' +
+                tpMeasureBtn +
                 '<span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Resalta ruta activa en planos vectoriales</span>' +
             '</div>' +
         '</div>';
@@ -918,6 +925,17 @@ function abrirEnEsquemaSvg(traceData) {
         window.requestAnimationFrame(() => setTimeout(applyTrace, 40));
     } else {
         setTimeout(applyTrace, 60);
+    }
+}
+
+function abrirMultimetroConTp(tpId) {
+    if (typeof window.irA === "function") {
+        window.irA("Multimeter");
+    } else if (typeof irA === "function") {
+        irA("Multimeter");
+    }
+    if (window.Multimeter && typeof window.Multimeter.seleccionarPuntoDePrueba === "function") {
+        window.Multimeter.seleccionarPuntoDePrueba(tpId);
     }
 }
 
@@ -1117,9 +1135,14 @@ function renderDiagnosticoAi(aiData, symptoms) {
     ).join("");
 
     // 3. Puntos de Prueba (TP) y Voltajes
-    const signalsChips = (aiData.test_points_and_signals || []).map(t =>
-        '<span class="diag-chip" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047">⚡ ' + esc(t) + "</span>"
-    ).join("");
+    const signalsChips = (aiData.test_points_and_signals || []).map(t => {
+        const tpMatch = String(t || "").match(/\b(TP\w*|GEN_\w+)\b/i);
+        const tpCode = tpMatch ? tpMatch[1] : "";
+        if (tpCode) {
+            return '<button class="diag-chip" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047;cursor:pointer" onclick="abrirMultimetroConTp(\'' + esc(tpCode) + '\')">⚡ ' + esc(t) + ' (Medir)</button>';
+        }
+        return '<span class="diag-chip" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047">⚡ ' + esc(t) + '</span>';
+    }).join("");
 
     // 4. Manuales con botón de apertura directa
     const symsKw = symptoms.join(" ");
@@ -1691,4 +1714,5 @@ window.cerrarVisorPDF = cerrarVisorPDF;
 window.adminEntrar = adminEntrar;
 window.adminSalir = adminSalir;
 window.cargarListaManuales = cargarListaManuales;
+window.abrirMultimetroConTp = abrirMultimetroConTp;
 
