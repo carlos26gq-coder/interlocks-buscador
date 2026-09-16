@@ -1,16 +1,26 @@
 class LogParser {
     static async parseTextBackend(text) {
         try {
+            const online = (typeof window !== "undefined" && typeof window.isOnline === "function")
+                ? window.isOnline()
+                : (typeof navigator !== "undefined" ? navigator.onLine : true);
+            if (!online) {
+                throw new Error("Offline");
+            }
+
             const res = await fetch("/logs/parse", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ text })
             });
-            if (!res.ok) throw new Error("Error parsing logs");
+            if (!res.ok) throw new Error("Error parsing logs: " + res.status);
             return await res.json();
         } catch (e) {
-            console.error(e);
-            throw e;
+            console.warn("Parseo en servidor no disponible, usando motor de análisis cliente:", e);
+            const isUs = LogParser.detectDateLocale(text);
+            const lines = String(text || "").split(/\r?\n/);
+            const events = LogParser.parseChunk(lines, 0, isUs);
+            return LogParser.aggregate(events, lines.length);
         }
     }
 

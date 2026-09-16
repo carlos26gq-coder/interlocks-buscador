@@ -1,30 +1,22 @@
-"""Valida el índice maestro sin depender del directorio de ejecución."""
+"""Entrypoint retrocompatible para la validación del índice maestro.
 
-from collections import Counter
-import json
+Delega la ejecución a scripts/tools/validate_data.py manteniendo compatibilidad
+con scripts existentes y automatizaciones CI/CD.
+"""
+
+from __future__ import annotations
+
 from pathlib import Path
-
+import sys
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_PATH = BASE_DIR / "data" / "all_manuals.json"
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
+from scripts.tools.validate_data import BASE_DIR as TOOL_BASE_DIR, main, validate_master_data
 
-with DATA_PATH.open("r", encoding="utf-8") as file:
-    data = json.load(file)
+# Alias para compatibilidad con código que inspeccione BASE_DIR
+BASE_DIR = TOOL_BASE_DIR
 
-required = {"manual", "page", "text"}
-invalid = [index for index, record in enumerate(data) if not isinstance(record, dict) or not required.issubset(record)]
-duplicates = len(data) - len({(record["manual"], record["page"]) for record in data if isinstance(record, dict) and required.issubset(record)})
-empty = sum(not str(record.get("text", "")).strip() for record in data if isinstance(record, dict))
-manuals = Counter(record["manual"] for record in data if isinstance(record, dict) and "manual" in record)
-
-print("Total páginas:", len(data))
-print("Manuales:", len(manuals))
-print("Registros inválidos:", len(invalid))
-print("Páginas duplicadas:", duplicates)
-print("Textos vacíos:", empty)
-for manual, count in sorted(manuals.items()):
-    print(f"- {manual}: {count}")
-
-if invalid or duplicates or empty:
-    raise SystemExit(1)
+if __name__ == "__main__":
+    main()

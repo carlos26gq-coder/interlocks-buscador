@@ -31,13 +31,19 @@ header{position:relative;z-index:10;padding:max(14px, env(safe-area-inset-top, 1
 .logo-icon{width:34px;height:34px;background:linear-gradient(135deg,var(--a2),var(--accent));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px}
 .logo h1{font-size:.95rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
 .logo p{font-size:.63rem;color:var(--muted);font-family:var(--mono)}
+.header-status-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.active-tool-badge{display:inline-flex;align-items:center;gap:6px;font-size:.68rem;font-family:var(--mono);padding:3px 9px;border-radius:20px;border:1px solid rgba(0,212,255,.3);background:rgba(0,212,255,.05);color:var(--accent);white-space:nowrap}
+.tool-dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.tool-mode-pill{font-size:.58rem;font-family:var(--mono);padding:1px 5px;border-radius:8px;background:rgba(74,222,128,.15);color:var(--green);border:1px solid rgba(74,222,128,.3);letter-spacing:.03em;text-transform:uppercase}
+.tool-mode-pill.cloud{background:rgba(168,85,247,.15);color:#d8b4fe;border-color:rgba(168,85,247,.3)}
+.tool-mode-pill.admin{background:rgba(245,158,11,.15);color:#fcd34d;border-color:rgba(245,158,11,.3)}
 #estadoRed{display:flex;align-items:center;gap:6px;font-size:.7rem;font-family:var(--mono);padding:3px 9px;border-radius:20px;border:1px solid var(--border);background:rgba(255,255,255,.03);white-space:nowrap}
 #estadoRed.online{color:var(--green);border-color:rgba(74,222,128,.3)}
 #estadoRed.offline{color:var(--danger);border-color:rgba(239,68,68,.3)}
 .dot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:100;background:var(--surface);border-top:1px solid var(--border);display:flex;padding-bottom:env(safe-area-inset-bottom, 0px)}
-.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:9px 4px;font-size:.62rem;font-family:var(--mono);color:var(--muted);border:none;background:none;cursor:pointer;text-transform:uppercase;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:100;background:var(--surface);border-top:1px solid var(--border);display:flex;padding-bottom:env(safe-area-inset-bottom, 0px);overflow-x:auto;-webkit-overflow-scrolling:touch}
+.nav-btn{flex:1;min-width:44px;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px 2px;font-size:.62rem;font-family:var(--mono);color:var(--muted);border:none;background:none;cursor:pointer;text-transform:uppercase;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .nav-btn .icon{font-size:1.2rem}
 .nav-btn.active{color:var(--accent)}
 .screen{display:none;position:relative;z-index:10;padding:16px}
@@ -116,6 +122,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);padding:8px 16px;border-radius:8px;font-size:.79rem;z-index:2000;animation:fadeIn .3s ease;white-space:nowrap;pointer-events:none;max-width:92vw;text-align:center}
 .tok{border-color:rgba(74,222,128,.4);color:var(--green)}
 .terr{border-color:rgba(239,68,68,.4);color:var(--danger)}
+.twarn{border-color:rgba(245,158,11,.4);color:var(--warn)}
+
 #pdfModal{display:none}
 #pdfCanvas{border-radius:4px}
 .load-more{display:none;margin:14px auto 4px;min-width:150px}
@@ -225,7 +233,14 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
       <div class="logo-icon">⚡</div>
       <div><h1>SOLVI</h1><p>LINAC · MANUAL SEARCH</p></div>
     </div>
-    <div id="estadoRed" class="online"><div class="dot"></div><span id="estadoTxt">Conectado</span></div>
+    <div class="header-status-group">
+      <div id="activeToolBadge" class="active-tool-badge" title="Herramienta activa del espacio de trabajo">
+        <span class="tool-dot"></span>
+        <span id="activeToolName">BUSCADOR</span>
+        <span class="tool-mode-pill" id="activeToolMode">OFFLINE-FIRST</span>
+      </div>
+      <div id="estadoRed" class="online" title="Estado de conectividad de red"><div class="dot"></div><span id="estadoTxt">Conectado</span></div>
+    </div>
   </div>
 </header>
 
@@ -712,7 +727,17 @@ function dmmLimpiarHist() { if (window.Multimeter) window.Multimeter.limpiarHist
 function dmmSelTp(id) { if (window.Multimeter) window.Multimeter.seleccionarPuntoDePrueba(id); }
 function dmmToggleBuzzer(en) { if (window.Multimeter) window.Multimeter.toggleBuzzer(en); }
 
-// Navegación entre pantallas
+// Navegación entre pantallas y ergonomía de espacio de trabajo
+const _TOOL_META = {
+    Search:     { tag: "BUSCADOR",    mode: "OFFLINE-FIRST", type: "offline" },
+    Diagnose:   { tag: "DIAGNÓSTICO", mode: "OFFLINE-FIRST / NUBE", type: "mixed" },
+    Circuits:   { tag: "ESQUEMAS",    mode: "OFFLINE-FIRST", type: "offline" },
+    Multimeter: { tag: "MULTÍMETRO",  mode: "OFFLINE-FIRST", type: "offline" },
+    Logs:       { tag: "REGISTROS",   mode: "OFFLINE-FIRST", type: "offline" },
+    Notes:      { tag: "APUNTES",     mode: "SYNC NUBE / IDB", type: "sync" },
+    Admin:      { tag: "ADMIN",       mode: "ONLINE", type: "admin" }
+};
+
 function irA(name) {
     ['Search','Diagnose','Circuits','Multimeter','Logs','Notes','Admin'].forEach(n => {
         const scr = document.getElementById('screen'+n);
@@ -721,6 +746,16 @@ function irA(name) {
         const navEl = document.getElementById(navId);
         if (navEl) navEl.classList.toggle('active', n===name);
     });
+
+    const meta = _TOOL_META[name] || { tag: name.toUpperCase(), mode: "HERRAMIENTA", type: "offline" };
+    const tagEl = document.getElementById("activeToolName");
+    const modeEl = document.getElementById("activeToolMode");
+    if (tagEl) tagEl.textContent = meta.tag;
+    if (modeEl) {
+        modeEl.textContent = meta.mode;
+        modeEl.className = "tool-mode-pill" + (meta.type === "admin" ? " admin" : (meta.type === "sync" || meta.type === "mixed" ? " cloud" : ""));
+    }
+
     if (name==='Notes') {
         if (typeof window.cargarNotas === 'function') window.cargarNotas();
         else if (typeof cargarNotas === 'function') cargarNotas();

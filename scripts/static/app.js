@@ -1,17 +1,43 @@
 console.log("✅ SOLVI app.js v17 — búsqueda indexada, diagnóstico y diagrama de relaciones");
 
-// ─── RED ──────────────────────────────────────────────────
+// ─── RED Y RESILIENCIA OFFLINE-FIRST ───────────────────────────────
+function isOnline() {
+    return typeof navigator !== "undefined" ? navigator.onLine : true;
+}
+
+const NetworkMonitor = {
+    get online() { return isOnline(); },
+    listeners: new Set(),
+    subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
+    notify(online) {
+        for (const fn of this.listeners) {
+            try { fn(online); } catch (e) { console.error("Error en listener de red:", e); }
+        }
+    }
+};
+
+let _wasOffline = false;
+
 function actualizarRed() {
     const el  = document.getElementById("estadoRed");
     const txt = document.getElementById("estadoTxt");
-    if (navigator.onLine) {
-        el.className = "online";
-        txt.textContent = "Conectado";
+    const online = isOnline();
+    if (el) el.className = online ? "online" : "offline";
+    if (txt) txt.textContent = online ? "Conectado" : "Sin conexión";
+
+    if (online) {
+        if (_wasOffline) {
+            _wasOffline = false;
+            toast("Conexión restablecida. Sincronizando datos...", "ok");
+        }
         syncPendientes();
     } else {
-        el.className = "offline";
-        txt.textContent = "Sin conexión";
+        if (!_wasOffline) {
+            _wasOffline = true;
+            toast("Modo sin conexión activado. Las herramientas locales siguen operativas.", "warn");
+        }
     }
+    NetworkMonitor.notify(online);
 }
 window.addEventListener("online",  actualizarRed);
 window.addEventListener("offline", actualizarRed);
@@ -129,8 +155,15 @@ async function apiRequest(url, options = {}) {
         if (err && err.name === "AbortError") {
             throw new Error("Tiempo de espera agotado. Verifica tu conexión o intenta de nuevo.");
         }
+        if (!isOnline() || (err && (err.name === "TypeError" || String(err.message).includes("fetch")))) {
+            const netErr = new Error("Sin conexión con el servidor. Verifica tu conexión de red.");
+            netErr.status = 0;
+            netErr.isOffline = true;
+            throw netErr;
+        }
         throw err;
-    } finally {
+    }
+ finally {
         clearTimeout(timer);
     }
 }
@@ -161,11 +194,14 @@ function hi(txt, kw) {
 function toast(msg, tipo) {
     document.querySelectorAll(".toast").forEach(t => t.remove());
     const t = document.createElement("div");
-    t.className = "toast " + (tipo==="err" ? "terr" : "tok");
+    t.className = "toast " + (tipo==="err" ? "terr" : tipo==="warn" ? "twarn" : "tok");
     t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => t.remove(), 3500);
+    if (document.body) {
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 3500);
+    }
 }
+
 
 // ─── PDF VIEWER (PDF.js) ─────────────────────────────────
 let _pdfJsLoaded = false;
@@ -264,7 +300,7 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
             const errName = (err && err.name) || "";
             const errMsg = String((err && err.message) || "");
 
-            if (!navigator.onLine || errMsg.includes("Failed to fetch") || errMsg.includes("NetworkError") || errMsg.includes("Load failed")) {
+            if (!isOnline() || errMsg.includes("Failed to fetch") || errMsg.includes("NetworkError") || errMsg.includes("Load failed")) {
                 errorTitulo = "Sin Conexión / Red Inestable";
                 errorDetalle = "No se pudo recuperar el manual sin conexión a la red. Si lo descargaste previamente, ábrelo desde tu almacenamiento local.";
             } else if (errName === "MissingPDFException" || errMsg.includes("404")) {
@@ -536,7 +572,7 @@ function uiState(s) {
 // ─── VISOR DE APUNTES EN GRANDE ──────────────────────────
 async function verNotaEnGrande(id) {
     let nota = notasLocal().find(n => n.id === id);
-    if (!nota && navigator.onLine) {
+    if (!nota && isOnline()) {
         try {
             const notas = await apiRequest("/notes");
             if (Array.isArray(notas)) {
@@ -685,7 +721,7 @@ async function buscar(loadMore = false) {
         let data;
         let mode = "offline";
         const signal = _searchAbortController ? _searchAbortController.signal : undefined;
-        if (navigator.onLine) {
+        if (isOnline()) {
             try {
                 data = await buscarOnline(keyword, manual, _searchState.offset, signal);
                 mode = "online";
@@ -1020,7 +1056,7 @@ async function ejecutarTrazaGrafo() {
 
     try {
         let resData = null;
-        if (navigator.onLine) {
+        if (isOnline()) {
             try {
                 const res = await apiRequest("/diagnose/graph", {
                     method: "POST",
@@ -1302,7 +1338,7 @@ async function analizarDiagnosticoAi() {
         return;
     }
 
-    if (!navigator.onLine) {
+    if (!isOnline()) {
         toast("El análisis causal avanzado requiere internet. Mostrando diagnóstico local...", "warn");
         return analizarDiagnostico();
     }
@@ -1356,11 +1392,12 @@ async function analizarDiagnosticoAi() {
     } catch (error) {
         const errMsg = String((error && error.message) || "Inconveniente al procesar el análisis causal.");
         const errType = (error && error.data && error.data.error) || "";
-        const isOfflineOrNetworkFail = !navigator.onLine ||
+        const isOfflineOrNetworkFail = !isOnline() || (error && error.isOffline) ||
             errMsg.includes("Failed to fetch") ||
             errMsg.includes("NetworkError") ||
             errMsg.includes("Load failed") ||
             errMsg.includes("Network request failed");
+
 
         if (isOfflineOrNetworkFail) {
             list.innerHTML =
@@ -1452,7 +1489,7 @@ async function analizarDiagnostico() {
     }
     try {
         let data, mode = "offline";
-        if (navigator.onLine) {
+        if (isOnline()) {
             try {
                 data = await apiRequest("/diagnose", {
                     method:  "POST",
@@ -1553,7 +1590,7 @@ document.addEventListener("DOMContentLoaded", function() {
     cargarCatalogoManuales();
     initNotesStorage();
 
-    if (navigator.onLine) {
+    if (isOnline()) {
         syncPendientes();
         apiRequest("/notes").then(data => { if (Array.isArray(data)) notasGuardar(data); }).catch(()=>{});
     }
@@ -1709,14 +1746,27 @@ function pendDel(id) {
     idbDelete("pending", id);
 }
 
+function pendAddDelete(id) {
+    const p = pendLoad().filter(item => item.id !== id);
+    const entry = { op: "delete", id };
+    p.push(entry);
+    pendSave(p);
+    idbPut("pending", entry);
+}
+
 function mergeCloudNotes(cloudNotes) {
-    const merged = Array.isArray(cloudNotes) ? cloudNotes.slice() : [];
-    for (const pending of pendLoad()) {
-        if (pending.op === "create" && !merged.some(note => note.id === pending.id)) merged.push(pending.payload);
+    const pends = pendLoad();
+    const deletedIds = new Set(pends.filter(p => p.op === "delete").map(p => p.id));
+    const merged = Array.isArray(cloudNotes) ? cloudNotes.filter(note => !deletedIds.has(note.id)) : [];
+    for (const pending of pends) {
+        if (pending.op === "create" && !merged.some(note => note.id === pending.id)) {
+            merged.push(pending.payload);
+        }
     }
     notasGuardar(merged);
     return merged;
 }
+
 
 let _isSyncingNotes = false;
 async function syncPendientes() {
@@ -1727,17 +1777,34 @@ async function syncPendientes() {
         let ok = 0;
         for (const item of pend) {
             try {
-                if (item.op !== "create") { pendDel(item.id); continue; }
-                const created = await apiRequest("/notes", {
-                    method:"POST",
-                    headers:{"Content-Type":"application/json"},
-                    body:JSON.stringify(item.payload)
-                });
-                notaBorrar(item.id);
-                notaSync(created);
-                pendDel(item.id);
-                ok++;
+                if (item.op === "create") {
+                    const created = await apiRequest("/notes", {
+                        method:"POST",
+                        headers:{"Content-Type":"application/json"},
+                        body:JSON.stringify(item.payload)
+                    });
+                    notaBorrar(item.id);
+                    notaSync(created);
+                    pendDel(item.id);
+                    ok++;
+                } else if (item.op === "delete") {
+                    if (_adminPw) {
+                        await apiRequest("/notes/" + item.id, {
+                            method: "DELETE",
+                            headers: { "X-Admin-Password": _adminPw }
+                        });
+                        pendDel(item.id);
+                        ok++;
+                    } else {
+                        continue;
+                    }
+                } else {
+                    pendDel(item.id);
+                }
             } catch(error) {
+                if (error && (error.status === 404 || error.status === 400)) {
+                    pendDel(item.id);
+                }
                 console.warn("Sincronización pendiente", error);
                 break;
             }
@@ -1770,7 +1837,7 @@ async function cargarNotas() {
     lista.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
     if (empty) empty.style.display = "none";
     let notas = [];
-    if (navigator.onLine) {
+    if (isOnline()) {
         try { notas = mergeCloudNotes(await apiRequest("/notes")); }
         catch { notas = notasLocal(); }
     } else { notas = notasLocal(); }
@@ -1851,14 +1918,15 @@ async function guardarNota() {
         toast("El apunte supera los límites permitidos", "err");
         return;
     }
-    if (id && !navigator.onLine) {
+    if (id && !isOnline()) {
         toast("La edición administrativa requiere conexión para evitar conflictos", "err");
         return;
     }
     const nota = { id: id || generarUUID(), title, text, tags };
     let savedAsPending = false;
 
-    if (navigator.onLine) {
+    if (isOnline()) {
+
         try {
             const method = id ? "PUT" : "POST";
             const url    = id ? "/notes/"+id : "/notes";
@@ -1891,19 +1959,51 @@ async function guardarNota() {
 }
 
 async function eliminarNota(id) {
-    if (!_adminPw) { 
+    const isLocalPending = pendLoad().some(p => p.id === id && p.op === "create");
+
+    if (!isLocalPending && !_adminPw) { 
         toast("🔒 Acceso denegado: Inicia sesión como Admin para eliminar", "err"); 
         return; 
     }
-    
-    if (!navigator.onLine) { toast("La eliminación requiere conexión", "err"); return; }
+
     if (!confirm("¿Eliminar este apunte de forma permanente?")) return;
+
+    if (isLocalPending) {
+        notaBorrar(id);
+        pendDel(id);
+        document.getElementById("ni-"+id)?.remove();
+        const lista = document.getElementById("listaNotas");
+        if (lista && !lista.children.length) { const e=document.getElementById("sinNotas"); if(e) e.style.display="flex"; }
+        toast("🗑 Apunte local eliminado");
+        return;
+    }
+
+    if (!isOnline()) {
+        notaBorrar(id);
+        pendAddDelete(id);
+        document.getElementById("ni-"+id)?.remove();
+        const lista = document.getElementById("listaNotas");
+        if (lista && !lista.children.length) { const e=document.getElementById("sinNotas"); if(e) e.style.display="flex"; }
+        toast("🗑 Apunte eliminado localmente (se sincronizará al conectar)");
+        return;
+    }
+
     try {
         await apiRequest("/notes/"+id, {method:"DELETE", headers:{"X-Admin-Password":_adminPw}});
     } catch(error) {
+        if (!error.status || error.status >= 500) {
+            notaBorrar(id);
+            pendAddDelete(id);
+            document.getElementById("ni-"+id)?.remove();
+            const lista = document.getElementById("listaNotas");
+            if (lista && !lista.children.length) { const e=document.getElementById("sinNotas"); if(e) e.style.display="flex"; }
+            toast("🗑 Apunte eliminado localmente (pendiente de sincronizar)");
+            return;
+        }
         toast(error.message, "err");
         return;
     }
+
 
     notaBorrar(id); pendDel(id);
     document.getElementById("ni-"+id)?.remove();
@@ -1913,6 +2013,10 @@ async function eliminarNota(id) {
 }
 
 async function adminEntrar() {
+    if (!isOnline()) {
+        toast("El área de administración requiere conexión al servidor", "err");
+        return;
+    }
     const pw = (document.getElementById("adminPw").value || "").trim();
     if (!pw) { toast("Ingresa la contraseña","err"); return; }
     try {
@@ -1984,4 +2088,5 @@ window.adminEntrar = adminEntrar;
 window.adminSalir = adminSalir;
 window.cargarListaManuales = cargarListaManuales;
 window.abrirMultimetroConTp = abrirMultimetroConTp;
+window.isOnline = isOnline;
 
