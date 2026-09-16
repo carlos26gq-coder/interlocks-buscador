@@ -266,7 +266,7 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
                 '<span id="pdfPagInfo" style="font-size:.75rem;color:#94a3b8;font-family:monospace;min-width:70px;text-align:center">Pág. ' + pageNum + '</span>' +
                 '<button type="button" data-action="pdf-sig" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">▶</button>' +
                 '<a id="btnWebPdf" href="' + pdfUrl + '#page=' + pageNum + '" target="_blank" style="background:#0077ff;border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.75rem;text-decoration:none;white-space:nowrap;">🌐 Web</a>' +
-                '<a href="' + pdfUrl + '" download style="background:#00d4ff;border:none;color:#000;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.75rem;font-weight:bold;text-decoration:none;white-space:nowrap;">💾 Offline</a>' +
+                '<a href="' + pdfUrl + '" download data-action="descargar-pdf-offline" data-pdfurl="' + esc(pdfUrl) + '" data-manual="' + esc(manual) + '" style="background:#00d4ff;border:none;color:#000;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.75rem;font-weight:bold;text-decoration:none;white-space:nowrap;">💾 Offline</a>' +
                 '<button type="button" data-action="pdf-cerrar" style="background:#ef4444;border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">✕</button>' +
             '</div>' +
         '</div>' +
@@ -281,14 +281,17 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
 
     activarZoomCanvas();
 
-    const isAndroid = /Android/i.test(navigator.userAgent);
+    const isMobileOrTablet = /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent);
+    const shouldDisableRange = isMobileOrTablet || !isOnline();
 
     pdfjsLib.getDocument({ 
         url: pdfUrl, 
-        disableRange: isAndroid, 
-        disableStream: isAndroid,
+        disableRange: shouldDisableRange, 
+        disableStream: shouldDisableRange,
+        disableAutoFetch: isMobileOrTablet,
         cMapUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/", 
-        cMapPacked: true 
+        cMapPacked: true,
+        maxImageSize: 1024 * 1024 * 16
     })
         .promise.then(function(doc) {
             window._pdfDoc = doc;
@@ -326,6 +329,29 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
         });
 }
 
+async function cacheManualOffline(pdfUrl, manualName) {
+    toast(`💾 Guardando "${manualName}" para uso offline...`, "ok");
+    try {
+        if ("caches" in window) {
+            const cache = await caches.open("solvi-v27");
+            const existing = await cache.match(pdfUrl);
+            if (!existing) {
+                const resp = await fetch(pdfUrl, { cache: "no-cache" });
+                if (resp.ok) {
+                    await cache.put(pdfUrl, resp);
+                    toast(`✅ "${manualName}" guardado en caché offline`, "ok");
+                    return;
+                }
+            } else {
+                toast(`ℹ️ "${manualName}" ya está disponible en caché offline`, "ok");
+                return;
+            }
+        }
+    } catch (e) {
+        console.warn("No se pudo cachear proactivamente:", e);
+    }
+}
+
 function renderPdfPagina(num) {
     const numEntero = parseInt(num, 10);
     if (!window._pdfDoc) return;
@@ -347,7 +373,8 @@ function renderPdfPagina(num) {
         const vp0     = page.getViewport({ scale: 1 });
         const baseScale = vw / vp0.width;
 
-        const ratioInteligente = Math.min(window.devicePixelRatio || 1.5, 2);
+        const isMobileOrTablet = /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent);
+        const ratioInteligente = Math.min(window.devicePixelRatio || 1.5, isMobileOrTablet ? 1.5 : 2);
         const vp = page.getViewport({ scale: baseScale * ratioInteligente });
 
         canvas.width  = vp.width;
@@ -363,6 +390,8 @@ function renderPdfPagina(num) {
             window._pdfRendering = false;
             window._pdfRenderTask = null;
             window._pdfPage = numEntero;
+
+            try { if (typeof page.cleanup === "function") page.cleanup(); } catch (_e) {}
 
             const info = document.getElementById("pdfPagInfo");
             if (info) info.textContent = "Pág. " + numEntero + " / " + window._pdfDoc.numPages;
@@ -1517,7 +1546,7 @@ async function analizarDiagnostico() {
 }
 
 // ─── INIT ────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", function() {
+document.addEventListener("DOMContentLoaded", async function() {
     const q = document.getElementById("q");
     const m = document.getElementById("manual");
     if (q) {
@@ -1545,6 +1574,12 @@ document.addEventListener("DOMContentLoaded", function() {
         } else if (action === "ver-pdf") {
             event.preventDefault();
             verPDF(el.dataset.manual, parseInt(el.dataset.page, 10) || 1, el.dataset.kw || "");
+        } else if (action === "descargar-pdf-offline") {
+            const pdfUrl = el.dataset.pdfurl;
+            const manual = el.dataset.manual || "Manual";
+            if (pdfUrl) {
+                cacheManualOffline(pdfUrl, manual);
+            }
         } else if (action === "esquema-svg") {
             event.preventDefault();
             abrirEnEsquemaSvg();
@@ -1588,10 +1623,10 @@ document.addEventListener("DOMContentLoaded", function() {
     uiState("welcome");
     mostrarBienvenida();
     cargarCatalogoManuales();
-    initNotesStorage();
+    await initNotesStorage();
 
     if (isOnline()) {
-        syncPendientes();
+        await syncPendientes();
         apiRequest("/notes").then(data => { if (Array.isArray(data)) notasGuardar(data); }).catch(()=>{});
     }
 });
@@ -1600,6 +1635,21 @@ document.addEventListener("DOMContentLoaded", function() {
 const IDB_NAME = "SolviNotesDB";
 const IDB_VERSION = 1;
 let _idbPromise = null;
+let _memNotes = null;
+let _memPending = null;
+
+function safeLocalStorageSet(key, value) {
+    try {
+        localStorage.setItem(key, value);
+        return true;
+    } catch (e) {
+        console.warn(`Storage warning: no se pudo escribir '${key}' en localStorage (posible cuota excedida). Persistiendo en IndexedDB.`, e);
+        if (typeof toast === "function") {
+            toast("⚠️ Almacenamiento rápido lleno. Apuntes guardados en base de datos local (IndexedDB).", "warn");
+        }
+        return false;
+    }
+}
 
 function getNotesDB() {
     if (_idbPromise) return _idbPromise;
@@ -1668,40 +1718,64 @@ async function idbClearAndPutAll(storeName, items) {
 
 async function initNotesStorage() {
     const db = await getNotesDB();
-    if (!db) return;
-    try {
-        const tx = db.transaction(["notes", "pending"], "readonly");
-        const notesReq = tx.objectStore("notes").getAll();
-        const pendReq = tx.objectStore("pending").getAll();
-        tx.oncomplete = () => {
-            const idbNotes = notesReq.result || [];
-            const idbPend = pendReq.result || [];
-            if (idbNotes.length > 0) {
-                try { localStorage.setItem("interlocks_notas", JSON.stringify(idbNotes)); } catch (_e) {}
-            } else {
-                const lsNotes = notasLocal();
-                if (lsNotes.length > 0) idbClearAndPutAll("notes", lsNotes);
-            }
-            if (idbPend.length > 0) {
-                try { localStorage.setItem("interlocks_pend", JSON.stringify(idbPend)); } catch (_e) {}
-            } else {
-                const lsPend = pendLoad();
-                if (lsPend.length > 0) idbClearAndPutAll("pending", lsPend);
-            }
-        };
-    } catch (_e) {}
+    if (!db) {
+        _memNotes = notasLocal();
+        _memPending = pendLoad();
+        return;
+    }
+    return new Promise((resolve) => {
+        try {
+            const tx = db.transaction(["notes", "pending"], "readonly");
+            const notesReq = tx.objectStore("notes").getAll();
+            const pendReq = tx.objectStore("pending").getAll();
+            tx.oncomplete = () => {
+                const idbNotes = notesReq.result || [];
+                const idbPend = pendReq.result || [];
+                if (idbNotes.length > 0) {
+                    _memNotes = idbNotes;
+                    safeLocalStorageSet("interlocks_notas", JSON.stringify(idbNotes));
+                } else {
+                    const lsNotes = notasLocal();
+                    _memNotes = lsNotes;
+                    if (lsNotes.length > 0) idbClearAndPutAll("notes", lsNotes);
+                }
+                if (idbPend.length > 0) {
+                    _memPending = idbPend.map(item => item.op ? item : { op: "create", id: item.id, payload: item });
+                    safeLocalStorageSet("interlocks_pend", JSON.stringify(_memPending));
+                } else {
+                    const lsPend = pendLoad();
+                    _memPending = lsPend;
+                    if (lsPend.length > 0) idbClearAndPutAll("pending", lsPend);
+                }
+                resolve();
+            };
+            tx.onerror = () => {
+                _memNotes = notasLocal();
+                _memPending = pendLoad();
+                resolve();
+            };
+        } catch (_e) {
+            _memNotes = notasLocal();
+            _memPending = pendLoad();
+            resolve();
+        }
+    });
 }
 
 function notasLocal() {
+    if (_memNotes !== null) return _memNotes;
     try {
         const value = JSON.parse(localStorage.getItem("interlocks_notas") || "[]");
-        return Array.isArray(value) ? value : [];
+        const arr = Array.isArray(value) ? value : [];
+        _memNotes = arr;
+        return arr;
     } catch { return []; }
 }
 
 function notasGuardar(ns) {
     const items = Array.isArray(ns) ? ns : [];
-    try { localStorage.setItem("interlocks_notas", JSON.stringify(items)); } catch (_e) {}
+    _memNotes = items;
+    safeLocalStorageSet("interlocks_notas", JSON.stringify(items));
     idbClearAndPutAll("notes", items);
 }
 
@@ -1719,16 +1793,20 @@ function notaBorrar(id) {
 }
 
 function pendLoad() {
+    if (_memPending !== null) return _memPending;
     try {
         const value = JSON.parse(localStorage.getItem("interlocks_pend") || "[]");
         if (!Array.isArray(value)) return [];
-        return value.map(item => item.op ? item : { op: "create", id: item.id, payload: item });
+        const arr = value.map(item => item.op ? item : { op: "create", id: item.id, payload: item });
+        _memPending = arr;
+        return arr;
     } catch { return []; }
 }
 
 function pendSave(p) {
     const items = Array.isArray(p) ? p : [];
-    try { localStorage.setItem("interlocks_pend", JSON.stringify(items)); } catch (_e) {}
+    _memPending = items;
+    safeLocalStorageSet("interlocks_pend", JSON.stringify(items));
     idbClearAndPutAll("pending", items);
 }
 

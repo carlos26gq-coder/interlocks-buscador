@@ -1086,7 +1086,17 @@ self.onmessage = async event => {
     const { id, type, payload } = event.data || {};
     if (type === "cancel") {
         const targetId = (payload && payload.id) || id;
-        if (targetId) _cancelledRequests.add(targetId);
+        if (targetId) {
+            _cancelledRequests.add(targetId);
+            if (_cancelledRequests.size > 100) {
+                const first = _cancelledRequests.values().next().value;
+                _cancelledRequests.delete(first);
+            }
+        }
+        return;
+    }
+    if (_cancelledRequests.has(id)) {
+        _cancelledRequests.delete(id);
         return;
     }
     try {
