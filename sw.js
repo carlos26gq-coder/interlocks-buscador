@@ -80,6 +80,15 @@ async function cacheFirst(request) {
 
 // Estrategia especializada para PDFs de manuales (Cloudflare R2 o rutas locales).
 // Soporta cabeceras de rango HTTP 206 y caching resiliente para modo offline.
+let _lastPdfUrl = "";
+let _lastPdfBuffer = null;
+
+function filterHeadersWithoutRange(headers) {
+    const newHeaders = new Headers(headers);
+    newHeaders.delete("range");
+    return newHeaders;
+}
+
 async function cacheFirstPdf(request) {
     const cache = await caches.open(CACHE);
     const cached = await cache.match(request, { ignoreSearch: true });
@@ -87,12 +96,33 @@ async function cacheFirstPdf(request) {
     if (cached) {
         const rangeHeader = request.headers.get("range");
         if (rangeHeader) {
-            return returnPartialContent(cached, rangeHeader);
+            return returnPartialContent(request.url, cached, rangeHeader);
         }
         return cached;
     }
 
     try {
+        const rangeHeader = request.headers.get("range");
+        // Si la petición tiene cabecera Range y no está en caché, descargamos el archivo completo
+        // (sin Range) para almacenarlo en CacheStorage (status 200) y luego servir el rango solicitado (206).
+        if (rangeHeader) {
+            try {
+                const cleanRequest = new Request(request.url, {
+                    method: "GET",
+                    headers: filterHeadersWithoutRange(request.headers),
+                    mode: request.mode,
+                    credentials: request.credentials
+                });
+                const fullResponse = await fetch(cleanRequest);
+                if (fullResponse && fullResponse.status === 200) {
+                    await cache.put(cleanRequest, fullResponse.clone());
+                    return returnPartialContent(request.url, fullResponse, rangeHeader);
+                }
+            } catch (_errRangeFetch) {
+                // Si la descarga completa falla, intentamos la petición directa original
+            }
+        }
+
         const response = await fetch(request);
         // CacheStorage solo acepta status 200; no intentar cache.put con 206 Partial Content
         if (response && response.status === 200) {
@@ -108,9 +138,16 @@ async function cacheFirstPdf(request) {
     }
 }
 
-async function returnPartialContent(cachedResponse, rangeHeader) {
+async function returnPartialContent(url, cachedResponse, rangeHeader) {
     try {
-        const buffer = await cachedResponse.arrayBuffer();
+        let buffer;
+        if (_lastPdfUrl === url && _lastPdfBuffer) {
+            buffer = _lastPdfBuffer;
+        } else {
+            buffer = await cachedResponse.arrayBuffer();
+            _lastPdfUrl = url;
+            _lastPdfBuffer = buffer;
+        }
         const total = buffer.byteLength;
         const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
         if (!match) {

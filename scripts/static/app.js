@@ -223,11 +223,21 @@ function cargarPdfJs(cb) {
 }
 
 function verPDF(manual, page, keyword) {
-    if (!_r2url) { toast("⚠️ PDFs no configurados","err"); return; }
+    if (!_r2url) {
+        const customUrl = prompt("Ingresa la URL base de Cloudflare R2 para los manuales PDF (ej. https://pub-xxx.r2.dev):");
+        if (customUrl && customUrl.trim()) {
+            _r2url = customUrl.trim().replace(/\/+$/, "");
+            try { localStorage.setItem("r2url", _r2url); } catch (_e) {}
+        } else {
+            toast("⚠️ PDFs no configurados","err");
+            return;
+        }
+    }
     _highlightQuery = (keyword || "").trim();
     const cleanManual = String(manual || "").trim();
     const pdfFile = cleanManual.toLowerCase().endsWith(".pdf") ? cleanManual : (cleanManual + ".pdf");
-    const pdfUrl = _r2url + "/" + encodeURIComponent(pdfFile);
+    const baseR2 = _r2url.replace(/\/+$/, "");
+    const pdfUrl = baseR2 + "/" + encodeURIComponent(pdfFile);
     
     const pageInt = parseInt(page, 10) || 1;
 
@@ -266,7 +276,7 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
                 '<span id="pdfPagInfo" style="font-size:.75rem;color:#94a3b8;font-family:monospace;min-width:70px;text-align:center">Pág. ' + pageNum + '</span>' +
                 '<button type="button" data-action="pdf-sig" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">▶</button>' +
                 '<a id="btnWebPdf" href="' + pdfUrl + '#page=' + pageNum + '" target="_blank" style="background:#0077ff;border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.75rem;text-decoration:none;white-space:nowrap;">🌐 Web</a>' +
-                '<a href="' + pdfUrl + '" download data-action="descargar-pdf-offline" data-pdfurl="' + esc(pdfUrl) + '" data-manual="' + esc(manual) + '" style="background:#00d4ff;border:none;color:#000;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.75rem;font-weight:bold;text-decoration:none;white-space:nowrap;">💾 Offline</a>' +
+                '<button type="button" data-action="descargar-pdf-offline" data-pdfurl="' + esc(pdfUrl) + '" data-manual="' + esc(manual) + '" style="background:#00d4ff;border:none;color:#000;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.75rem;font-weight:bold;text-decoration:none;white-space:nowrap;">💾 Offline</button>' +
                 '<button type="button" data-action="pdf-cerrar" style="background:#ef4444;border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">✕</button>' +
             '</div>' +
         '</div>' +
@@ -287,8 +297,8 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
     pdfjsLib.getDocument({ 
         url: pdfUrl, 
         disableRange: shouldDisableRange, 
-        disableStream: shouldDisableRange,
-        disableAutoFetch: isMobileOrTablet,
+        disableStream: false,
+        disableAutoFetch: true,
         cMapUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/", 
         cMapPacked: true,
         maxImageSize: 1024 * 1024 * 16
@@ -303,7 +313,7 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
             const errName = (err && err.name) || "";
             const errMsg = String((err && err.message) || "");
 
-            if (!isOnline() || errMsg.includes("Failed to fetch") || errMsg.includes("NetworkError") || errMsg.includes("Load failed")) {
+            if (!isOnline() || errMsg.includes("Failed to fetch") || errMsg.includes("NetworkError") || errMsg.includes("Load failed") || errMsg.includes("503")) {
                 errorTitulo = "Sin Conexión / Red Inestable";
                 errorDetalle = "No se pudo recuperar el manual sin conexión a la red. Si lo descargaste previamente, ábrelo desde tu almacenamiento local.";
             } else if (errName === "MissingPDFException" || errMsg.includes("404")) {
@@ -333,13 +343,18 @@ async function cacheManualOffline(pdfUrl, manualName) {
     toast(`💾 Guardando "${manualName}" para uso offline...`, "ok");
     try {
         if ("caches" in window) {
-            const cache = await caches.open("solvi-v27");
-            const existing = await cache.match(pdfUrl);
+            const cacheKeys = await caches.keys();
+            const activeCacheName = cacheKeys.find(k => k.startsWith("solvi-")) || "solvi-v27";
+            const cache = await caches.open(activeCacheName);
+            const existing = await cache.match(pdfUrl, { ignoreSearch: true });
             if (!existing) {
                 const resp = await fetch(pdfUrl, { cache: "no-cache" });
-                if (resp.ok) {
-                    await cache.put(pdfUrl, resp);
+                if (resp && resp.ok) {
+                    await cache.put(pdfUrl, resp.clone());
                     toast(`✅ "${manualName}" guardado en caché offline`, "ok");
+                    return;
+                } else {
+                    toast(`❌ No se pudo descargar "${manualName}"`, "err");
                     return;
                 }
             } else {
@@ -349,6 +364,7 @@ async function cacheManualOffline(pdfUrl, manualName) {
         }
     } catch (e) {
         console.warn("No se pudo cachear proactivamente:", e);
+        toast(`⚠️ Inconveniente al guardar "${manualName}" en caché`, "warn");
     }
 }
 
@@ -410,6 +426,7 @@ function renderPdfPagina(num) {
         }).catch(function(err) {
             window._pdfRendering = false;
             window._pdfRenderTask = null;
+            try { if (typeof page.cleanup === "function") page.cleanup(); } catch (_e) {}
             if (err && err.name !== "RenderingCancelledException") {
                 console.warn("PDF render warning:", err);
             }
@@ -659,7 +676,7 @@ function crearTarjetaResultado(result, keyword, index) {
         button.textContent = "📖 Leer apunte";
         button.addEventListener("click", () => verNotaEnGrande(result.id));
         footer.appendChild(button);
-    } else if (_r2url) {
+    } else {
         const button = document.createElement("button");
         button.className = "btn-pdf";
         button.textContent = `📖 Ver pág. ${result.page}`;
@@ -713,7 +730,7 @@ async function buscarOnline(keyword, manual, offset, signal) {
     const data = await apiRequest("/search?" + params.toString(), { signal });
     if (data.r2_url) {
         _r2url = data.r2_url;
-        localStorage.setItem("r2url", _r2url);
+        try { localStorage.setItem("r2url", _r2url); } catch (_e) {}
     }
     return data;
 }
@@ -966,7 +983,7 @@ function renderTrazaGrafo(data, symptoms) {
     const manualsChips = (data.manual_references || []).map(m => {
         const mStr = String(m || "").trim();
         const match = mStr.match(/([a-z0-9_\s\-]+?)(?:\.pdf)?\s*(?:\([^\d]*(\d+)[^\)]*\))?$/i);
-        if (match && _r2url) {
+        if (match) {
             const manualName = match[1].trim().toLowerCase();
             const pageNum = parseInt(match[2], 10) || 1;
             return '<button type="button" class="diag-chip" data-action="ver-pdf" data-manual="' + esc(manualName) + '" data-page="' + pageNum + '" data-kw="' + esc(symsKw) + '" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent);cursor:pointer">📖 ' + esc(mStr) + '</button>';
@@ -1171,7 +1188,7 @@ function renderDiagnostico(data, mode, symptoms) {
               esc(result.associated_component) + '</div>'
             : "";
 
-        const pdfButton = _r2url
+        const pdfButton = (result.manual && result.page)
             ? '<div style="display:flex;justify-content:flex-end;margin-top:10px">' +
                 '<button type="button" class="btn-pdf" data-action="ver-pdf" data-manual="' + esc(result.manual) + '" data-page="' + Number(result.page) + '" data-kw="' + esc(allSymptoms.join(' ')) + '">📖 Ver pág. ' + Number(result.page) + '</button>' +
               '</div>'
@@ -1274,7 +1291,7 @@ function renderDiagnosticoAi(aiData, symptoms) {
     const manualsChips = (aiData.manual_references || []).map(m => {
         const mStr = String(m || "").trim();
         const match = mStr.match(/([a-z0-9_\s\-]+?)(?:\.pdf)?\s*(?:\([^\d]*(\d+)[^\)]*\))?$/i);
-        if (match && _r2url) {
+        if (match) {
             const manualName = match[1].trim().toLowerCase();
             const pageNum = parseInt(match[2], 10) || 1;
             return '<button type="button" class="diag-chip" data-action="ver-pdf" data-manual="' + esc(manualName) + '" data-page="' + pageNum + '" data-kw="' + esc(symsKw) + '" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent);cursor:pointer">📖 ' + esc(mStr) + '</button>';
@@ -1526,7 +1543,7 @@ async function analizarDiagnostico() {
                     body:    JSON.stringify({symptoms})
                 });
                 mode = "online";
-                if (data.r2_url) { _r2url = data.r2_url; localStorage.setItem("r2url", _r2url); }
+                if (data.r2_url) { _r2url = data.r2_url; try { localStorage.setItem("r2url", _r2url); } catch (_e) {} }
             } catch (onlineError) {
                 console.warn("Diagnóstico online no disponible; usando índice local", onlineError);
                 data = await workerRequest("diagnose", {signals: {symptoms}});
@@ -1550,12 +1567,14 @@ document.addEventListener("DOMContentLoaded", async function() {
     const q = document.getElementById("q");
     const m = document.getElementById("manual");
     if (q) {
-        q.disabled = false; q.readOnly = false;
-        q.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();buscar();} });
+        let timer;
+        q.addEventListener("input", function() {
+            clearTimeout(timer);
+            timer = setTimeout(dispararBusqueda, 180);
+        });
     }
     if (m) {
-        m.disabled = false;
-        m.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();buscar();} });
+        m.addEventListener("change", dispararBusqueda);
     }
     document.getElementById("adminPw")?.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();adminEntrar();} });
     document.getElementById("notaTit")?.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();guardarNota();} });
@@ -1575,6 +1594,7 @@ document.addEventListener("DOMContentLoaded", async function() {
             event.preventDefault();
             verPDF(el.dataset.manual, parseInt(el.dataset.page, 10) || 1, el.dataset.kw || "");
         } else if (action === "descargar-pdf-offline") {
+            event.preventDefault();
             const pdfUrl = el.dataset.pdfurl;
             const manual = el.dataset.manual || "Manual";
             if (pdfUrl) {
@@ -1627,7 +1647,7 @@ document.addEventListener("DOMContentLoaded", async function() {
 
     if (isOnline()) {
         await syncPendientes();
-        apiRequest("/notes").then(data => { if (Array.isArray(data)) notasGuardar(data); }).catch(()=>{});
+        apiRequest("/notes").then(data => { if (Array.isArray(data)) mergeCloudNotes(data); }).catch(()=>{});
     }
 });
 
@@ -1637,6 +1657,7 @@ const IDB_VERSION = 1;
 let _idbPromise = null;
 let _memNotes = null;
 let _memPending = null;
+let _lastQuotaToast = 0;
 
 function safeLocalStorageSet(key, value) {
     try {
@@ -1644,7 +1665,9 @@ function safeLocalStorageSet(key, value) {
         return true;
     } catch (e) {
         console.warn(`Storage warning: no se pudo escribir '${key}' en localStorage (posible cuota excedida). Persistiendo en IndexedDB.`, e);
-        if (typeof toast === "function") {
+        const now = Date.now();
+        if (typeof toast === "function" && now - _lastQuotaToast > 5000) {
+            _lastQuotaToast = now;
             toast("⚠️ Almacenamiento rápido lleno. Apuntes guardados en base de datos local (IndexedDB).", "warn");
         }
         return false;
@@ -2119,7 +2142,7 @@ async function cargarCfg() {
     const el = document.getElementById("cfgInfo"); if(!el) return;
     try {
         const d = await apiRequest("/admin/config", {headers:{"X-Admin-Password":_adminPw}});
-        if (d.r2_url && d.r2_url!=="No configurada") { _r2url=d.r2_url; localStorage.setItem("r2url",_r2url); }
+        if (d.r2_url && d.r2_url!=="No configurada") { _r2url=d.r2_url; try { localStorage.setItem("r2url",_r2url); } catch (_e) {} }
         el.innerHTML =
             '<div class="config-row"><span>📚 Total páginas</span><span>'+d.total_pages+'</span></div>'+
             '<div class="config-row"><span>📘 Manuales</span><span>'+d.total_manuals+'</span></div>'+
