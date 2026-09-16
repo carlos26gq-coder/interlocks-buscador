@@ -116,15 +116,30 @@ def parse_timestamp(ts_str: str, is_us: bool = None) -> float:
     return 0.0
 
 
-def map_identifier_to_tp(identifier: str) -> str:
+VALID_TP_IDS: set[str] = {
+    "TP1", "TP2", "TP5", "TP3", "TP_HT", "TP_RF", "TP100", "TP_DOSE1", "TP_DOSE2",
+    "TP_SPEED", "TP_POS", "TP_VAC", "TP_GUN", "TP7", "GEN_VOLT_24", "GEN_VOLT_15",
+    "GEN_VOLT_M15", "GEN_VOLT_12", "GEN_VOLT_5", "GEN_CONT_LOOP",
+}
+
+
+def map_identifier_to_tp(identifier: str | None) -> str | None:
     if not identifier:
-        return "TP1"
+        return None
     ident = str(identifier).strip().upper()
-    
+    if ident in VALID_TP_IDS:
+        return ident
+
     if re.search(r"\b(TP2|INTERLOCK\s*(?:283|2\b)|DOOR|E-?STOP)\b", ident):
         return "TP2"
     if re.search(r"\b(FS1|24V|PSU)\b", ident):
         return "GEN_VOLT_24"
+    if re.search(r"\b(TP7)\b", ident):
+        return "TP7"
+    if re.search(r"\b(TP_DOSE1|DOSE\s*1)\b", ident):
+        return "TP_DOSE1"
+    if re.search(r"\b(TP_DOSE2|DOSE\s*2)\b", ident):
+        return "TP_DOSE2"
     if re.search(r"\b(GUN|FILAMENT)\b", ident):
         return "TP_GUN"
     if re.search(r"\b(TP_VAC|VAC\w*|VAC_ION|ITEM\s*112)\b", ident):
@@ -143,8 +158,20 @@ def map_identifier_to_tp(identifier: str) -> str:
         return "TP_POS"
     if re.search(r"\b(TP5|PCB\s*(?:16N?|5\b)|16N|RELAY\s*K[12]|K1|K2|W12)\b", ident):
         return "TP5"
+    if re.search(r"\b(TP1|SAFETY\s*CHAIN|INTERLOCK\s*CHAIN)\b", ident):
+        return "TP1"
+    if re.search(r"\b(GEN_CONT_LOOP|CONTINUITY|LOOP\s*CONT)\b", ident):
+        return "GEN_CONT_LOOP"
+    if re.search(r"\b(GEN_VOLT_15|\+?15V(?:\s*DC)?)\b", ident):
+        return "GEN_VOLT_15"
+    if re.search(r"\b(GEN_VOLT_M15|-15V(?:\s*DC)?)\b", ident):
+        return "GEN_VOLT_M15"
+    if re.search(r"\b(GEN_VOLT_12|\+?12V(?:\s*DC)?)\b", ident):
+        return "GEN_VOLT_12"
+    if re.search(r"\b(GEN_VOLT_5|\+?5V(?:\s*DC)?|TTL)\b", ident):
+        return "GEN_VOLT_5"
         
-    return "TP1"
+    return None
 
 mapIdentifierToTP = map_identifier_to_tp
 

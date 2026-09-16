@@ -339,7 +339,7 @@ class LogParser {
                 html += `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:10px;">
                     <button type="button" class="btn btn-ghost btn-sm" data-log-action="search" data-target="${primaryId}">🔍 Ver en Manuales</button>
                     <button type="button" class="btn btn-ghost btn-sm" data-log-action="circuits" data-target="${primaryId}">⚡ Ver en Esquema SVG</button>
-                    <button type="button" class="btn btn-ghost btn-sm" data-log-action="multimeter" data-target="${suggestedTp}">📟 Medir con Multímetro (${suggestedTp})</button>
+                    ${suggestedTp ? `<button type="button" class="btn btn-ghost btn-sm" data-log-action="multimeter" data-target="${suggestedTp}">📟 Medir con Multímetro (${suggestedTp})</button>` : ''}
                     <button type="button" class="btn btn-primary btn-sm" data-log-action="export-notes" data-idx="${idx}">📝 Exportar a Mis Apuntes</button>
                     <button type="button" class="btn btn-ghost btn-sm" data-log-action="diagnose" data-target="${primaryId}">🧭 Ver Traza Topológica</button>
                 </div>`;
@@ -531,10 +531,20 @@ class LogParser {
     }
 
     static mapIdentifierToTP(identifier) {
-        if (!identifier) return "TP1";
+        if (!identifier) return null;
         const id = String(identifier).trim().toUpperCase();
+        const validTps = new Set([
+            "TP1", "TP2", "TP5", "TP3", "TP_HT", "TP_RF", "TP100", "TP_DOSE1", "TP_DOSE2",
+            "TP_SPEED", "TP_POS", "TP_VAC", "TP_GUN", "TP7", "GEN_VOLT_24", "GEN_VOLT_15",
+            "GEN_VOLT_M15", "GEN_VOLT_12", "GEN_VOLT_5", "GEN_CONT_LOOP"
+        ]);
+        if (validTps.has(id)) return id;
+
         if (/\b(TP2|INTERLOCK\s*(?:283|2\b)|DOOR|E-?STOP)\b/i.test(id)) return "TP2";
         if (/\b(FS1|24V|PSU)\b/i.test(id)) return "GEN_VOLT_24";
+        if (/\b(TP7)\b/i.test(id)) return "TP7";
+        if (/\b(TP_DOSE1|DOSE\s*1)\b/i.test(id)) return "TP_DOSE1";
+        if (/\b(TP_DOSE2|DOSE\s*2)\b/i.test(id)) return "TP_DOSE2";
         if (/\b(GUN|FILAMENT)\b/i.test(id)) return "TP_GUN";
         if (/\b(TP_VAC|VAC\w*|VAC_ION|ITEM\s*112)\b/i.test(id)) return "TP_VAC";
         if (/\b(TP100|DOS(?:E|IS)\w*|ION\s*CHAMBER)\b/i.test(id)) return "TP100";
@@ -544,7 +554,13 @@ class LogParser {
         if (/\b(TP_SPEED|SPEED|TACHO|TG1)\b/i.test(id)) return "TP_SPEED";
         if (/\b(TP_POS|POS|GANTRY|ENCODER)\b/i.test(id)) return "TP_POS";
         if (/\b(TP5|PCB\s*(?:16N?|5\b)|16N|RELAY\s*K[12]|K1|K2|W12)\b/i.test(id)) return "TP5";
-        return "TP1";
+        if (/\b(TP1|SAFETY\s*CHAIN|INTERLOCK\s*CHAIN)\b/i.test(id)) return "TP1";
+        if (/\b(GEN_CONT_LOOP|CONTINUITY|LOOP\s*CONT)\b/i.test(id)) return "GEN_CONT_LOOP";
+        if (/\b(GEN_VOLT_15|\+?15V(?:\s*DC)?)\b/i.test(id)) return "GEN_VOLT_15";
+        if (/\b(GEN_VOLT_M15|-15V(?:\s*DC)?)\b/i.test(id)) return "GEN_VOLT_M15";
+        if (/\b(GEN_VOLT_12|\+?12V(?:\s*DC)?)\b/i.test(id)) return "GEN_VOLT_12";
+        if (/\b(GEN_VOLT_5|\+?5V(?:\s*DC)?|TTL)\b/i.test(id)) return "GEN_VOLT_5";
+        return null;
     }
 }
 

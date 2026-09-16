@@ -24,6 +24,11 @@ def _clean_key(text: str) -> str:
     return re.sub(r"[\W_]+", "", text.lower().strip())
 
 
+MIN_GRAPH_ENTITIES: int = 1500
+MIN_GRAPH_ADJACENCY: int = 1000
+MAX_GRAPH_PAYLOAD_MB: float = 2.0
+DEFAULT_MAX_GRAPH_DEPTH: int = 6
+
 _TYPE_PRIORITY: dict[str, int] = {
     "pcb": 10,
     "interlock": 9,
@@ -44,14 +49,13 @@ _TYPE_PRIORITY: dict[str, int] = {
 class GraphEngine:
     """Motor de recorrido de grafo para diagnóstico de aceleradores lineales."""
 
-    def __init__(self, graph_data: dict[str, Any] | None = None):
-        enrich_circuits = False
+    def __init__(self, graph_data: dict[str, Any] | None = None, enrich_circuits: bool | None = None):
+        auto_enrich = (graph_data is None) if enrich_circuits is None else enrich_circuits
         if graph_data is None:
             if not GRAPH_FILE.exists():
                 raise FileNotFoundError(f"Archivo de grafo no encontrado en {GRAPH_FILE}")
             with open(GRAPH_FILE, "r", encoding="utf-8") as f:
                 graph_data = json.load(f)
-            enrich_circuits = True
 
         self.version: str = graph_data.get("version", "2.0")
         self.entities: dict[str, dict] = graph_data.get("entities", {})
@@ -60,10 +64,14 @@ class GraphEngine:
         self.page_to_entities: dict[tuple[str, int], list[str]] = defaultdict(list)
         self.enriched_circuits: bool = False
 
-        if enrich_circuits:
+        if auto_enrich:
             self._enrich_with_circuit_schematics()
+        else:
+            self._rebuild_page_index()
 
-        # Índice invertido de (manual, página) -> lista de entidades para búsquedas O(1)
+    def _rebuild_page_index(self) -> None:
+        """Construye el índice invertido (manual, página) -> lista de entidades para búsquedas O(1)."""
+        self.page_to_entities = defaultdict(list)
         for ent_id, ent in self.entities.items():
             for page in ent.get("pages", []):
                 if isinstance(page, (list, tuple)) and len(page) >= 2:
@@ -74,6 +82,7 @@ class GraphEngine:
         saved_entities = {k: v.copy() if isinstance(v, dict) else v for k, v in self.entities.items()}
         saved_lookup = self.lookup.copy()
         saved_adjacency = {k: [list(edge) for edge in edges] for k, edges in self.adjacency.items()}
+        saved_page_to_entities = {k: list(v) for k, v in self.page_to_entities.items()}
         try:
             from circuit_data import SUBSYSTEMS
             for sub_id, sub in SUBSYSTEMS.items():
@@ -130,12 +139,14 @@ class GraphEngine:
                         if edge_vu not in self.adjacency[v]:
                             self.adjacency[v].append(edge_vu)
             self.enriched_circuits = True
+            self._rebuild_page_index()
         except Exception as exc:
             import logging
             logging.getLogger(__name__).warning("Error al enriquecer grafo con esquemas de circuito: %s", exc)
             self.entities = saved_entities
             self.lookup = saved_lookup
             self.adjacency = saved_adjacency
+            self.page_to_entities = defaultdict(list, saved_page_to_entities)
             self.enriched_circuits = False
 
     def resolve_entity(self, text: str, search_engine: Any = None) -> str | None:
