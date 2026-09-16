@@ -648,7 +648,7 @@ def create_note():
         "tags": validated_tags(data),
     }
     try:
-        response = supabase.table("notes").insert(note_data).execute()
+        response = supabase.table("notes").upsert(note_data).execute()
         invalidate_notes_cache()
         created = response.data[0] if isinstance(response.data, list) and response.data else note_data
         return jsonify(created), 201

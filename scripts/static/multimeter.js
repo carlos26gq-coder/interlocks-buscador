@@ -835,13 +835,13 @@
             </div>
 
             <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-                <button type="button" class="btn btn-primary btn-sm" onclick="Multimeter.exportarAApuntes()" style="box-shadow:0 0 10px rgba(0,212,255,0.2);">
+                <button type="button" class="btn btn-primary btn-sm" data-dmm-action="exportar-apuntes" style="box-shadow:0 0 10px rgba(0,212,255,0.2);">
                     📝 Guardar en Mis Apuntes
                 </button>
-                <button type="button" class="btn btn-ghost btn-sm" onclick="Multimeter.verEnPlanoSvg('${esc(ev.test_point_id)}')">
+                <button type="button" class="btn btn-ghost btn-sm" data-dmm-action="ver-plano" data-tp-id="${esc(ev.test_point_id)}">
                     ⚡ Ver en Esquema SVG
                 </button>
-                <button type="button" class="btn btn-ghost btn-sm" onclick="Multimeter.trazarEnDiagnostico('${esc(ev.test_point_code)}')">
+                <button type="button" class="btn btn-ghost btn-sm" data-dmm-action="trazar" data-tp-code="${esc(ev.test_point_code)}">
                     🧭 Trazar en Relacionar
                 </button>
             </div>
@@ -885,7 +885,7 @@
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;">
                     <span style="font-size:0.62rem;color:${h.color};background:${h.color}15;padding:2px 6px;border-radius:8px;">${esc(h.status_badge)}</span>
-                    <button type="button" onclick="Multimeter.exportarRegistroHistorial(${idx})" title="Exportar este apunte" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:0.8rem;">📝</button>
+                    <button type="button" data-dmm-action="exportar-registro" data-idx="${idx}" title="Exportar este apunte" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:0.8rem;">📝</button>
                 </div>
             </div>
         `).join("");
@@ -929,7 +929,7 @@
             const extraStyle = p.highlight
                 ? "border-color:rgba(0,212,255,0.5);color:var(--accent);background:rgba(0,212,255,0.08);font-weight:700;"
                 : "";
-            return `<button type="button" class="btn btn-ghost btn-sm" onclick="Multimeter.aplicarPreset(${p.val})" style="font-family:var(--mono);padding:4px 8px;font-size:0.75rem;${extraStyle}">${esc(p.label)}</button>`;
+            return `<button type="button" class="btn btn-ghost btn-sm" data-dmm-action="preset" data-val="${p.val}" style="font-family:var(--mono);padding:4px 8px;font-size:0.75rem;${extraStyle}">${esc(p.label)}</button>`;
         }).join("");
 
         const containerMain = document.getElementById("dmmDynamicPresets");
@@ -1156,7 +1156,7 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
         const tp = resolverPuntoDePrueba(_activeTpId, true);
 
         div.innerHTML = `
-        <div style="background:var(--surface);border:1px solid var(--border);border-top:4px solid var(--accent);border-radius:12px;width:100%;max-width:520px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 15px 40px rgba(0,0,0,0.7);overflow:hidden;" onclick="event.stopPropagation()">
+        <div style="background:var(--surface);border:1px solid var(--border);border-top:4px solid var(--accent);border-radius:12px;width:100%;max-width:520px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 15px 40px rgba(0,0,0,0.7);overflow:hidden;">
             <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.02);">
                 <div style="display:flex;align-items:center;gap:8px;">
                     <span style="font-size:1.1rem;">📟</span>
@@ -1165,7 +1165,7 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
                         <span style="font-size:0.65rem;color:var(--muted);font-family:var(--mono);">MODO ENTRADA RÁPIDA &amp; BANCO</span>
                     </div>
                 </div>
-                <button type="button" onclick="Multimeter.cerrarInspectorModal()" style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;padding:4px 8px;">✕</button>
+                <button type="button" data-dmm-action="cerrar-modal" style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;padding:4px 8px;">✕</button>
             </div>
             <div style="padding:14px;overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1;">
                 <div style="margin-bottom:10px;background:rgba(0,0,0,0.2);padding:8px 10px;border-radius:8px;border:1px solid var(--border);">
@@ -1176,7 +1176,7 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
                             <span style="color:var(--muted)">Tol: <strong id="dmmModalInfoTol" style="color:var(--green);">${tp.tolerance_min.toFixed(1)} a ${tp.tolerance_max.toFixed(1)} ${tp.unit}</strong></span>
                         </div>
                     </div>
-                    <select id="dmmModalTpSelect" onchange="Multimeter.seleccionarPuntoDePrueba(this.value)" style="padding-left:10px;">
+                    <select id="dmmModalTpSelect" style="padding-left:10px;">
                         ${generarOpcionesPuntosPrueba()}
                     </select>
                 </div>
@@ -1202,38 +1202,63 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
 
                     <!-- Teclado Numérico Táctil Modal -->
                     <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:6px;max-width:320px;margin:0 auto 12px;">
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('7')" style="font-size:1.1rem;font-weight:700;padding:12px 0;">7</button>
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('8')" style="font-size:1.1rem;font-weight:700;padding:12px 0;">8</button>
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('9')" style="font-size:1.1rem;font-weight:700;padding:12px 0;">9</button>
-                        <button type="button" class="btn btn-danger" onclick="Multimeter.keypadPress('C')" style="font-size:0.85rem;padding:12px 0;">CLR</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="7" style="font-size:1.1rem;font-weight:700;padding:12px 0;">7</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="8" style="font-size:1.1rem;font-weight:700;padding:12px 0;">8</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="9" style="font-size:1.1rem;font-weight:700;padding:12px 0;">9</button>
+                        <button type="button" class="btn btn-danger" data-dmm-keypad="C" style="font-size:0.85rem;padding:12px 0;">CLR</button>
 
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('4')" style="font-size:1.1rem;font-weight:700;padding:12px 0;">4</button>
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('5')" style="font-size:1.1rem;font-weight:700;padding:12px 0;">5</button>
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('6')" style="font-size:1.1rem;font-weight:700;padding:12px 0;">6</button>
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('BS')" style="font-size:0.9rem;padding:12px 0;">⌫</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="4" style="font-size:1.1rem;font-weight:700;padding:12px 0;">4</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="5" style="font-size:1.1rem;font-weight:700;padding:12px 0;">5</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="6" style="font-size:1.1rem;font-weight:700;padding:12px 0;">6</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="BS" style="font-size:0.9rem;padding:12px 0;">⌫</button>
 
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('1')" style="font-size:1.1rem;font-weight:700;padding:12px 0;">1</button>
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('2')" style="font-size:1.1rem;font-weight:700;padding:12px 0;">2</button>
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('3')" style="font-size:1.1rem;font-weight:700;padding:12px 0;">3</button>
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('±')" style="font-size:0.95rem;padding:12px 0;">±</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="1" style="font-size:1.1rem;font-weight:700;padding:12px 0;">1</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="2" style="font-size:1.1rem;font-weight:700;padding:12px 0;">2</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="3" style="font-size:1.1rem;font-weight:700;padding:12px 0;">3</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="±" style="font-size:0.95rem;padding:12px 0;">±</button>
 
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('0')" style="grid-column:span 2;font-size:1.1rem;font-weight:700;padding:12px 0;">0</button>
-                        <button type="button" class="btn btn-ghost" onclick="Multimeter.keypadPress('.')" style="font-size:1.2rem;font-weight:700;padding:12px 0;">.</button>
-                        <button type="button" class="btn btn-primary" onclick="Multimeter.procesarLecturaManual()" style="font-size:0.85rem;padding:12px 0;box-shadow:0 0 10px rgba(0,212,255,0.3);">OK</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="0" style="grid-column:span 2;font-size:1.1rem;font-weight:700;padding:12px 0;">0</button>
+                        <button type="button" class="btn btn-ghost" data-dmm-keypad="." style="font-size:1.2rem;font-weight:700;padding:12px 0;">.</button>
+                        <button type="button" class="btn btn-primary" data-dmm-action="procesar" style="font-size:0.85rem;padding:12px 0;box-shadow:0 0 10px rgba(0,212,255,0.3);">OK</button>
                     </div>
 
                     <!-- Atajo para simular muestra instantánea -->
                     <div style="display:flex;justify-content:center;gap:8px;margin-bottom:10px;">
-                        <button type="button" class="btn btn-ghost btn-sm" onclick="Multimeter.capturarMuestraSimulada()" style="font-size:0.75rem;">⚡ Inyectar Lectura Simulada</button>
+                        <button type="button" class="btn btn-ghost btn-sm" data-dmm-action="sim-muestra" style="font-size:0.75rem;">⚡ Inyectar Lectura Simulada</button>
                     </div>
                 </div>
                 <div id="dmmModalResultWrap" style="margin-top:12px;"></div>
             </div>
             <div style="padding:10px 16px;border-top:1px solid var(--border);background:rgba(0,0,0,0.25);display:flex;justify-content:space-between;align-items:center;">
-                <button type="button" class="btn btn-ghost btn-sm" onclick="Multimeter.abrirPantallaCompleta()">Ver Pantalla Completa</button>
-                <button type="button" class="btn btn-primary btn-sm" onclick="Multimeter.cerrarInspectorModal()">Listo</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-dmm-action="pantalla-completa">Ver Pantalla Completa</button>
+                <button type="button" class="btn btn-primary btn-sm" data-dmm-action="cerrar-modal">Listo</button>
             </div>
         </div>`;
+
+        const modalSelect = div.querySelector("#dmmModalTpSelect");
+        if (modalSelect) {
+            modalSelect.addEventListener("change", (e) => {
+                seleccionarPuntoDePrueba(e.target.value);
+            });
+        }
+        div.addEventListener("click", (e) => {
+            const btn = e.target.closest("[data-dmm-keypad], [data-dmm-action], [data-dmm-preset]");
+            if (!btn) return;
+            e.preventDefault();
+            if (btn.dataset.dmmKeypad) {
+                keypadPress(btn.dataset.dmmKeypad);
+            } else if (btn.dataset.dmmPreset) {
+                aplicarPreset(parseFloat(btn.dataset.dmmPreset));
+            } else if (btn.dataset.dmmAction === "cerrar-modal") {
+                cerrarInspectorModal();
+            } else if (btn.dataset.dmmAction === "procesar") {
+                procesarLecturaManual();
+            } else if (btn.dataset.dmmAction === "sim-muestra") {
+                capturarMuestraSimulada();
+            } else if (btn.dataset.dmmAction === "pantalla-completa") {
+                abrirPantallaCompleta();
+            }
+        });
         document.body.appendChild(div);
     }
 
@@ -1285,6 +1310,52 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
 
     // ─── INICIALIZACIÓN Y EVENTOS DE ENTRADA ─────────────────────────────
     function init() {
+        // Población dinámica de puntos de prueba desde catálogo canónico (Finding 4.6)
+        const selScreen = document.getElementById("dmmTpSelect");
+        if (selScreen) {
+            selScreen.innerHTML = generarOpcionesPuntosPrueba();
+            selScreen.value = _activeTpId;
+            selScreen.addEventListener("change", (e) => {
+                seleccionarPuntoDePrueba(e.target.value);
+            });
+        }
+
+        const resBox = document.getElementById("dmmResultBox");
+        if (resBox && !resBox.dataset.listenerAttached) {
+            resBox.dataset.listenerAttached = "true";
+            resBox.addEventListener("click", (e) => {
+                const btn = e.target.closest("[data-dmm-action]");
+                if (!btn) return;
+                e.preventDefault();
+                const act = btn.dataset.dmmAction;
+                if (act === "exportar-apuntes") exportarAApuntes();
+                else if (act === "ver-plano") verEnPlanoSvg(btn.dataset.tpId);
+                else if (act === "trazar") trazarEnDiagnostico(btn.dataset.tpCode);
+            });
+        }
+
+        const histList = document.getElementById("dmmHistoryList");
+        if (histList && !histList.dataset.listenerAttached) {
+            histList.dataset.listenerAttached = "true";
+            histList.addEventListener("click", (e) => {
+                const btn = e.target.closest("[data-dmm-action='exportar-registro']");
+                if (!btn) return;
+                e.preventDefault();
+                exportarRegistroHistorial(parseInt(btn.dataset.idx, 10));
+            });
+        }
+
+        const presetsMain = document.getElementById("dmmDynamicPresets");
+        if (presetsMain && !presetsMain.dataset.listenerAttached) {
+            presetsMain.dataset.listenerAttached = "true";
+            presetsMain.addEventListener("click", (e) => {
+                const btn = e.target.closest("[data-dmm-action='preset']");
+                if (!btn) return;
+                e.preventDefault();
+                aplicarPreset(parseFloat(btn.dataset.val));
+            });
+        }
+
         // Escuchar cambios en campos de entrada física si tienen el foco
         const inputField = document.getElementById("dmmManualInputBox");
         if (inputField) {

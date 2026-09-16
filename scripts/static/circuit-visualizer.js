@@ -238,8 +238,7 @@
                 const cx = n.x + n.width / 2;
                 const cy = n.y + n.height / 2;
                 return `
-                <g class="${hlClass}" data-id="${n.id}" onclick="CircuitVisualizer.inspeccionarNodo('${n.id}')"
-                   onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();CircuitVisualizer.inspeccionarNodo('${n.id}');}"
+                <g class="${hlClass}" data-id="${n.id}"
                    style="cursor:pointer;" tabindex="0" role="button" aria-label="${escSvg(n.name)}">
                     <circle cx="${cx}" cy="${cy}" r="22" fill="#111827" stroke="${typeColor}" stroke-width="${isHighlighted ? '3' : '2'}"
                             stroke-dasharray="${isHighlighted ? '4 2' : 'none'}" />
@@ -251,8 +250,7 @@
 
             // Render estándar para tarjetas PCB, Relés, Interlocks y fuentes
             return `
-            <g class="${hlClass}" data-id="${n.id}" onclick="CircuitVisualizer.inspeccionarNodo('${n.id}')"
-               onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();CircuitVisualizer.inspeccionarNodo('${n.id}');}"
+            <g class="${hlClass}" data-id="${n.id}"
                style="cursor:pointer;" tabindex="0" role="button" aria-label="${escSvg(n.name)}">
                 <!-- Caja base -->
                 <rect x="${n.x}" y="${n.y}" width="${n.width}" height="${n.height}" rx="8"
@@ -335,8 +333,7 @@
             return `
             <g class="cv-wire-group ${isHighlighted ? 'wire-highlighted' : ''}" data-id="${w.id}">
                 <!-- Trazo de fondo para facilitar clic -->
-                <path d="${dPath}" fill="none" stroke="transparent" stroke-width="14" style="cursor:pointer;"
-                      onclick="CircuitVisualizer.inspeccionarCable('${w.id}')"/>
+                <path d="${dPath}" fill="none" stroke="transparent" stroke-width="14" style="cursor:pointer;"/>
                 <!-- Trazo visible -->
                 <path class="cv-wire ${isHighlighted ? 'wire-highlighted' : ''}"
                       d="${dPath}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}"
@@ -355,6 +352,8 @@
 
         _container.addEventListener("wheel", onWheel, { passive: false });
         _container.addEventListener("mousedown", onMouseDown);
+        _container.addEventListener("click", onContainerClick);
+        _container.addEventListener("keydown", onContainerKeyDown);
         window.addEventListener("mousemove", onMouseMove);
         window.addEventListener("mouseup", onMouseUp);
 
@@ -371,6 +370,8 @@
         if (_container) {
             _container.removeEventListener("wheel", onWheel);
             _container.removeEventListener("mousedown", onMouseDown);
+            _container.removeEventListener("click", onContainerClick);
+            _container.removeEventListener("keydown", onContainerKeyDown);
             _container.removeEventListener("touchstart", onTouchStart);
             _container.removeEventListener("touchmove", onTouchMove);
             _container.removeEventListener("touchend", onTouchEnd);
@@ -380,6 +381,34 @@
         window.removeEventListener("mouseup", onMouseUp);
         window.removeEventListener("blur", onWindowBlur);
         window.removeEventListener("resize", onWindowResize);
+    }
+
+    function onContainerClick(e) {
+        if (_isDragging) return;
+        const nodeEl = e.target.closest("g[data-id]");
+        if (nodeEl) {
+            const id = nodeEl.dataset.id;
+            if (nodeEl.classList.contains("cv-wire-group") || nodeEl.closest(".cv-wire-group")) {
+                inspeccionarCable(id);
+            } else {
+                inspeccionarNodo(id);
+            }
+        }
+    }
+
+    function onContainerKeyDown(e) {
+        if (e.key === "Enter" || e.key === " ") {
+            const nodeEl = e.target.closest("g[data-id]");
+            if (nodeEl) {
+                e.preventDefault();
+                const id = nodeEl.dataset.id;
+                if (nodeEl.classList.contains("cv-wire-group") || nodeEl.closest(".cv-wire-group")) {
+                    inspeccionarCable(id);
+                } else {
+                    inspeccionarNodo(id);
+                }
+            }
+        }
     }
 
     function onWheel(e) {
@@ -789,7 +818,7 @@
                     </span>
                     <h3 style="font-size:1.05rem;color:var(--text);margin:0;font-weight:700;">${escSvg(node.name)}</h3>
                 </div>
-                <button onclick="CircuitVisualizer.cerrarInspector()" style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;padding:4px 8px;">✕</button>
+                <button type="button" data-cv-action="cerrar" style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;padding:4px 8px;">✕</button>
             </div>
 
             <div style="background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:12px;font-size:0.8rem;line-height:1.5;">
@@ -800,23 +829,28 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;">
                 <div>
                     ${node.manual ? `
-                    <button class="btn-pdf" onclick="verPDF('${escSvg(node.manual)}', ${node.page || 1}, '${escSvg(node.code)}')">
+                    <button type="button" class="btn-pdf" data-action="ver-pdf" data-manual="${escSvg(node.manual)}" data-page="${node.page || 1}" data-kw="${escSvg(node.code)}">
                         📖 Ver en ${escSvg(node.manual)} (Pág. ${node.page || 1})
                     </button>` : ''}
                 </div>
                 <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                    <button class="btn btn-ghost btn-sm" onclick="CircuitVisualizer.medirEnMultimetro('${node.id}')" style="color:#fde047;border-color:rgba(253,224,71,0.35);background:rgba(253,224,71,0.08);">
+                    <button type="button" class="btn btn-ghost btn-sm" data-cv-action="medir" data-id="${node.id}" style="color:#fde047;border-color:rgba(253,224,71,0.35);background:rgba(253,224,71,0.08);">
                         📟 Medir con Multímetro
                     </button>
-                    <button class="btn btn-ghost btn-sm" onclick="CircuitVisualizer.trazarEnDiagnostico('${escSvg(node.code)}')">
+                    <button type="button" class="btn btn-ghost btn-sm" data-cv-action="trazar" data-code="${escSvg(node.code)}">
                         🧭 Trazar en Relacionar
                     </button>
-                    <button class="btn btn-primary btn-sm" onclick="CircuitVisualizer.resaltarUnicoNodo('${node.id}')">
+                    <button type="button" class="btn btn-primary btn-sm" data-cv-action="aislar" data-id="${node.id}">
                         🎯 Aislar en plano
                     </button>
                 </div>
             </div>
         </div>`;
+
+        if (!drawer.dataset.listenerAttached) {
+            drawer.dataset.listenerAttached = "true";
+            drawer.addEventListener("click", onDrawerClick);
+        }
 
         drawer.style.display = "block";
     }
@@ -838,13 +872,30 @@
                     </span>
                     <h3 style="font-size:0.95rem;color:var(--text);margin:0;">Conexión: ${escSvg(wire.from)} ➔ ${escSvg(wire.to)}</h3>
                 </div>
-                <button onclick="CircuitVisualizer.cerrarInspector()" style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;">✕</button>
+                <button type="button" data-cv-action="cerrar" style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;">✕</button>
             </div>
             <p style="font-size:0.8rem;color:#94a3b8;margin:0 0 10px;">Tipo de señal: <strong>${escSvg(wire.type.toUpperCase())}</strong></p>
-            <button class="btn btn-primary btn-sm" onclick="CircuitVisualizer.resaltarRuta('${wire.from}', '${wire.to}')">⚡ Resaltar este segmento</button>
+            <button type="button" class="btn btn-primary btn-sm" data-cv-action="resaltar-ruta" data-from="${escSvg(wire.from)}" data-to="${escSvg(wire.to)}">⚡ Resaltar este segmento</button>
         </div>`;
 
+        if (!drawer.dataset.listenerAttached) {
+            drawer.dataset.listenerAttached = "true";
+            drawer.addEventListener("click", onDrawerClick);
+        }
+
         drawer.style.display = "block";
+    }
+
+    function onDrawerClick(e) {
+        const btn = e.target.closest("[data-cv-action]");
+        if (!btn) return;
+        e.preventDefault();
+        const act = btn.dataset.cvAction;
+        if (act === "cerrar") cerrarInspector();
+        else if (act === "medir") medirEnMultimetro(btn.dataset.id);
+        else if (act === "trazar") trazarEnDiagnostico(btn.dataset.code);
+        else if (act === "aislar") resaltarUnicoNodo(btn.dataset.id);
+        else if (act === "resaltar-ruta") resaltarRuta(btn.dataset.from, btn.dataset.to);
     }
 
     function cerrarInspector() {

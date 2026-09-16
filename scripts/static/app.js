@@ -23,8 +23,13 @@ if (_r2url && !localStorage.getItem("r2url")) { try { localStorage.setItem("r2ur
 let _workerSequence = 0;
 const _workerPending = new Map();
 let _searchWorker = null;
-try {
-    if (typeof Worker !== "undefined") {
+
+function _iniciarSearchWorker() {
+    if (typeof Worker === "undefined") return;
+    try {
+        if (_searchWorker) {
+            try { _searchWorker.terminate(); } catch (_e) {}
+        }
         _searchWorker = new Worker("/static/search-worker.js");
         _searchWorker.onmessage = event => {
             const pending = _workerPending.get(event.data.id);
@@ -39,11 +44,15 @@ try {
                 pending.reject(new Error("Fallo en la ejecución del worker offline"));
             }
             _workerPending.clear();
+            // Reconstrucción del worker para recuperación de fallos
+            setTimeout(_iniciarSearchWorker, 200);
         };
+    } catch (err) {
+        console.warn("No se pudo iniciar el worker offline:", err);
     }
-} catch (err) {
-    console.warn("No se pudo iniciar el worker offline:", err);
 }
+_iniciarSearchWorker();
+
 let _searchState = { query:"", manual:"", offset:0, limit:25, total:0, hasMore:false, mode:"offline" };
 let _highlightQuery = "";  // palabra/s buscada/s para resaltar en el visor PDF
 
@@ -54,15 +63,15 @@ function workerRequest(type, payload) {
         }
         // Evitar fuga de memoria por acumulación de peticiones pendientes bajo ráfagas intensas
         if (_workerPending.size > 50) {
-            for (const [oldId, oldPending] of _workerPending.entries()) {
-                oldPending.reject(new Error("Petición offline descartada por sobrecarga"));
-                _workerPending.delete(oldId);
-            }
+            return reject(new Error("Cola de búsqueda saturada. Por favor espera a que finalicen las consultas en curso."));
         }
         const id = ++_workerSequence;
         const timer = setTimeout(() => {
             if (_workerPending.has(id)) {
                 _workerPending.delete(id);
+                try {
+                    _searchWorker.postMessage({ id, type: "cancel", payload: { id } });
+                } catch (_e) {}
                 reject(new Error("Tiempo de espera del proceso offline excedido"));
             }
         }, 15000);
@@ -173,12 +182,7 @@ function verPDF(manual, page, keyword) {
     
     const pageInt = parseInt(page, 10) || 1;
 
-    if (!navigator.onLine) {
-        alert("📴 Sin conexión a internet.\n\nPara ver este documento, busca el archivo '" + manual + ".pdf' que descargaste previamente en tu carpeta de Descargas.");
-        return; 
-    } else {
-        toast("📄 Cargando PDF...", "ok");
-    }
+    toast("📄 Abriendo visor...", "ok");
     
     cargarPdfJs(function() {
         abrirVisorPDF(pdfUrl, pageInt, manual);
@@ -204,26 +208,17 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
             "position:fixed;inset:0;z-index:9999;background:#1a1a2e;display:flex;flex-direction:column;";
         document.body.appendChild(modal);
     }
-
-    if (window._pdfRenderTask) {
-        try { window._pdfRenderTask.cancel(); } catch (_e) {}
-        window._pdfRenderTask = null;
-    }
-    if (window._pdfDoc) {
-        try { window._pdfDoc.destroy(); } catch (_e) {}
-        window._pdfDoc = null;
-    }
     
     modal.innerHTML =
         '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#111827;border-bottom:1px solid #1e293b;flex-shrink:0;gap:8px;flex-wrap:wrap;">' +
             '<div style="font-size:.75rem;color:#00d4ff;font-family:monospace;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:45vw">📘 ' + esc(manual) + '</div>' +
             '<div style="display:flex;align-items:center;gap:5px;flex-shrink:0;flex-wrap:wrap;">' +
-                '<button onclick="pdfPagAnterior()" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">◀</button>' +
+                '<button type="button" data-action="pdf-ant" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">◀</button>' +
                 '<span id="pdfPagInfo" style="font-size:.75rem;color:#94a3b8;font-family:monospace;min-width:70px;text-align:center">Pág. ' + pageNum + '</span>' +
-                '<button onclick="pdfPagSiguiente()" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">▶</button>' +
+                '<button type="button" data-action="pdf-sig" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">▶</button>' +
                 '<a id="btnWebPdf" href="' + pdfUrl + '#page=' + pageNum + '" target="_blank" style="background:#0077ff;border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.75rem;text-decoration:none;white-space:nowrap;">🌐 Web</a>' +
                 '<a href="' + pdfUrl + '" download style="background:#00d4ff;border:none;color:#000;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.75rem;font-weight:bold;text-decoration:none;white-space:nowrap;">💾 Offline</a>' +
-                '<button onclick="cerrarVisorPDF()" style="background:#ef4444;border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">✕</button>' +
+                '<button type="button" data-action="pdf-cerrar" style="background:#ef4444;border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.8rem">✕</button>' +
             '</div>' +
         '</div>' +
         '<div id="pdfScroll" style="flex:1;overflow-y:auto;overflow-x:auto;display:flex;flex-direction:column;align-items:flex-start;padding:10px 0;background:#1a1a2e;">' +
@@ -251,12 +246,34 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
             document.getElementById("pdfPagInfo").textContent = "Pág. " + pageNum + " / " + doc.numPages;
             renderPdfPagina(pageNum);
         }).catch(function(err) {
-            document.getElementById("pdfScroll").innerHTML =
-                '<div style="width:100%; margin:auto; padding:40px 20px; box-sizing:border-box; text-align:center; display:flex; flex-direction:column; align-items:center;">' +
-                    '<div style="font-size:3.5rem;margin-bottom:10px;">📡</div>' +
-                    '<p style="color:#ef4444;font-weight:bold;font-size:1.2rem;margin:0 0 10px 0;">Error de Red</p>' +
-                    '<p style="color:#94a3b8;font-size:0.95rem;max-width:320px;margin:0;line-height:1.5;">La conexión de red es inestable.</p>' +
-                '</div>';
+            let errorTitulo = "Error al Cargar Documento";
+            let errorDetalle = "No se pudo renderizar el archivo PDF solicitado.";
+            const errName = (err && err.name) || "";
+            const errMsg = String((err && err.message) || "");
+
+            if (!navigator.onLine || errMsg.includes("Failed to fetch") || errMsg.includes("NetworkError") || errMsg.includes("Load failed")) {
+                errorTitulo = "Sin Conexión / Red Inestable";
+                errorDetalle = "No se pudo recuperar el manual sin conexión a la red. Si lo descargaste previamente, ábrelo desde tu almacenamiento local.";
+            } else if (errName === "MissingPDFException" || errMsg.includes("404")) {
+                errorTitulo = "Documento No Encontrado (404)";
+                errorDetalle = "El manual técnico no se encuentra disponible en el repositorio.";
+            } else if (errMsg.includes("403") || errMsg.includes("CORS") || errMsg.includes("SecurityError")) {
+                errorTitulo = "Acceso Restringido (CORS / 403)";
+                errorDetalle = "El servidor de almacenamiento bloqueó el acceso por políticas de origen o permisos.";
+            } else if (errName === "InvalidPDFException" || errMsg.includes("Invalid PDF")) {
+                errorTitulo = "Archivo PDF Dañado";
+                errorDetalle = "La estructura del archivo descargado no es válida o está incompleta.";
+            }
+
+            const scrollEl = document.getElementById("pdfScroll");
+            if (scrollEl) {
+                scrollEl.innerHTML =
+                    '<div style="width:100%; margin:auto; padding:40px 20px; box-sizing:border-box; text-align:center; display:flex; flex-direction:column; align-items:center;">' +
+                        '<div style="font-size:3.5rem;margin-bottom:10px;">📡</div>' +
+                        '<p style="color:#ef4444;font-weight:bold;font-size:1.2rem;margin:0 0 10px 0;">' + esc(errorTitulo) + '</p>' +
+                        '<p style="color:#94a3b8;font-size:0.95rem;max-width:340px;margin:0;line-height:1.5;">' + esc(errorDetalle) + '</p>' +
+                    '</div>';
+            }
         });
 }
 
@@ -429,6 +446,7 @@ function activarZoomCanvas() {
     canvas.dataset.currentZoom = 1;
 
     canvas.addEventListener('touchstart', (e) => {
+        currentZoom = parseFloat(canvas.dataset.currentZoom) || 1;
         if (e.touches.length === 2) {
             isPinching = true;
             initialDistance = Math.hypot(
@@ -608,10 +626,13 @@ async function buscarOffline(keyword, manual, offset) {
     });
 }
 
-async function buscarOnline(keyword, manual, offset) {
+let _searchRequestId = 0;
+let _searchAbortController = null;
+
+async function buscarOnline(keyword, manual, offset, signal) {
     const params = new URLSearchParams({q: keyword, offset: String(offset), limit: String(_searchState.limit)});
     if (manual) params.set("manual", manual);
-    const data = await apiRequest("/search?" + params.toString());
+    const data = await apiRequest("/search?" + params.toString(), { signal });
     if (data.r2_url) {
         _r2url = data.r2_url;
         localStorage.setItem("r2url", _r2url);
@@ -620,8 +641,10 @@ async function buscarOnline(keyword, manual, offset) {
 }
 
 async function buscar(loadMore = false) {
-    const keyword = (document.getElementById("q").value || "").trim();
-    const manual = (document.getElementById("manual").value || "").trim();
+    const inputQ = (document.getElementById("q").value || "").trim();
+    const inputManual = (document.getElementById("manual").value || "").trim();
+    const keyword = loadMore ? (_searchState.query || inputQ) : inputQ;
+    const manual = loadMore ? (_searchState.manual || inputManual) : inputManual;
     const button = loadMore ? document.getElementById("btnMasResultados") : document.getElementById("btnBuscar");
     if (!keyword) {
         const input = document.getElementById("q");
@@ -631,7 +654,12 @@ async function buscar(loadMore = false) {
     }
     if (keyword.length > 200) { toast("La búsqueda admite hasta 200 caracteres", "err"); return; }
 
+    const currentReqId = ++_searchRequestId;
     if (!loadMore) {
+        if (_searchAbortController) {
+            try { _searchAbortController.abort(); } catch (_e) {}
+        }
+        _searchAbortController = new AbortController();
         _searchState = {..._searchState, query:keyword, manual, offset:0, total:0, hasMore:false};
         uiState("loading");
     } else {
@@ -643,25 +671,32 @@ async function buscar(loadMore = false) {
     try {
         let data;
         let mode = "offline";
+        const signal = _searchAbortController ? _searchAbortController.signal : undefined;
         if (navigator.onLine) {
             try {
-                data = await buscarOnline(keyword, manual, _searchState.offset);
+                data = await buscarOnline(keyword, manual, _searchState.offset, signal);
                 mode = "online";
             } catch (onlineError) {
+                if (onlineError && onlineError.name === "AbortError") return;
                 console.warn("Búsqueda online no disponible; usando índice local", onlineError);
                 data = await buscarOffline(keyword, manual, _searchState.offset);
             }
         } else {
             data = await buscarOffline(keyword, manual, _searchState.offset);
         }
+        if (currentReqId !== _searchRequestId) return;
         renderResultados(data, keyword, mode, loadMore);
     } catch(error) {
+        if (error && error.name === "AbortError") return;
         console.error(error);
         if (loadMore) _searchState.offset = Math.max(0, _searchState.offset - _searchState.limit);
         document.getElementById("resultsList").innerHTML = '<div class="result-card"><span style="color:var(--danger)">❌ '+esc(error.message)+'</span></div>';
         uiState("results");
     } finally {
-        if (button) { button.textContent = originalText || (loadMore ? "Ver más" : "Buscar"); button.disabled = false; }
+        if (currentReqId === _searchRequestId && button) {
+            button.textContent = originalText || (loadMore ? "Ver más" : "Buscar");
+            button.disabled = false;
+        }
     }
 }
 
@@ -682,7 +717,7 @@ function mostrarBienvenida() {
         '<div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:24px;text-align:center;max-width:80%;box-shadow:0 10px 25px rgba(0,0,0,0.5);">' +
             '<div style="font-size:2.5rem;margin-bottom:12px;">👋</div>' +
             '<p style="color:#e2e8f0;font-size:1.1rem;font-weight:bold;margin:0 0 20px 0;line-height:1.4;">Buscador técnico disponible online y offline</p>' +
-            '<button onclick="document.getElementById(\'modalBienvenida\').remove()" style="background:#00d4ff;color:#0b0f1a;border:none;padding:10px 24px;border-radius:8px;font-weight:bold;font-size:1rem;cursor:pointer;">OK</button>' +
+            '<button type="button" data-action="modal-bienvenida-cerrar" style="background:#00d4ff;color:#0b0f1a;border:none;padding:10px 24px;border-radius:8px;font-weight:bold;font-size:1rem;cursor:pointer;">OK</button>' +
         '</div>';
     
     document.body.appendChild(modal);
@@ -731,7 +766,7 @@ function agregarSintoma() {
     row.innerHTML =
         '<span class="symptom-num">' + SYMPTOM_NUMS[idx] + '</span>' +
         '<input type="text" class="symptom-input" maxlength="200" placeholder="' + SYMPTOM_HINTS[idx] + '" autocomplete="off" autocorrect="off" autocapitalize="off">' +
-        '<button class="sym-del-btn" onclick="quitarSintoma(this)" aria-label="Eliminar">✕</button>';
+        '<button type="button" class="sym-del-btn" data-action="quitar-sintoma" aria-label="Eliminar">✕</button>';
     container.appendChild(row);
     // Show delete buttons on all rows now that there are more than 2
     container.querySelectorAll(".sym-del-btn").forEach(b => b.style.display = "");
@@ -795,7 +830,7 @@ function renderDiagrama(results, symptoms) {
             '<div class="diag-sym-row">' + symsHtml + '</div>' +
             '<div class="diag-connector"></div>' +
             '<div class="diag-main-node no-link">' +
-                '<div class="diag-main-label">⚡ Factor Común / Causa Raíz</div>' +
+                '<div class="diag-main-label">⚡ Hipótesis Principal (Relación Priorizada)</div>' +
                 '<div class="diag-main-title">' + esc(mainTitle) + '</div>' +
                 '<div class="diag-main-meta">Manual: <b>' + esc(main.manual) + '</b>' +
                 ' · <b>' + main.relative_match + '% de compatibilidad</b>' +
@@ -842,7 +877,7 @@ function renderTrazaGrafo(data, symptoms) {
     ).join("");
 
     const tpsChips = (data.test_points || []).map(tp =>
-        '<button class="diag-chip" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047;cursor:pointer" onclick="abrirMultimetroConTp(\'' + esc(tp) + '\')">⚡ ' + esc(tp) + ' (Medir)</button>'
+        '<button type="button" class="diag-chip" data-action="medir-tp" data-tp="' + esc(tp) + '" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047;cursor:pointer">⚡ ' + esc(tp) + ' (Medir)</button>'
     ).join("");
 
     const areasChips = (data.areas || []).map(ar =>
@@ -856,7 +891,7 @@ function renderTrazaGrafo(data, symptoms) {
         if (match && _r2url) {
             const manualName = match[1].trim().toLowerCase();
             const pageNum = parseInt(match[2], 10) || 1;
-            return '<button class="diag-chip" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent);cursor:pointer" onclick="verPDF(\'' + esc(manualName) + '\', ' + pageNum + ', \'' + esc(symsKw) + '\')">📖 ' + esc(mStr) + '</button>';
+            return '<button type="button" class="diag-chip" data-action="ver-pdf" data-manual="' + esc(manualName) + '" data-page="' + pageNum + '" data-kw="' + esc(symsKw) + '" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent);cursor:pointer">📖 ' + esc(mStr) + '</button>';
         }
         return '<span class="diag-chip" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent)">📚 ' + esc(mStr) + '</span>';
     }).join("");
@@ -868,16 +903,24 @@ function renderTrazaGrafo(data, symptoms) {
         : '';
 
     const tpMeasureBtn = (data.test_points && data.test_points.length > 0)
-        ? '<button class="btn btn-ghost btn-sm" onclick="abrirMultimetroConTp(\'' + esc(data.test_points[0]) + '\')" style="display:inline-flex;align-items:center;gap:6px;color:#fde047;border-color:rgba(253,224,71,0.35);background:rgba(253,224,71,0.08)">' +
+        ? '<button type="button" class="btn btn-ghost btn-sm" data-action="medir-tp" data-tp="' + esc(data.test_points[0]) + '" style="display:inline-flex;align-items:center;gap:6px;color:#fde047;border-color:rgba(253,224,71,0.35);background:rgba(253,224,71,0.08)">' +
             '<span>📟</span> Medir ' + esc(data.test_points[0]) + ' en Multímetro' +
           '</button>'
         : '';
+
+    const hasCanonicalSchematic = Boolean(data.circuit_schematic && data.circuit_schematic.matched_nodes && data.circuit_schematic.matched_nodes.length > 0);
+    const hasDocumentedManuals = Boolean(data.manual_references && data.manual_references.length > 0);
+    const verificationBadge = hasCanonicalSchematic
+        ? '<span style="font-size:.65rem;font-family:var(--mono);color:var(--green)">⬤ CANÓNICO (Esquema verificado)</span>'
+        : hasDocumentedManuals
+            ? '<span style="font-size:.65rem;font-family:var(--mono);color:var(--accent)">⬤ DOCUMENTADO (Manuales)</span>'
+            : '<span style="font-size:.65rem;font-family:var(--mono);color:var(--warn)">⬤ INFERIDO (Topología aproximada)</span>';
 
     container.innerHTML =
         '<div class="graph-card">' +
             '<div class="graph-top">' +
                 '<span class="graph-badge">⚡ TRAZA DE CIRCUITO FÍSICA · GRAFO DETERMINISTA</span>' +
-                '<span style="font-size:.65rem;font-family:var(--mono);color:var(--green)">⬤ Verificado en planos</span>' +
+                verificationBadge +
             '</div>' +
             '<div class="graph-hub">' + esc(data.hub_node || "Componente Central") + '</div>' +
             flowDiagram +
@@ -893,7 +936,7 @@ function renderTrazaGrafo(data, symptoms) {
                 '</div>'
             : '') +
             '<div style="margin-top:14px;border-top:1px solid rgba(0,212,255,.2);padding-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
-                '<button class="btn btn-primary btn-sm" onclick="abrirEnEsquemaSvg()" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25)">' +
+                '<button type="button" class="btn btn-primary btn-sm" data-action="esquema-svg" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25)">' +
                     '<span>⚡</span> Ver en Esquema SVG (Visualizador Interactivo)' +
                 '</button>' +
                 tpMeasureBtn +
@@ -1052,7 +1095,7 @@ function renderDiagnostico(data, mode, symptoms) {
 
         const pdfButton = _r2url
             ? '<div style="display:flex;justify-content:flex-end;margin-top:10px">' +
-                '<button class="btn-pdf" onclick="verPDF(\'' + esc(result.manual) + '\', ' + Number(result.page) + ', \'' + esc(allSymptoms.join(' ')) + '\')">📖 Ver pág. ' + Number(result.page) + '</button>' +
+                '<button type="button" class="btn-pdf" data-action="ver-pdf" data-manual="' + esc(result.manual) + '" data-page="' + Number(result.page) + '" data-kw="' + esc(allSymptoms.join(' ')) + '">📖 Ver pág. ' + Number(result.page) + '</button>' +
               '</div>'
             : "";
 
@@ -1134,12 +1177,16 @@ function renderDiagnosticoAi(aiData, symptoms) {
         '<span class="diag-chip" style="background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.35);color:#93c5fd">🔌 ' + esc(c) + "</span>"
     ).join("");
 
-    // 3. Puntos de Prueba (TP) y Voltajes
+    // 3. Puntos de Prueba (TP) y Voltajes (con validación contra catálogo canónico)
     const signalsChips = (aiData.test_points_and_signals || []).map(t => {
         const tpMatch = String(t || "").match(/\b(TP\w*|GEN_\w+)\b/i);
-        const tpCode = tpMatch ? tpMatch[1] : "";
-        if (tpCode) {
-            return '<button class="diag-chip" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047;cursor:pointer" onclick="abrirMultimetroConTp(\'' + esc(tpCode) + '\')">⚡ ' + esc(t) + ' (Medir)</button>';
+        const tpCode = tpMatch ? tpMatch[1].toUpperCase() : "";
+        const isKnownTp = Boolean(tpCode && (
+            (typeof window.Multimeter !== "undefined" && typeof window.Multimeter.resolverPuntoDePrueba === "function" && window.Multimeter.resolverPuntoDePrueba(tpCode, false)) ||
+            (typeof window.Multimeter !== "undefined" && window.Multimeter.OFFLINE_CATALOG && window.Multimeter.OFFLINE_CATALOG[tpCode])
+        ));
+        if (isKnownTp) {
+            return '<button type="button" class="diag-chip" data-action="medir-tp" data-tp="' + esc(tpCode) + '" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047;cursor:pointer">⚡ ' + esc(t) + ' (Medir)</button>';
         }
         return '<span class="diag-chip" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047">⚡ ' + esc(t) + '</span>';
     }).join("");
@@ -1152,7 +1199,7 @@ function renderDiagnosticoAi(aiData, symptoms) {
         if (match && _r2url) {
             const manualName = match[1].trim().toLowerCase();
             const pageNum = parseInt(match[2], 10) || 1;
-            return '<button class="diag-chip" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent);cursor:pointer" onclick="verPDF(\'' + esc(manualName) + '\', ' + pageNum + ', \'' + esc(symsKw) + '\')">📖 ' + esc(mStr) + '</button>';
+            return '<button type="button" class="diag-chip" data-action="ver-pdf" data-manual="' + esc(manualName) + '" data-page="' + pageNum + '" data-kw="' + esc(symsKw) + '" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent);cursor:pointer">📖 ' + esc(mStr) + '</button>';
         }
         return '<span class="diag-chip" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent)">📚 ' + esc(mStr) + "</span>";
     }).join("");
@@ -1203,21 +1250,33 @@ function renderDiagnosticoAi(aiData, symptoms) {
         : '') +
         warningHtml +
         '<div style="margin-top:14px;border-top:1px solid rgba(168,85,247,.25);padding-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
-            '<button class="btn btn-primary btn-sm" onclick="abrirEnEsquemaSvg()" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25)">' +
+            '<!-- Invoca abrirEnEsquemaSvg() vía delegación data-action="esquema-svg" -->' +
+            '<button type="button" class="btn btn-primary btn-sm" data-action="esquema-svg" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25)">' +
                 '<span>⚡</span> Ver en Esquema SVG (Visualizador Interactivo)' +
             '</button>' +
             '<span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Resalta componentes identificados en planos vectoriales</span>' +
         '</div>';
 
     if (list) list.appendChild(card);
+
+    const sanitizeCandidateList = (list) => {
+        if (!Array.isArray(list)) return [];
+        return list.filter(item => {
+            if (!item || typeof item !== "string") return false;
+            const trimmed = item.trim();
+            return trimmed.length > 0 && trimmed.length <= 80 && !/[<>{}\\]/.test(trimmed);
+        });
+    };
+
     _ultimoResultadoGrafo = {
         found: true,
-        hub_node: aiData.root_cause || "Causa Raíz",
-        resolved_nodes: symptoms,
-        pcbs: aiData.associated_boards || [],
-        cables: aiData.cables_and_connectors || [],
-        test_points: aiData.test_points_and_signals || [],
-        manual_references: aiData.manual_references || []
+        is_inferred: true,
+        hub_node: String(aiData.root_cause || "Causa Raíz").slice(0, 100),
+        resolved_nodes: symptoms.slice(0, 6),
+        pcbs: sanitizeCandidateList(aiData.associated_boards),
+        cables: sanitizeCandidateList(aiData.cables_and_connectors),
+        test_points: sanitizeCandidateList(aiData.test_points_and_signals),
+        manual_references: Array.isArray(aiData.manual_references) ? aiData.manual_references : []
     };
 }
 
@@ -1257,16 +1316,15 @@ async function analizarDiagnosticoAi() {
     if (btnDiag) { btnDiag.disabled = true; }
 
     try {
-        const customKey = localStorage.getItem("solvi_gemini_key") || "";
-        let customModel = (localStorage.getItem("solvi_gemini_model") || "").trim();
-        if (customModel.includes("2.5") || customModel.includes("1.5") || customModel.includes("3.7")) {
-            localStorage.removeItem("solvi_gemini_model");
-            customModel = "";
-        }
+        let customModel = "";
+        try {
+            customModel = (localStorage.getItem("solvi_gemini_model") || "").trim();
+            if (customModel.includes("2.5") || customModel.includes("1.5") || customModel.includes("3.7")) {
+                localStorage.removeItem("solvi_gemini_model");
+                customModel = "";
+            }
+        } catch (_e) {}
         const headers = {"Content-Type": "application/json"};
-        if (customKey) {
-            headers["X-Gemini-Key"] = customKey;
-        }
         if (customModel) {
             headers["X-Gemini-Model"] = customModel;
         }
@@ -1274,7 +1332,7 @@ async function analizarDiagnosticoAi() {
         const res = await apiRequest("/diagnose/ai", {
             method: "POST",
             headers,
-            body: JSON.stringify({ symptoms, api_key: customKey, model: customModel })
+            body: JSON.stringify({ symptoms, model: customModel })
         });
 
         if (res && res.ok && res.data) {
@@ -1302,21 +1360,22 @@ async function analizarDiagnosticoAi() {
                         'que operan 100% desconectadas en el navegador.' +
                     '</p>' +
                     '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-                        '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Diagnóstico local offline</button>' +
-                        '<button class="btn btn-ghost btn-sm" onclick="ejecutarTrazaGrafo()">🧭 Traza de circuito offline</button>' +
+                        '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local offline</button>' +
+                        '<button type="button" class="btn btn-ghost btn-sm" data-action="traza-offline">🧭 Traza de circuito offline</button>' +
                     '</div>' +
                 '</div>';
         } else if (errType === "no_api_key" || errMsg.includes("clave de API") || errMsg.includes("API_KEY") || errType === "invalid_api_key") {
             list.innerHTML =
                 '<div class="diagnostic-card" style="border-left-color:#a855f7">' +
                     '<div class="diag-ai-badge" style="margin-bottom:8px">CONFIGURACIÓN DE SERVICIO</div>' +
-                    '<h3 style="color:#f8fafc">Se requiere Clave de Servicio (Gemini)</h3>' +
+                    '<h3 style="color:#f8fafc">Se requiere Clave de Servicio en el Servidor</h3>' +
                     '<p style="font-size:.8rem;color:#cbd5e1;line-height:1.5;margin-bottom:12px">' +
-                        'La variable <code>GEMINI_API_KEY</code> no está configurada en Render o la clave no es válida.' +
+                        'La variable <code>GEMINI_API_KEY</code> debe estar configurada en el entorno del servidor. ' +
+                        'Por directiva de seguridad técnica, no se permite ingresar secretos de infraestructura en el navegador.' +
                     '</p>' +
                     '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-                        '<input id="promptGeminiKey" type="password" placeholder="Pega tu clave de servicio..." style="flex:1;min-width:200px;background:var(--s2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--mono);font-size:.8rem">' +
-                        '<button class="btn btn-ai" onclick="guardarYReintentarAi()">Guardar y Analizar</button>' +
+                        '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local offline</button>' +
+                        '<button type="button" class="btn btn-ghost btn-sm" data-action="traza-offline">🧭 Traza de circuito offline</button>' +
                     '</div>' +
                 '</div>';
         } else if (errType === "quota_exceeded" || errMsg.includes("429") || errMsg.includes("cuota") || errMsg.includes("Límite")) {
@@ -1325,8 +1384,8 @@ async function analizarDiagnosticoAi() {
                     '<div class="diag-rank"><span style="color:var(--warn)">⏳ CUOTA TEMPORAL ALCANZADA</span></div>' +
                     '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">' + esc(errMsg) + '</h3>' +
                     '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">Espera 30 segundos y vuelve a intentar, o ejecuta el diagnóstico local ahora.</p>' +
-                    '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Diagnóstico local instantáneo</button>' +
-                    ' <button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="analizarDiagnosticoAi()">🔄 Reintentar análisis</button>' +
+                    '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local instantáneo</button>' +
+                    ' <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px" data-action="diagnostico-ai">🔄 Reintentar análisis</button>' +
                 '</div>';
         } else if (errMsg.includes("agotado") || errMsg.includes("AbortError") || errMsg.includes("timeout")) {
             list.innerHTML =
@@ -1334,8 +1393,8 @@ async function analizarDiagnosticoAi() {
                     '<div class="diag-rank"><span style="color:var(--warn)">⏱ TIEMPO DE RESPUESTA EXCEDIDO</span></div>' +
                     '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">El servidor tardó más de lo esperado en responder.</h3>' +
                     '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">El análisis puede completarse en el siguiente intento. El diagnóstico local está disponible de inmediato.</p>' +
-                    '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Diagnóstico local instantáneo</button>' +
-                    ' <button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="analizarDiagnosticoAi()">🔄 Reintentar análisis</button>' +
+                    '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local instantáneo</button>' +
+                    ' <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px" data-action="diagnostico-ai">🔄 Reintentar análisis</button>' +
                 '</div>';
         } else {
             list.innerHTML =
@@ -1343,8 +1402,8 @@ async function analizarDiagnosticoAi() {
                     '<div class="diag-rank"><span style="color:var(--warn)">⚠️ ERROR DE ANÁLISIS</span></div>' +
                     '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">' + esc(errMsg) + '</h3>' +
                     '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
-                        '<button class="btn btn-primary btn-sm" onclick="analizarDiagnostico()">⚡ Diagnóstico local</button>' +
-                        '<button class="btn btn-ghost btn-sm" onclick="analizarDiagnosticoAi()">🔄 Reintentar análisis</button>' +
+                        '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local</button>' +
+                        '<button type="button" class="btn btn-ghost btn-sm" data-action="diagnostico-ai">🔄 Reintentar análisis</button>' +
                     '</div>' +
                 '</div>';
         }
@@ -1356,16 +1415,8 @@ async function analizarDiagnosticoAi() {
 }
 
 function guardarYReintentarAi() {
-    const input = document.getElementById("promptGeminiKey");
-    if (!input) return;
-    const key = input.value.trim();
-    if (!key) {
-        toast("Ingresa una clave válida", "err");
-        return;
-    }
-    localStorage.setItem("solvi_gemini_key", key);
-    toast("Clave guardada con éxito", "ok");
-    analizarDiagnosticoAi();
+    toast("Configura la variable GEMINI_API_KEY en el servidor", "warn");
+    analizarDiagnostico();
 }
 
 async function analizarDiagnostico() {
@@ -1433,9 +1484,61 @@ document.addEventListener("DOMContentLoaded", function() {
     // Symptom inputs — Enter triggers analysis
     document.querySelectorAll(".symptom-input").forEach(_setupSymptomEnter);
 
+    // Delegación central de eventos para acciones dinámicas (eliminación de handlers inline)
+    document.addEventListener("click", function(event) {
+        const el = event.target.closest("[data-action]");
+        if (!el) return;
+        const action = el.dataset.action;
+        if (action === "medir-tp") {
+            event.preventDefault();
+            abrirMultimetroConTp(el.dataset.tp);
+        } else if (action === "ver-pdf") {
+            event.preventDefault();
+            verPDF(el.dataset.manual, parseInt(el.dataset.page, 10) || 1, el.dataset.kw || "");
+        } else if (action === "esquema-svg") {
+            event.preventDefault();
+            abrirEnEsquemaSvg();
+        } else if (action === "ver-nota-grande") {
+            event.preventDefault();
+            verNotaEnGrande(el.dataset.id);
+        } else if (action === "editar-nota") {
+            event.preventDefault();
+            editarNota(el.dataset.id);
+        } else if (action === "eliminar-nota") {
+            event.preventDefault();
+            eliminarNota(el.dataset.id);
+        } else if (action === "diagnostico-local") {
+            event.preventDefault();
+            analizarDiagnostico();
+        } else if (action === "traza-offline") {
+            event.preventDefault();
+            ejecutarTrazaGrafo();
+        } else if (action === "diagnostico-ai") {
+            event.preventDefault();
+            analizarDiagnosticoAi();
+        } else if (action === "pdf-ant") {
+            event.preventDefault();
+            pdfPagAnterior();
+        } else if (action === "pdf-sig") {
+            event.preventDefault();
+            pdfPagSiguiente();
+        } else if (action === "pdf-cerrar") {
+            event.preventDefault();
+            cerrarVisorPDF();
+        } else if (action === "modal-bienvenida-cerrar") {
+            event.preventDefault();
+            const mb = document.getElementById("modalBienvenida");
+            if (mb) mb.remove();
+        } else if (action === "quitar-sintoma") {
+            event.preventDefault();
+            quitarSintoma(el);
+        }
+    });
+
     uiState("welcome");
     mostrarBienvenida();
     cargarCatalogoManuales();
+    initNotesStorage();
 
     if (navigator.onLine) {
         syncPendientes();
@@ -1443,21 +1546,155 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 });
 
-// ─── NOTAS localStorage ──────────────────────────────────
-function notasLocal() { try { const value=JSON.parse(localStorage.getItem("interlocks_notas")||"[]"); return Array.isArray(value)?value:[]; } catch { return []; } }
-function notasGuardar(ns) { try { localStorage.setItem("interlocks_notas", JSON.stringify(Array.isArray(ns)?ns:[])); } catch (_e) {} }
-function notaSync(n) { const t = notasLocal().filter(x=>x.id!==n.id); t.push(n); notasGuardar(t); }
-function notaBorrar(id) { notasGuardar(notasLocal().filter(n=>n.id!==id)); }
-function pendLoad()    {
+// ─── PERSISTENCIA INDEXEDDB (SolviNotesDB) Y FALLBACK LOCALSTORAGE ───
+const IDB_NAME = "SolviNotesDB";
+const IDB_VERSION = 1;
+let _idbPromise = null;
+
+function getNotesDB() {
+    if (_idbPromise) return _idbPromise;
+    if (typeof indexedDB === "undefined") return Promise.resolve(null);
+    _idbPromise = new Promise((resolve) => {
+        try {
+            const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains("notes")) {
+                    db.createObjectStore("notes", { keyPath: "id" });
+                }
+                if (!db.objectStoreNames.contains("pending")) {
+                    db.createObjectStore("pending", { keyPath: "id" });
+                }
+            };
+            req.onsuccess = (e) => resolve(e.target.result);
+            req.onerror = () => resolve(null);
+        } catch (_e) {
+            resolve(null);
+        }
+    });
+    return _idbPromise;
+}
+
+async function idbPut(storeName, item) {
+    const db = await getNotesDB();
+    if (!db) return;
+    return new Promise((resolve) => {
+        try {
+            const tx = db.transaction(storeName, "readwrite");
+            tx.objectStore(storeName).put(item);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => resolve();
+        } catch (_e) { resolve(); }
+    });
+}
+
+async function idbDelete(storeName, id) {
+    const db = await getNotesDB();
+    if (!db) return;
+    return new Promise((resolve) => {
+        try {
+            const tx = db.transaction(storeName, "readwrite");
+            tx.objectStore(storeName).delete(id);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => resolve();
+        } catch (_e) { resolve(); }
+    });
+}
+
+async function idbClearAndPutAll(storeName, items) {
+    const db = await getNotesDB();
+    if (!db) return;
+    return new Promise((resolve) => {
+        try {
+            const tx = db.transaction(storeName, "readwrite");
+            const store = tx.objectStore(storeName);
+            store.clear();
+            for (const it of items) store.put(it);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => resolve();
+        } catch (_e) { resolve(); }
+    });
+}
+
+async function initNotesStorage() {
+    const db = await getNotesDB();
+    if (!db) return;
     try {
-        const value=JSON.parse(localStorage.getItem("interlocks_pend")||"[]");
-        if (!Array.isArray(value)) return [];
-        return value.map(item => item.op ? item : {op:"create", id:item.id, payload:item});
+        const tx = db.transaction(["notes", "pending"], "readonly");
+        const notesReq = tx.objectStore("notes").getAll();
+        const pendReq = tx.objectStore("pending").getAll();
+        tx.oncomplete = () => {
+            const idbNotes = notesReq.result || [];
+            const idbPend = pendReq.result || [];
+            if (idbNotes.length > 0) {
+                try { localStorage.setItem("interlocks_notas", JSON.stringify(idbNotes)); } catch (_e) {}
+            } else {
+                const lsNotes = notasLocal();
+                if (lsNotes.length > 0) idbClearAndPutAll("notes", lsNotes);
+            }
+            if (idbPend.length > 0) {
+                try { localStorage.setItem("interlocks_pend", JSON.stringify(idbPend)); } catch (_e) {}
+            } else {
+                const lsPend = pendLoad();
+                if (lsPend.length > 0) idbClearAndPutAll("pending", lsPend);
+            }
+        };
+    } catch (_e) {}
+}
+
+function notasLocal() {
+    try {
+        const value = JSON.parse(localStorage.getItem("interlocks_notas") || "[]");
+        return Array.isArray(value) ? value : [];
     } catch { return []; }
 }
-function pendSave(p)   { try { localStorage.setItem("interlocks_pend", JSON.stringify(p)); } catch (_e) {} }
-function pendAdd(n)    { const p=pendLoad().filter(item=>item.id!==n.id); p.push({op:"create",id:n.id,payload:n}); pendSave(p); }
-function pendDel(id)   { pendSave(pendLoad().filter(n=>n.id!==id)); }
+
+function notasGuardar(ns) {
+    const items = Array.isArray(ns) ? ns : [];
+    try { localStorage.setItem("interlocks_notas", JSON.stringify(items)); } catch (_e) {}
+    idbClearAndPutAll("notes", items);
+}
+
+function notaSync(n) {
+    const t = notasLocal().filter(x => x.id !== n.id);
+    t.push(n);
+    notasGuardar(t);
+    idbPut("notes", n);
+}
+
+function notaBorrar(id) {
+    const t = notasLocal().filter(n => n.id !== id);
+    notasGuardar(t);
+    idbDelete("notes", id);
+}
+
+function pendLoad() {
+    try {
+        const value = JSON.parse(localStorage.getItem("interlocks_pend") || "[]");
+        if (!Array.isArray(value)) return [];
+        return value.map(item => item.op ? item : { op: "create", id: item.id, payload: item });
+    } catch { return []; }
+}
+
+function pendSave(p) {
+    const items = Array.isArray(p) ? p : [];
+    try { localStorage.setItem("interlocks_pend", JSON.stringify(items)); } catch (_e) {}
+    idbClearAndPutAll("pending", items);
+}
+
+function pendAdd(n) {
+    const p = pendLoad().filter(item => item.id !== n.id);
+    const entry = { op: "create", id: n.id, payload: n };
+    p.push(entry);
+    pendSave(p);
+    idbPut("pending", entry);
+}
+
+function pendDel(id) {
+    const p = pendLoad().filter(n => n.id !== id);
+    pendSave(p);
+    idbDelete("pending", id);
+}
 
 function mergeCloudNotes(cloudNotes) {
     const merged = Array.isArray(cloudNotes) ? cloudNotes.slice() : [];
@@ -1468,28 +1705,45 @@ function mergeCloudNotes(cloudNotes) {
     return merged;
 }
 
+let _isSyncingNotes = false;
 async function syncPendientes() {
-    const pend = pendLoad();
-    if (!pend.length) return;
-    let ok = 0;
-    for (const item of pend) {
-        try {
-            if (item.op !== "create") { pendDel(item.id); continue; }
-            const created = await apiRequest("/notes", {
-                method:"POST",
-                headers:{"Content-Type":"application/json"},
-                body:JSON.stringify(item.payload)
-            });
-            notaBorrar(item.id);
-            notaSync(created);
-            pendDel(item.id);
-            ok++;
-        } catch(error) {
-            console.warn("Sincronización pendiente", error);
-            break;
+    if (_isSyncingNotes) return;
+    const runSync = async () => {
+        const pend = pendLoad();
+        if (!pend.length) return;
+        let ok = 0;
+        for (const item of pend) {
+            try {
+                if (item.op !== "create") { pendDel(item.id); continue; }
+                const created = await apiRequest("/notes", {
+                    method:"POST",
+                    headers:{"Content-Type":"application/json"},
+                    body:JSON.stringify(item.payload)
+                });
+                notaBorrar(item.id);
+                notaSync(created);
+                pendDel(item.id);
+                ok++;
+            } catch(error) {
+                console.warn("Sincronización pendiente", error);
+                break;
+            }
         }
+        if (ok > 0) toast("☁️ " + ok + " apunte(s) sincronizado(s)");
+    };
+
+    _isSyncingNotes = true;
+    try {
+        if (typeof navigator !== "undefined" && navigator.locks && typeof navigator.locks.request === "function") {
+            await navigator.locks.request("solvi_notes_sync", { ifAvailable: true }, async lock => {
+                if (lock) await runSync();
+            });
+        } else {
+            await runSync();
+        }
+    } finally {
+        _isSyncingNotes = false;
     }
-    if (ok > 0) toast("☁️ " + ok + " apunte(s) sincronizado(s)");
 }
 
 // ─── ADMIN ───────────────────────────────────────────────
@@ -1518,15 +1772,15 @@ async function cargarNotas() {
         
         d.innerHTML =
             '<div class="note-item-header">'+
-              '<div class="note-item-title" style="cursor:pointer; color:var(--accent);" onclick="verNotaEnGrande(\''+n.id+'\')">'+
+              '<div class="note-item-title" style="cursor:pointer; color:var(--accent);" data-action="ver-nota-grande" data-id="'+esc(n.id)+'">'+
                  esc(n.title)+(pend?' <span style="color:var(--warn);font-size:.7rem">⏳</span>':'')+
               '</div>'+
               '<div class="note-actions">'+
-                '<button class="btn btn-ghost btn-sm" onclick="editarNota(\''+n.id+'\')">✏️</button>'+
-                '<button class="btn btn-danger btn-sm" onclick="eliminarNota(\''+n.id+'\')">🗑</button>'+
+                '<button type="button" class="btn btn-ghost btn-sm" data-action="editar-nota" data-id="'+esc(n.id)+'">✏️</button>'+
+                '<button type="button" class="btn btn-danger btn-sm" data-action="eliminar-nota" data-id="'+esc(n.id)+'">🗑</button>'+
               '</div>'+
             '</div>'+
-            '<div class="note-item-text" style="cursor:pointer;" onclick="verNotaEnGrande(\''+n.id+'\')">'+esc(n.text.substring(0, 100))+(n.text.length > 100 ? '...' : '')+'</div>'+
+            '<div class="note-item-text" style="cursor:pointer;" data-action="ver-nota-grande" data-id="'+esc(n.id)+'">'+esc(n.text.substring(0, 100))+(n.text.length > 100 ? '...' : '')+'</div>'+
             (tags?'<div class="card-tags">'+tags+'</div>':"");
         lista.appendChild(d);
     });

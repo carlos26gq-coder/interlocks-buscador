@@ -1036,8 +1036,15 @@ async function diagnoseGraphOffline(payload) {
     });
 }
 
+const _cancelledRequests = new Set();
+
 self.onmessage = async event => {
     const { id, type, payload } = event.data || {};
+    if (type === "cancel") {
+        const targetId = (payload && payload.id) || id;
+        if (targetId) _cancelledRequests.add(targetId);
+        return;
+    }
     try {
         let data;
         if (type === "search") data = await searchOffline(payload || {});
@@ -1045,8 +1052,16 @@ self.onmessage = async event => {
         else if (type === "diagnose_graph") data = await diagnoseGraphOffline(payload || {});
         else if (type === "catalog") data = await ensureCatalog();
         else throw new Error("Operación offline desconocida");
+        if (_cancelledRequests.has(id)) {
+            _cancelledRequests.delete(id);
+            return;
+        }
         self.postMessage({ id, ok: true, data });
     } catch (error) {
+        if (_cancelledRequests.has(id)) {
+            _cancelledRequests.delete(id);
+            return;
+        }
         self.postMessage({ id, ok: false, error: error.message || "Error en el índice offline" });
     }
 };
