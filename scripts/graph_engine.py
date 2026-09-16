@@ -24,6 +24,23 @@ def _clean_key(text: str) -> str:
     return re.sub(r"[\W_]+", "", text.lower().strip())
 
 
+_TYPE_PRIORITY: dict[str, int] = {
+    "pcb": 10,
+    "interlock": 9,
+    "error": 9,
+    "signal": 8,
+    "test_point": 8,
+    "switch": 7,
+    "relay": 7,
+    "sensor": 7,
+    "source": 7,
+    "load": 7,
+    "cable": 6,
+    "connector": 6,
+    "area": 1,
+}
+
+
 class GraphEngine:
     """Motor de recorrido de grafo para diagnóstico de aceleradores lineales."""
 
@@ -54,6 +71,9 @@ class GraphEngine:
 
     def _enrich_with_circuit_schematics(self) -> None:
         """Enriquece entidades y topología con los 5 esquemas de circuitos de ingeniería."""
+        saved_entities = {k: v.copy() if isinstance(v, dict) else v for k, v in self.entities.items()}
+        saved_lookup = self.lookup.copy()
+        saved_adjacency = {k: [list(edge) for edge in edges] for k, edges in self.adjacency.items()}
         try:
             from circuit_data import SUBSYSTEMS
             for sub_id, sub in SUBSYSTEMS.items():
@@ -113,6 +133,9 @@ class GraphEngine:
         except Exception as exc:
             import logging
             logging.getLogger(__name__).warning("Error al enriquecer grafo con esquemas de circuito: %s", exc)
+            self.entities = saved_entities
+            self.lookup = saved_lookup
+            self.adjacency = saved_adjacency
             self.enriched_circuits = False
 
     def resolve_entity(self, text: str, search_engine: Any = None) -> str | None:
@@ -121,6 +144,13 @@ class GraphEngine:
         clean = _clean_key(text)
         if not clean:
             return None
+
+        # LG-03: Si el texto es puramente numérico (ej. "474" o "283"), priorizar prefijos de ingeniería canónicos
+        if re.match(r"^\d{2,4}$", clean):
+            for prefix in ["ITEM", "INTERLOCK", "ERROR", "PCB"]:
+                cand = f"{prefix} {clean}"
+                if cand in self.entities:
+                    return cand
 
         # 1. Búsqueda exacta en mapa de lookup
         if clean in self.lookup:
@@ -139,18 +169,18 @@ class GraphEngine:
             if cand in self.entities:
                 return cand
 
-        cable_m = re.search(r"\b(?:cable\s*([a-z0-9]+)|\b(w\d{1,3})\b)", text, re.I)
+        cable_m = re.search(r"\b(?:cable\s*([a-z0-9_]+)|\b(w\d{1,3})\b)", text, re.I)
         if cable_m:
-            cab = (cable_m.group(1) or cable_m.group(2)).upper()
-            cand = f"CABLE {cab}" if not cab.startswith("W") else cab
-            if cand in self.entities:
-                return cand
+            cab = (cable_m.group(1) or cable_m.group(2)).upper().replace("CABLE_", "").replace("CABLE ", "")
+            for cand in [f"CABLE {cab}", f"CABLE_{cab}", cab]:
+                if cand in self.entities:
+                    return cand
 
         # 3. Búsqueda por número aislado (ej. "474" o "283")
         num_m = re.search(r"\b(\d{2,4})\b", text)
         if num_m:
             code = num_m.group(1)
-            for prefix in ["ITEM", "INTERLOCK", "ERROR"]:
+            for prefix in ["ITEM", "INTERLOCK", "ERROR", "PCB"]:
                 cand = f"{prefix} {code}"
                 if cand in self.entities:
                     return cand
@@ -164,7 +194,7 @@ class GraphEngine:
             if clean == ent_clean:
                 return ent_id
 
-        # 4b. Coincidencias por subcadena ordenadas por especificidad (longitud descendente) y desempate alfabético
+        # 4b. Coincidencias por subcadena ordenadas por tipo de componente (GE-03), especificidad de longitud y desempate alfabético
         candidates: list[str] = []
         for ent_id in self.entities:
             ent_clean = _clean_key(ent_id)
@@ -175,7 +205,13 @@ class GraphEngine:
                 candidates.append(ent_id)
 
         if candidates:
-            candidates.sort(key=lambda eid: (-len(_clean_key(eid)), eid))
+            candidates.sort(
+                key=lambda eid: (
+                    -_TYPE_PRIORITY.get(self.entities.get(eid, {}).get("type", ""), 5),
+                    -len(_clean_key(eid)),
+                    eid,
+                )
+            )
             return candidates[0]
 
         # 5. Búsqueda contextual en los manuales para mapear síntomas en lenguaje natural a hardware
@@ -232,7 +268,9 @@ class GraphEngine:
                 if neighbor == target_id:
                     return path + [{"node": neighbor, "relation": relation, "manual": manual, "page": page}]
 
-                if neighbor not in visited:
+                if len(path) < max_depth and neighbor not in visited:
+                    if len(queue) >= 2000:
+                        break
                     visited.add(neighbor)
                     queue.append(
                         (

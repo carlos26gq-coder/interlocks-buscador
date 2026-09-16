@@ -75,6 +75,17 @@ Reglas estrictas de precisión e ingeniería biomédica:
 """
 
 
+ALLOWED_GEMINI_MODELS = {
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-flash-latest",
+    "gemini-3.5-flash",
+}
+
+
 class Confidence(str, Enum):
     ALTA = "alta"
     MEDIA = "media"
@@ -223,7 +234,8 @@ def extract_keywords_for_retrieval(symptoms: list[str]) -> list[str]:
     stop_words = {
         "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "al", "en",
         "con", "por", "para", "que", "hay", "esta", "cuando", "hace", "falla", "error",
-        "the", "and", "for", "with", "from", "into", "during"
+        "the", "and", "for", "with", "from", "into", "during", "sobre", "entre", "hacia",
+        "sin", "tras", "este", "esta", "estos", "estas", "como", "pero", "mas", "muy"
     }
     for s in symptoms:
         cleaned = re.sub(r"[^\w\s\d]", " ", s.lower())
@@ -277,7 +289,7 @@ def gather_grounding_context(
         if len(contexts) >= max_pages:
             break
         cleaned_sym = sym.strip()
-        if re.search(r"\b(?:item\s*\d+|\d{2,4})\b", cleaned_sym, re.I):
+        if re.search(r"\b(?:item|interlock|intlk|pcb|tp|error|w)\s*\d+\b|\b\d{3,4}\b", cleaned_sym, re.I):
             s_res = search_engine.search(cleaned_sym, limit=3)
             for r in s_res.get("results", []):
                 key = (r["manual"], r["page"])
@@ -315,8 +327,9 @@ def gather_grounding_context(
             conns_str = ", ".join(g_trace.get("connectors") or [])
             tps_str = ", ".join(g_trace.get("test_points") or [])
             areas_str = ", ".join(g_trace.get("areas") or [])
+            cid = _register("Grafo de Topología Linac", 0)
             contexts.append(
-                f"=== TOPOLOGÍA DE HARDWARE EN GRAFO ELEKTA ===\n"
+                f"--- [{cid}] Grafo Topológico Elekta: {hub} ---\n"
                 f"Componente/Tarjeta Central: {hub}\n"
                 f"Ruta de Conexión: {trace_str}\n"
                 f"Tarjetas: {pcbs_str} | Cables: {cables_str} | Conectores: {conns_str}\n"
@@ -348,7 +361,7 @@ def analyze_with_gemini(
         return {
             "ok": False,
             "error": "no_api_key",
-            "message": "Se requiere una clave de API de Gemini. Configúrala como variable GEMINI_API_KEY o ingrésala en la app.",
+            "message": "Se requiere una clave de API de Gemini configurada en el servidor (variable de entorno GEMINI_API_KEY).",
         }
 
     # 1. Verificar si la respuesta ya está en caché en memoria (0.001s de respuesta)
@@ -358,10 +371,11 @@ def analyze_with_gemini(
 
     # 2. Lista de modelos con respaldo automático (waterfall de alta velocidad y disponibilidad)
     models_to_try = []
-    if model.strip():
-        models_to_try.append(model.strip())
+    cleaned_model = model.strip()
+    if cleaned_model and cleaned_model in ALLOWED_GEMINI_MODELS:
+        models_to_try.append(cleaned_model)
     env_model = os.environ.get("GEMINI_MODEL", "").strip().strip("\"' ")
-    if env_model and env_model not in models_to_try:
+    if env_model and env_model in ALLOWED_GEMINI_MODELS and env_model not in models_to_try:
         models_to_try.append(env_model)
 
     default_chain = [
@@ -454,14 +468,15 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
                             cand = str(item).strip().upper()
                             if cand in citation_map and cand not in extracted_cids:
                                 extracted_cids.append(cand)
-                if not extracted_cids:
-                    extracted_cids = list(citation_map.keys())
 
                 manual_refs = []
                 for cid in extracted_cids:
                     src = citation_map.get(cid)
                     if src:
-                        ref_entry = f"{src['manual']} (Página {src['page']})"
+                        if src.get("page", 0) > 0:
+                            ref_entry = f"{src['manual']} (Página {src['page']})"
+                        else:
+                            ref_entry = f"{src['manual']}"
                         if ref_entry not in manual_refs:
                             manual_refs.append(ref_entry)
                 if not manual_refs:

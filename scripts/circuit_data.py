@@ -11,6 +11,7 @@ Define los 5 subsistemas principales de ingeniería:
 from __future__ import annotations
 
 import re
+import threading
 from typing import Any
 
 SUBSYSTEMS: dict[str, dict[str, Any]] = {
@@ -1102,6 +1103,7 @@ def _matches_name_words(term: str, node: dict[str, Any]) -> bool:
     return False
 
 
+_INDEX_LOCK = threading.Lock()
 _SUBSYSTEM_NODE_INDEX: list[dict[str, Any]] | None = None
 
 
@@ -1109,22 +1111,25 @@ def _get_subsystem_node_index() -> list[dict[str, Any]]:
     global _SUBSYSTEM_NODE_INDEX
     if _SUBSYSTEM_NODE_INDEX is not None:
         return _SUBSYSTEM_NODE_INDEX
-    index = []
-    for s_id, sub in SUBSYSTEMS.items():
-        for node in sub["nodes"]:
-            pats = _get_node_patterns(node)
-            name_words = [w for w in re.split(r"\W+", str(node.get("name", "")).lower()) if len(w) >= 4 and w not in _GENERIC_MATCH_WORDS]
-            code_words = [w for w in re.split(r"\W+", str(node.get("code", "")).lower()) if len(w) >= 4 and w not in _GENERIC_MATCH_WORDS]
-            pat_pairs = [(p, re.compile(r"\b" + re.escape(p) + r"\b", re.IGNORECASE) if len(p) >= 3 else None) for p in pats]
-            index.append({
-                "subsystem_id": s_id,
-                "node_id": node["id"],
-                "pats": pats,
-                "pat_pairs": pat_pairs,
-                "node_words": name_words + code_words,
-            })
-    _SUBSYSTEM_NODE_INDEX = index
-    return _SUBSYSTEM_NODE_INDEX
+    with _INDEX_LOCK:
+        if _SUBSYSTEM_NODE_INDEX is not None:
+            return _SUBSYSTEM_NODE_INDEX
+        index = []
+        for s_id, sub in SUBSYSTEMS.items():
+            for node in sub["nodes"]:
+                pats = _get_node_patterns(node)
+                name_words = [w for w in re.split(r"\W+", str(node.get("name", "")).lower()) if len(w) >= 4 and w not in _GENERIC_MATCH_WORDS]
+                code_words = [w for w in re.split(r"\W+", str(node.get("code", "")).lower()) if len(w) >= 4 and w not in _GENERIC_MATCH_WORDS]
+                pat_pairs = [(p, re.compile(r"\b" + re.escape(p) + r"\b", re.IGNORECASE) if len(p) >= 3 else None) for p in pats]
+                index.append({
+                    "subsystem_id": s_id,
+                    "node_id": node["id"],
+                    "pats": pats,
+                    "pat_pairs": pat_pairs,
+                    "node_words": name_words + code_words,
+                })
+        _SUBSYSTEM_NODE_INDEX = index
+        return _SUBSYSTEM_NODE_INDEX
 
 
 def match_subsystem_for_trace(components: list[str]) -> dict[str, Any]:
@@ -1186,7 +1191,13 @@ def match_subsystem_for_trace(components: list[str]) -> dict[str, Any]:
             if kw_re.search(full_text):
                 scores[s_id] += 5
 
-    best_subsystem = max(scores.keys(), key=lambda k: scores[k])
+    # CD-02: En caso de empate de puntuación, desempatar priorizando coincidencias físicas de nodos
+    # sobre palabras clave de texto, y luego posición canónica de subsistemas
+    sub_keys = list(SUBSYSTEMS.keys())
+    best_subsystem = max(
+        scores.keys(),
+        key=lambda k: (scores[k], len(matched_by_sub[k]), -sub_keys.index(k)),
+    )
     return {
         "subsystem_id": best_subsystem,
         "matched_nodes": matched_by_sub[best_subsystem]

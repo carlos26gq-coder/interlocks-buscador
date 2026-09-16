@@ -413,7 +413,7 @@ def diagnose_graph():
         if not isinstance(symptoms_raw, list) or not symptoms_raw:
             raise ValidationError("Debes ingresar al menos un síntoma o código de hardware.")
         symptoms = []
-        for s in symptoms_raw[:4]:
+        for s in symptoms_raw[:6]:
             if not isinstance(s, str):
                 s = str(s)
             cleaned = s.strip()
@@ -589,7 +589,7 @@ def diagnose_ai():
             raise ValidationError("Debes ingresar al menos un síntoma o descripción técnica.")
 
         symptoms = []
-        for item in symptoms_raw[:4]:
+        for item in symptoms_raw[:6]:
             if not isinstance(item, str):
                 item = str(item)
             cleaned = item.strip()
@@ -601,8 +601,11 @@ def diagnose_ai():
         if not symptoms:
             raise ValidationError("Ingresa al menos un síntoma o descripción técnica.")
 
-        client_key = (request.headers.get("X-Gemini-Key", "").strip() or str(data.get("api_key", "")).strip())[:256]
-        model_override = (str(data.get("model", "")).strip() or request.headers.get("X-Gemini-Model", "").strip())[:100]
+        client_key = str(data.get("api_key", "")).strip()[:256]
+        model_override = str(data.get("model", "") or data.get("model_override", "")).strip()[:100]
+        from ai_service import ALLOWED_GEMINI_MODELS
+        if model_override and model_override not in ALLOWED_GEMINI_MODELS:
+            raise ValidationError("Modelo de diagnóstico no permitido.")
         ai_result = analyze_with_gemini(symptoms, search_engine, api_key=client_key, model=model_override)
 
         if not ai_result.get("ok"):

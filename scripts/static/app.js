@@ -86,13 +86,25 @@ function workerRequest(type, payload) {
 async function apiRequest(url, options = {}) {
     const timeoutMs = options.timeout || (url.includes("/ai") ? 90000 : 15000);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const fetchOptions = { ...options, signal: options.signal || controller.signal };
+    const timer = setTimeout(() => {
+        try { controller.abort(new DOMException("Timeout", "TimeoutError")); } catch (_e) { controller.abort(); }
+    }, timeoutMs);
+
+    if (options.signal) {
+        if (options.signal.aborted) {
+            try { controller.abort(options.signal.reason); } catch (_e) { controller.abort(); }
+        } else {
+            options.signal.addEventListener("abort", () => {
+                try { controller.abort(options.signal.reason); } catch (_e) { controller.abort(); }
+            }, { once: true });
+        }
+    }
+
+    const fetchOptions = { ...options, signal: controller.signal };
     delete fetchOptions.timeout;
 
     try {
         const response = await fetch(url, fetchOptions);
-        clearTimeout(timer);
         let data = null;
         try { data = await response.json(); } catch { data = null; }
 
@@ -114,11 +126,12 @@ async function apiRequest(url, options = {}) {
         }
         return data;
     } catch (err) {
-        clearTimeout(timer);
         if (err && err.name === "AbortError") {
             throw new Error("Tiempo de espera agotado. Verifica tu conexión o intenta de nuevo.");
         }
         throw err;
+    } finally {
+        clearTimeout(timer);
     }
 }
 

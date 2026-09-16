@@ -36,7 +36,7 @@
             spec: "24.0V DC (Retorno pulsadores de emergencia cerrado)",
             manual: "diagrams", page: 15,
             role: "Verificación de continuidad en bucle de setas de parada",
-            notes: "Si TP1 tiene 24V y TP2 tiene < 1V, al menos una seta de emergencia está pulsada o abierta."
+            notes: "Si TP1 tiene 24V y TP2 tiene < 1V, al menos una seta de emergencia (Consola, Gantry o Búnker) está pulsada o con contacto abierto."
         },
         "TP5": {
             id: "TP5", code: "TP5", name: "Punto de Prueba TP5",
@@ -56,7 +56,7 @@
             spec: "800V pico / 3.5µs (Pulso de rejilla de tiratrón)",
             manual: "ht_rf", page: 26,
             role: "Monitor de forma de onda del pulso de disparo de conmutador rápido",
-            notes: "Requiere sonda atenuadora 100:1 o divisor resistivo para multímetro convencional."
+            notes: "Requiere sonda de alta tensión atenuadora 100:1 o divisor resistivo para multímetro."
         },
         "TP_HT": {
             id: "TP_HT", code: "TP_HT", name: "Punto de Prueba TP_HT",
@@ -66,7 +66,7 @@
             spec: "Divisor resistivo 1:1000 (1V medido = 1kV en tanque)",
             manual: "ht_rf", page: 35,
             role: "Monitoreo seguro de la tensión continua del modulador de alta tensión",
-            notes: "14.2V medidos equivalen a 14.2 kV DC en el banco de almacenamiento PFN."
+            notes: "Una lectura de 14.2V equivale exactamente a 14.2 kV DC en el banco de condensadores PFN."
         },
         "TP_RF": {
             id: "TP_RF", code: "TP_RF", name: "Punto de Prueba TP_RF",
@@ -76,7 +76,7 @@
             spec: "Muestreador atenuador coaxial de -50dB (Envolvente detectada)",
             manual: "ht_rf", page: 50,
             role: "Punto de muestreo de potencia para detector y control automático",
-            notes: "Indica el nivel de potencia de radiofrecuencia hacia la guía aceleradora."
+            notes: "Representa el nivel rectificado de RF entregado a la guía aceleradora."
         },
         "TP100": {
             id: "TP100", code: "TP100", name: "Punto de Prueba TP100",
@@ -86,7 +86,7 @@
             spec: "+400.0V DC ± 2V (Monitor de Polarización Cámara)",
             manual: "dosimetry", page: 13,
             role: "Verificación de estabilidad de la tensión de polarización de cámara de ionización",
-            notes: "Variaciones mayores a ±5V alteran la eficiencia de colección y calibración dosimétrica."
+            notes: "Cualquier fluctuación mayor a ±5V altera la recombinación iónica y calibración del haz."
         },
         "TP_DOSE1": {
             id: "TP_DOSE1", code: "TP_DOSE1", name: "Punto de Prueba TP_DOSE1",
@@ -96,7 +96,7 @@
             spec: "0-10V DC (1V = 100 cGy/min calibrado)",
             manual: "dosimetry", page: 27,
             role: "Lectura directa en multímetro de la tasa de dosis del canal primario",
-            notes: "En reposo debe medir 0.0V. Con tasa de 400 cGy/min debe indicar 4.00V."
+            notes: "En reposo debe medir 0.0V ± 0.02V. Con haz de 400 cGy/min debe indicar exactamente 4.00V."
         },
         "TP_DOSE2": {
             id: "TP_DOSE2", code: "TP_DOSE2", name: "Punto de Prueba TP_DOSE2",
@@ -105,8 +105,8 @@
             tolerance_min: 0.0, tolerance_max: 10.0, warning_low: 0.1, warning_high: 9.5,
             spec: "0-10V DC (Calibrado a tasa secundaria redundante)",
             manual: "dosimetry", page: 33,
-            role: "Punto de prueba para contraste de calibración entre canales",
-            notes: "La diferencia |TP_DOSE1 - TP_DOSE2| no debe sobrepasar 0.12V (3%)."
+            role: "Punto de prueba para contraste de calibración entre canal 1 y canal 2",
+            notes: "La diferencia |TP_DOSE1 - TP_DOSE2| no debe superar 0.12V (3%) durante emisión continua."
         },
         "TP_SPEED": {
             id: "TP_SPEED", code: "TP_SPEED", name: "Punto de Prueba TP_SPEED",
@@ -116,7 +116,7 @@
             spec: "±10.0V DC proporcional a RPM de gantry",
             manual: "movement", page: 50,
             role: "Monitoreo del lazo analógico de velocidad taquimétrica",
-            notes: "0V en reposo estático. Voltaje positivo en giro horario y negativo en antihorario."
+            notes: "0V en estático. Signo positivo en sentido horario (CW) y negativo en antihorario (CCW)."
         },
         "TP_POS": {
             id: "TP_POS", code: "TP_POS", name: "Punto de Prueba TP_POS",
@@ -125,7 +125,7 @@
             tolerance_min: 0.0, tolerance_max: 10.0, warning_low: 0.5, warning_high: 9.5,
             spec: "0-10V DC correspondiente exactamente a 0° - 360°",
             manual: "movement", page: 57,
-            role: "Comprobación de linealidad del potenciómetro angular",
+            role: "Comprobación de linealidad del ángulo de gantry",
             notes: "0.0V = 0°, 2.5V = 90°, 5.0V = 180°, 7.5V = 270°, 10.0V = 360°."
         },
         "TP_VAC": {
@@ -146,7 +146,7 @@
             spec: "1.8V DC (1V medido = 1.0A de corriente de filamento)",
             manual: "ht_rf", page: 54,
             role: "Comprobación de la corriente exacta de caldeo del cátodo",
-            notes: "Corriente estabilizada para emisión termoiónica continua a 1050°C."
+            notes: "Corriente estabilizada requerida para emisión termoiónica estable a 1050°C."
         },
         "TP7": {
             id: "TP7", code: "TP7", name: "Punto de Prueba TP7",
@@ -156,61 +156,67 @@
             spec: "Tensión de polarización de corte de rejilla cañón (-150V DC)",
             manual: "ht_rf", page: 57,
             role: "Verificación de polarización negativa de corte de inyección de haz",
-            notes: "Durante pulso activo conmuta a 0V para inyectar electrones al Linac."
+            notes: "Durante pulso activo sube a 0V para permitir inyección al tubo acelerador."
         },
         "GEN_VOLT_24": {
             id: "GEN_VOLT_24", code: "GEN +24V", name: "Línea Genérica +24V DC",
             subsystem: "general", subsystem_name: "Líneas de Alimentación General",
             mode: "voltage_dc", unit: "V", nominal: 24.0,
             tolerance_min: 23.0, tolerance_max: 25.0, warning_low: 23.3, warning_high: 24.7,
-            spec: "24.0V DC ± 1.0V", manual: "power_supplies", page: 10,
-            role: "Alimentación de relés, contactores y lazos de seguridad",
-            notes: "Riel principal de automatización industrial del acelerador."
+            spec: "24.0V DC ± 1.0V",
+            manual: "power_supplies", page: 10,
+            role: "Alimentación de relés, bobinas y lógica industrial",
+            notes: "Línea principal de automatización y bucles de control."
         },
         "GEN_VOLT_15": {
             id: "GEN_VOLT_15", code: "GEN +15V", name: "Línea Analógica +15V DC",
             subsystem: "general", subsystem_name: "Líneas de Alimentación General",
             mode: "voltage_dc", unit: "V", nominal: 15.0,
             tolerance_min: 14.5, tolerance_max: 15.5, warning_low: 14.7, warning_high: 15.3,
-            spec: "15.0V DC ± 0.5V", manual: "power_supplies", page: 12,
+            spec: "15.0V DC ± 0.5V",
+            manual: "power_supplies", page: 12,
             role: "Alimentación positiva de amplificadores operacionales",
-            notes: "Utilizado en tarjetas dosimétricas, preamplificadores y servocontrol."
+            notes: "Utilizado en circuitos de dosimetría, integradores y servocontrol."
         },
         "GEN_VOLT_M15": {
             id: "GEN_VOLT_M15", code: "GEN -15V", name: "Línea Analógica -15V DC",
             subsystem: "general", subsystem_name: "Líneas de Alimentación General",
             mode: "voltage_dc", unit: "V", nominal: -15.0,
             tolerance_min: -15.5, tolerance_max: -14.5, warning_low: -15.3, warning_high: -14.7,
-            spec: "-15.0V DC ± 0.5V", manual: "power_supplies", page: 12,
+            spec: "-15.0V DC ± 0.5V",
+            manual: "power_supplies", page: 12,
             role: "Alimentación negativa de amplificadores operacionales",
-            notes: "Riel simétrico complementario para etapas analógicas de precisión."
+            notes: "Riel simétrico complementario a la línea +15V."
         },
         "GEN_VOLT_12": {
             id: "GEN_VOLT_12", code: "GEN +12V", name: "Línea Control +12V DC",
             subsystem: "general", subsystem_name: "Líneas de Alimentación General",
             mode: "voltage_dc", unit: "V", nominal: 12.0,
             tolerance_min: 11.4, tolerance_max: 12.6, warning_low: 11.6, warning_high: 12.4,
-            spec: "12.0V DC ± 0.6V", manual: "power_supplies", page: 14,
+            spec: "12.0V DC ± 0.6V",
+            manual: "power_supplies", page: 14,
             role: "Alimentación de ventiladores y drivers auxiliares",
-            notes: "Línea estabilizada de distribución en chasis."
+            notes: "Línea estabilizada para módulos de control intermedio."
         },
         "GEN_VOLT_5": {
             id: "GEN_VOLT_5", code: "GEN +5V", name: "Línea Lógica TTL +5V DC",
             subsystem: "general", subsystem_name: "Líneas de Alimentación General",
             mode: "voltage_dc", unit: "V", nominal: 5.0,
             tolerance_min: 4.75, tolerance_max: 5.25, warning_low: 4.85, warning_high: 5.15,
-            spec: "5.0V DC ± 0.25V (Tolerancia TTL 5%)", manual: "power_supplies", page: 16,
-            role: "Alimentación de lógica digital y microprocesadores",
-            notes: "Caídas por debajo de 4.75V generan reinicios anómalos de procesadores."
+            spec: "5.0V DC ± 0.25V (Tolerancia estándar TTL 5%)",
+            manual: "power_supplies", page: 16,
+            role: "Alimentación de microcontroladores y lógica digital TTL",
+            notes: "Caídas por debajo de 4.75V provocan reinicios intempestivos de microprocesadores."
         },
         "GEN_CONT_LOOP": {
-            id: "GEN_CONT_LOOP", code: "CONT BUCL", name: "Continuidad Contactos / Pulsadores",
+            id: "GEN_CONT_LOOP", code: "CONT BUCL", name: "Continuidad de Contactos / Pulsadores",
             subsystem: "general", subsystem_name: "Líneas de Alimentación General",
             mode: "resistance_continuity", unit: "Ω", nominal: 0.2,
             tolerance_min: 0.0, tolerance_max: 0.8, warning_low: 0.0, warning_high: 0.5,
-            spec: "< 0.5 Ω (Contacto cerrado óptimo)", manual: "technical", page: 30,
-            role: "Medición de resistencia ohmica en interruptores y pulsadores de seguridad",
-            notes: "Resistencias > 1.0 Ω indican sulfatación o degradación de contactos."
+            spec: "< 0.5 Ω (Contacto cerrado óptimo)",
+            manual: "technical", page: 30,
+            role: "Medición de resistencia ohmica de contactos secos de seguridad",
+            notes: "Resistencias > 1.0 Ω indican carbonización o desajuste mecánico de contactos."
         }
     };
 
@@ -295,6 +301,8 @@
 
         if (!tp) {
             return {
+                ok: false,
+                error: "unknown_test_point",
                 test_point_id: tpId,
                 test_point_code: tpId || "DESCONOCIDO",
                 test_point_name: `Punto no catalogado (${tpId || "N/D"})`,
@@ -329,7 +337,7 @@
 
         const delta = Math.round((val - nominal) * 10000) / 10000;
         let percentError = null;
-        if (Math.abs(nominal) > 1e-5) {
+        if (Math.abs(nominal) > 1e-6) {
             percentError = Math.round((delta / Math.abs(nominal)) * 10000) / 100;
         } else {
             percentError = null;
@@ -372,6 +380,7 @@
         }
 
         return {
+            ok: true,
             test_point_id: tp.id,
             test_point_code: tp.code,
             test_point_name: tp.name,
@@ -581,7 +590,12 @@
         mostrarResultado(evaluacion);
         registrarEnHistorial(evaluacion);
 
-        if (evaluacion.status === "DENTRO_DE_TOLERANCIA") {
+        if (!evaluacion.ok || evaluacion.is_known_test_point === false || evaluacion.status_badge === "DESCONOCIDO") {
+            sonarBeeper(300, 250);
+            if (typeof window.toast === "function") {
+                window.toast(`Punto de prueba no catalogado: ${_activeTpId || 'desconocido'}`, "warn");
+            }
+        } else if (evaluacion.status === "DENTRO_DE_TOLERANCIA") {
             sonarBeeper(1760, 80);
         } else if (evaluacion.status === "FUERA_DE_TOLERANCIA") {
             sonarBeeper(440, 200);
@@ -824,10 +838,10 @@
             </div>
 
             <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px;margin:10px 0;background:rgba(0,0,0,0.25);border:1px solid var(--border);padding:10px;border-radius:8px;font-family:var(--mono);font-size:0.78rem;">
-                <div><span style="color:var(--muted);">Medido:</span> <strong style="color:${ev.color}">${ev.measured_value.toFixed(2)} ${esc(ev.unit)}</strong></div>
-                <div><span style="color:var(--muted);">Nominal:</span> <strong>${ev.nominal_value.toFixed(2)} ${esc(ev.unit)}</strong></div>
-                <div><span style="color:var(--muted);">Tolerancia:</span> <strong>${ev.tolerance_min.toFixed(1)} a ${ev.tolerance_max.toFixed(1)} ${esc(ev.unit)}</strong></div>
-                <div><span style="color:var(--muted);">Desviación:</span> <strong style="color:${ev.delta >= 0 ? 'var(--green)' : 'var(--danger)'}">${ev.delta >= 0 ? '+' : ''}${ev.delta.toFixed(2)} ${esc(ev.unit)} (${(ev.percent_error !== null && ev.percent_error !== undefined && isFinite(ev.percent_error)) ? `${ev.percent_error >= 0 ? '+' : ''}${ev.percent_error}%` : 'N/A'})</strong></div>
+                <div><span style="color:var(--muted);">Medido:</span> <strong style="color:${ev.color}">${(typeof ev.measured_value === "number" && isFinite(ev.measured_value)) ? ev.measured_value.toFixed(2) + " " + esc(ev.unit) : "N/D"}</strong></div>
+                <div><span style="color:var(--muted);">Nominal:</span> <strong>${(typeof ev.nominal_value === "number" && isFinite(ev.nominal_value)) ? ev.nominal_value.toFixed(2) + " " + esc(ev.unit) : "N/D"}</strong></div>
+                <div><span style="color:var(--muted);">Tolerancia:</span> <strong>${(typeof ev.tolerance_min === "number" && typeof ev.tolerance_max === "number") ? `${ev.tolerance_min.toFixed(1)} a ${ev.tolerance_max.toFixed(1)} ${esc(ev.unit)}` : "N/D"}</strong></div>
+                <div><span style="color:var(--muted);">Desviación:</span> <strong style="color:${(typeof ev.delta === 'number' && ev.delta >= 0) ? 'var(--green)' : 'var(--danger)'}">${(typeof ev.delta === 'number' && isFinite(ev.delta)) ? `${ev.delta >= 0 ? '+' : ''}${ev.delta.toFixed(2)} ${esc(ev.unit)} (${(ev.percent_error !== null && ev.percent_error !== undefined && isFinite(ev.percent_error)) ? `${ev.percent_error >= 0 ? '+' : ''}${ev.percent_error}%` : 'N/A'})` : "N/D"}</strong></div>
             </div>
 
             <div style="font-size:0.8rem;color:#cbd5e1;line-height:1.5;margin-bottom:12px;background:rgba(255,255,255,0.02);padding:8px 10px;border-radius:6px;border-left:2px solid ${ev.color};">
@@ -876,19 +890,22 @@
             return;
         }
 
-        histContainer.innerHTML = _history.map((h, idx) => `
+        histContainer.innerHTML = _history.map((h, idx) => {
+            const nomStr = (typeof h.nominal_value === "number" && isFinite(h.nominal_value)) ? `${h.nominal_value.toFixed(1)}${esc(h.unit)}` : "N/D";
+            const measStr = (typeof h.measured_value === "number" && isFinite(h.measured_value)) ? `${h.measured_value.toFixed(2)} ${esc(h.unit)}` : "N/D";
+            return `
             <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;margin-bottom:5px;background:var(--surface);border:1px solid var(--border);border-left:3px solid ${h.color};border-radius:6px;font-family:var(--mono);font-size:0.72rem;animation:fadeIn 0.2s ease;">
                 <div>
                     <strong style="color:var(--accent);">${esc(h.test_point_code)}</strong> · 
-                    <span style="color:${h.color};font-weight:700;">${h.measured_value.toFixed(2)} ${esc(h.unit)}</span>
-                    <span style="color:var(--muted);font-size:0.65rem;">(Nom: ${h.nominal_value.toFixed(1)}${esc(h.unit)})</span>
+                    <span style="color:${h.color};font-weight:700;">${measStr}</span>
+                    <span style="color:var(--muted);font-size:0.65rem;">(Nom: ${nomStr})</span>
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;">
                     <span style="font-size:0.62rem;color:${h.color};background:${h.color}15;padding:2px 6px;border-radius:8px;">${esc(h.status_badge)}</span>
                     <button type="button" data-dmm-action="exportar-registro" data-idx="${idx}" title="Exportar este apunte" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:0.8rem;">📝</button>
                 </div>
             </div>
-        `).join("");
+        `;}).join("");
     }
 
     function limpiarHistorial() {
@@ -950,34 +967,41 @@
         // Si el modal flotante está abierto, lo cerramos para permitir editar el apunte con total visibilidad
         cerrarInspectorModal();
 
-        const titulo = `[MEDICIÓN DMM] ${ev.test_point_code} - ${ev.test_point_name}`;
+        const tpCode = ev.test_point_code || ev.test_point_id || 'N/A';
+        const tpName = ev.test_point_name || 'Desconocido';
+        const titulo = `[MEDICIÓN DMM] ${tpCode} - ${tpName}`;
         const fechaLocal = new Date().toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "medium" });
+
+        const measuredStr = (typeof ev.measured_value === "number" && isFinite(ev.measured_value)) ? `${ev.measured_value.toFixed(2)} ${ev.unit || ''}` : "N/D";
+        const nominalStr = (typeof ev.nominal_value === "number" && isFinite(ev.nominal_value)) ? `${ev.nominal_value.toFixed(2)} ${ev.unit || ''}` : "N/D";
+        const rangeStr = (typeof ev.tolerance_min === "number" && typeof ev.tolerance_max === "number") ? `${ev.tolerance_min.toFixed(2)} a ${ev.tolerance_max.toFixed(2)} ${ev.unit || ''}` : "N/D";
+        const deltaStr = (typeof ev.delta === "number" && isFinite(ev.delta)) ? `${ev.delta >= 0 ? '+' : ''}${ev.delta.toFixed(2)} ${ev.unit || ''} (${(ev.percent_error !== null && ev.percent_error !== undefined && isFinite(ev.percent_error)) ? `${ev.percent_error >= 0 ? '+' : ''}${ev.percent_error}%` : 'N/A'})` : "N/D";
 
         const contenido =
 `=========================================
 REGISTRO TÉCNICO DE MEDICIÓN CON MULTÍMETRO
 =========================================
 Fecha y Hora: ${fechaLocal}
-Punto de Prueba: ${ev.test_point_code} (${ev.test_point_name})
-Subsistema Linac: ${ev.subsystem_name}
+Punto de Prueba: ${tpCode} (${tpName})
+Subsistema Linac: ${ev.subsystem_name || ev.subsystem || 'N/D'}
 Función del Punto: ${ev.role || 'Monitor de circuito'}
 
 RESULTADOS ELÉCTRICOS:
 -----------------------------------------
-- Valor Medido:    ${ev.measured_value.toFixed(2)} ${ev.unit}
-- Valor Nominal:   ${ev.nominal_value.toFixed(2)} ${ev.unit}
-- Rango Permitido: ${ev.tolerance_min.toFixed(2)} a ${ev.tolerance_max.toFixed(2)} ${ev.unit}
-- Desviación (Δ):  ${ev.delta >= 0 ? '+' : ''}${ev.delta.toFixed(2)} ${ev.unit} (${(ev.percent_error !== null && ev.percent_error !== undefined && isFinite(ev.percent_error)) ? `${ev.percent_error >= 0 ? '+' : ''}${ev.percent_error}%` : 'N/A'})
-- Estado:          ${ev.status_label}
+- Valor Medido:    ${measuredStr}
+- Valor Nominal:   ${nominalStr}
+- Rango Permitido: ${rangeStr}
+- Desviación (Δ):  ${deltaStr}
+- Estado:          ${ev.status_label || ev.status_badge || 'N/D'}
 
 DIAGNÓSTICO Y RECOMENDACIÓN:
 -----------------------------------------
-${ev.recommendation}
+${ev.recommendation || 'Sin recomendación registrada.'}
 
 OBSERVACIONES DE CAMPO:
 ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}`;
 
-        const tags = `multimetro, medicion, ${ev.test_point_code.toLowerCase()}, ${ev.subsystem || 'linac'}`;
+        const tags = `multimetro, medicion, ${String(tpCode).toLowerCase()}, ${ev.subsystem || 'linac'}`;
 
         if (typeof window.irA === "function") {
             window.irA("Notes");
@@ -1378,11 +1402,7 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
             if (!isScreenActive && !_isModalOpen) return;
 
             const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : "";
-            if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
-                if (e.target.id !== "dmmManualInputBox" && e.target.id !== "dmmModalManualInputBox") {
-                    return;
-                }
-            }
+            const isEditable = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target && e.target.isContentEditable);
 
             if (e.key === "Escape") {
                 if (_isModalOpen) {
@@ -1391,6 +1411,11 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
                 } else {
                     keypadPress("C");
                 }
+                return;
+            }
+
+            if (isEditable) {
+                return;
             } else if (e.key >= "0" && e.key <= "9") {
                 keypadPress(e.key);
             } else if (e.key === "." || e.key === ",") {

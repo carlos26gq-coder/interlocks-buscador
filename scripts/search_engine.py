@@ -18,6 +18,7 @@ from collections import defaultdict, OrderedDict
 from dataclasses import dataclass
 import functools
 import re
+import threading
 import unicodedata
 
 
@@ -302,6 +303,7 @@ class SearchEngine:
                     self.postings[token].add(document_id)
         self._search_cache: OrderedDict[tuple, dict] = OrderedDict()
         self._search_cache_max: int = 512
+        self._search_cache_lock = threading.Lock()
 
     def _candidate_ids(self, query: str, manual: str = "") -> set[int]:
         query_terms = _query_tokens(query)
@@ -335,16 +337,17 @@ class SearchEngine:
             return {"results": [], "total": 0, "offset": offset, "limit": limit, "has_more": False}
 
         cache_key = (query, manual, offset, limit)
-        if cache_key in self._search_cache:
-            self._search_cache.move_to_end(cache_key)
-            hit = self._search_cache[cache_key]
-            return {
-                "results": list(hit["results"]),
-                "total": hit["total"],
-                "offset": hit["offset"],
-                "limit": hit["limit"],
-                "has_more": hit["has_more"],
-            }
+        with self._search_cache_lock:
+            if cache_key in self._search_cache:
+                self._search_cache.move_to_end(cache_key)
+                hit = self._search_cache[cache_key]
+                return {
+                    "results": list(hit["results"]),
+                    "total": hit["total"],
+                    "offset": hit["offset"],
+                    "limit": hit["limit"],
+                    "has_more": hit["has_more"],
+                }
 
         phrase_pattern = _phrase_pattern(query)
         if not phrase_pattern:
@@ -383,9 +386,10 @@ class SearchEngine:
             "limit": limit,
             "has_more": offset + limit < total,
         }
-        if len(self._search_cache) >= self._search_cache_max:
-            self._search_cache.popitem(last=False)
-        self._search_cache[cache_key] = res
+        with self._search_cache_lock:
+            if len(self._search_cache) >= self._search_cache_max:
+                self._search_cache.popitem(last=False)
+            self._search_cache[cache_key] = res
         return res
 
 

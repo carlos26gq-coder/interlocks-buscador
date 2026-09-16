@@ -60,7 +60,7 @@ def parse_timestamp(ts_str: str, is_us: bool = None) -> float:
             s = f"{base_part}.{ms_part[:6]}"
         for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
             try:
-                dt = datetime.datetime.strptime(s, fmt)
+                dt = datetime.datetime.strptime(s, fmt).replace(tzinfo=datetime.timezone.utc)
                 return dt.timestamp()
             except (ValueError, TypeError):
                 pass
@@ -107,7 +107,7 @@ def parse_timestamp(ts_str: str, is_us: bool = None) -> float:
 
         for fmt in fmts:
             try:
-                dt = datetime.datetime.strptime(s, fmt)
+                dt = datetime.datetime.strptime(s, fmt).replace(tzinfo=datetime.timezone.utc)
                 return dt.timestamp()
             except (ValueError, TypeError):
                 pass

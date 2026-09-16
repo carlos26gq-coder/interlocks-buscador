@@ -39,6 +39,10 @@
         "fuente", "supply", "board"
     ]);
 
+    function escapeRegex(s) {
+        return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
     // ─── TRANSFORMACIÓN DE COORDENADAS PANTALLA ➔ SVG ─────────────
     function clientToSvgPoint(clientX, clientY) {
         if (!_svgElement) {
@@ -771,7 +775,14 @@
                     const normC = String(c).toUpperCase().replace(/[\W_]+/g, "");
                     if (pats.has(normC)) return true;
                     for (const p of pats) {
-                        if (p.length >= 3 && (p === normC || new RegExp("\\b" + p + "\\b", "i").test(String(c)))) return true;
+                        if (p.length >= 3) {
+                            if (p === normC) return true;
+                            try {
+                                if (new RegExp("\\b" + escapeRegex(p) + "\\b", "i").test(String(c))) return true;
+                            } catch (_reErr) {
+                                if (String(c).toUpperCase().includes(p)) return true;
+                            }
+                        }
                     }
                     const termWords = String(c).toLowerCase().split(/\W+/).filter(w => w.length >= 4 && !_GENERIC_WORDS.has(w));
                     const nameWords = (n.name || "").toLowerCase().split(/\W+/).filter(w => w.length >= 4 && !_GENERIC_WORDS.has(w));

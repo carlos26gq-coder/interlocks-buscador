@@ -779,7 +779,8 @@ async function matchSubsystemForTraceOffline(components) {
 
 async function diagnoseGraphOffline(payload) {
     const graph = await ensureGraphData();
-    const symptoms = Array.isArray(payload.symptoms) ? payload.symptoms : [];
+    const rawSymptoms = Array.isArray(payload.symptoms) ? payload.symptoms : [];
+    const symptoms = rawSymptoms.map(s => String(s || "").trim().substring(0, 300)).filter(Boolean).slice(0, 6);
     if (!symptoms.length) return { found: false, reason: "no_symptoms" };
 
     async function finalizeTrace(res) {
@@ -793,13 +794,44 @@ async function diagnoseGraphOffline(payload) {
         return res;
     }
 
+    const _TYPE_PRIORITY = {
+        pcb: 10,
+        interlock: 9,
+        error: 9,
+        signal: 8,
+        test_point: 8,
+        switch: 7,
+        relay: 7,
+        sensor: 7,
+        source: 7,
+        load: 7,
+        cable: 6,
+        connector: 6,
+        area: 1
+    };
+
     function cleanKey(t) {
-        return String(t || "").toLowerCase().replace(/[\W_]+/g, "");
+        if (!t) return "";
+        return String(t)
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase()
+            .trim()
+            .replace(/[\W_]+/g, "");
     }
 
     function resolveEntity(text) {
         const clean = cleanKey(text);
         if (!clean) return null;
+
+        // LG-03: Si el texto es puramente numérico (ej. "474", "283" o "12"), priorizar prefijos canónicos antes de lookup
+        if (/^\d{2,4}$/.test(clean)) {
+            for (const pref of ["ITEM", "INTERLOCK", "ERROR", "PCB"]) {
+                const cand = pref + " " + clean;
+                if (graph.entities && graph.entities[cand]) return cand;
+            }
+        }
+
         if (graph.lookup && graph.lookup[clean]) return graph.lookup[clean];
 
         const itemM = String(text).match(/\bitem\s*(\d{2,4})\b/i);
@@ -812,10 +844,20 @@ async function diagnoseGraphOffline(payload) {
             const cand = "INTERLOCK " + intlkM[1];
             if (graph.entities && graph.entities[cand]) return cand;
         }
+
+        // GE-02: Resolución determinista de cables
+        const cableM = String(text).match(/\b(?:cable\s*([a-z0-9_]+)|\b(w\d{1,3})\b)/i);
+        if (cableM) {
+            const rawCab = (cableM[1] || cableM[2]).toUpperCase().replace(/^(?:CABLE[_\s]+)/, "");
+            for (const cand of [`CABLE ${rawCab}`, `CABLE_${rawCab}`, rawCab]) {
+                if (graph.entities && graph.entities[cand]) return cand;
+            }
+        }
+
         const numM = String(text).match(/\b(\d{2,4})\b/);
         if (numM) {
             const code = numM[1];
-            for (const pref of ["ITEM", "INTERLOCK", "ERROR"]) {
+            for (const pref of ["ITEM", "INTERLOCK", "ERROR", "PCB"]) {
                 const cand = pref + " " + code;
                 if (graph.entities && graph.entities[cand]) return cand;
             }
@@ -826,7 +868,7 @@ async function diagnoseGraphOffline(payload) {
             if (clean === entClean) return entId;
         }
 
-        // 3b. Coincidencias por subcadena ordenadas por especificidad (longitud descendente) y desempate alfabético
+        // 3b. Coincidencias por subcadena ordenadas por prioridad de tipo (GE-03), longitud descendente y desempate alfabético
         const cleanDigits = clean.match(/\d+/g) || [];
         const candidates = [];
         for (const entId in graph.entities) {
@@ -841,6 +883,10 @@ async function diagnoseGraphOffline(payload) {
         }
         if (candidates.length) {
             candidates.sort((a, b) => {
+                const typeA = (graph.entities[a] && graph.entities[a].type) || "";
+                const typeB = (graph.entities[b] && graph.entities[b].type) || "";
+                const prioDiff = (_TYPE_PRIORITY[typeB] || 5) - (_TYPE_PRIORITY[typeA] || 5);
+                if (prioDiff !== 0) return prioDiff;
                 const diff = cleanKey(b).length - cleanKey(a).length;
                 if (diff !== 0) return diff;
                 return a.localeCompare(b);
@@ -895,9 +941,7 @@ async function diagnoseGraphOffline(payload) {
             }
         }
         if (fallbackRefs.length) {
-            return postMessage({
-                type: "diagnoseGraphResult",
-                id,
+            return await finalizeTrace({
                 found: true,
                 hub_node: "Conexión Técnica en Manuales",
                 resolved_nodes: symptoms,
