@@ -1205,6 +1205,10 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
                     </select>
                 </div>
 
+                <div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.2);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:0.7rem;color:var(--muted);line-height:1.4;">
+                    <strong style="color:var(--accent);">Guía rápida:</strong> Introduce la lectura de tu multímetro de taller con el teclado numérico o presets y pulsa <b style="color:var(--accent);">OK</b> para evaluar tolerancias nominales. Puedes inyectar lecturas con <b style="color:var(--accent);">Inyectar Lectura Simulada</b> o exportar a notas de campo con <b style="color:var(--accent);">Guardar en Mis Apuntes</b>. Para telemetría continua y enlace digital BLE/USB, pulsa <i>Ver Pantalla Completa</i>.
+                </div>
+
                 <div id="dmmModalKeypadWrap">
                     <!-- Display LCD Estilo Instrumento en Modal -->
                     <div style="background:#050d18;border:2px solid rgba(0,212,255,0.4);border-radius:10px;padding:12px 16px;margin-bottom:12px;box-shadow:inset 0 2px 10px rgba(0,0,0,0.8);position:relative;">
@@ -1281,6 +1285,12 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
                 capturarMuestraSimulada();
             } else if (btn.dataset.dmmAction === "pantalla-completa") {
                 abrirPantallaCompleta();
+            } else if (btn.dataset.dmmAction === "exportar-apuntes") {
+                exportarAApuntes();
+            } else if (btn.dataset.dmmAction === "ver-plano") {
+                verEnPlanoSvg(btn.dataset.tpId);
+            } else if (btn.dataset.dmmAction === "trazar") {
+                trazarEnDiagnostico(btn.dataset.tpCode);
             }
         });
         document.body.appendChild(div);

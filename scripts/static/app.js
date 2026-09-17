@@ -925,7 +925,7 @@ function renderDiagrama(results, symptoms) {
             '<div class="diag-sym-row">' + symsHtml + '</div>' +
             '<div class="diag-connector"></div>' +
             '<div class="diag-main-node no-link">' +
-                '<div class="diag-main-label">⚡ Hipótesis Principal (Relación Priorizada)</div>' +
+                '<div class="diag-main-label" style="color:var(--green)">⚡ Hipótesis Principal (Relación Priorizada) · Coincidencia Documental en Manuales</div>' +
                 '<div class="diag-main-title">' + esc(mainTitle) + '</div>' +
                 '<div class="diag-main-meta">Manual: <b>' + esc(main.manual) + '</b>' +
                 ' · <b>' + main.relative_match + '% de compatibilidad</b>' +
@@ -933,7 +933,7 @@ function renderDiagrama(results, symptoms) {
             '</div>' +
             (others.length
                 ? '<div class="diag-connector-fan"></div>' +
-                  '<div style="font-size:.58rem;font-family:var(--mono);color:var(--muted);text-align:center;margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em">Otras relaciones posibles</div>' +
+                  '<div style="font-size:.58rem;font-family:var(--mono);color:var(--muted);text-align:center;margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em">Otras secciones coincidentes en manuales</div>' +
                   '<div class="diag-others-row">' + othersHtml + '</div>'
                 : "") +
         '</div>';
@@ -949,10 +949,19 @@ function renderTrazaGrafo(data, symptoms) {
     if (!data || !data.found) {
         container.style.display = "block";
         container.innerHTML =
-            '<div class="diagnostic-card" style="border-left-color:var(--muted)">' +
-                '<span class="graph-badge" style="background:rgba(255,255,255,.05);color:var(--muted);border-color:var(--border)">TRAZA DE CIRCUITO</span>' +
-                '<h3 style="color:#94a3b8;font-size:.85rem;margin:6px 0">No se detectaron conexiones físicas directas en el grafo</h3>' +
-                '<p style="font-size:.76rem;color:var(--muted)">Intenta con códigos específicos (ej: ITEM 409, D_RATE 1, Interlock 283) o usa el Diagnóstico Causal Avanzado.</p>' +
+            '<div class="diagnostic-card" style="border-left:4px solid var(--warn);background:rgba(245,158,11,0.05);padding:14px 16px;">' +
+                '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+                    '<span class="graph-badge" style="background:rgba(245,158,11,.15);color:var(--warn);border-color:rgba(245,158,11,.4);font-weight:700;">⚡ TRAZA DE CIRCUITO (HARDWARE)</span>' +
+                '</div>' +
+                '<h3 style="color:#f8fafc;font-size:.92rem;margin:6px 0">No se detectó una ruta física directa en el grafo de hardware</h3>' +
+                '<p style="font-size:.76rem;color:var(--muted);line-height:1.5;margin-bottom:12px;">' +
+                    'La traza topológica recorre cables Wxx, conectores SK/PL, relés o números ITEM físicos interconectados. ' +
+                    'Para descripciones de fallas o síntomas sin código de componente, utiliza la búsqueda cruzada en los 19 manuales técnicos o el Diagnóstico Causal Avanzado.' +
+                '</p>' +
+                '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+                    '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">🔍 Relacionar en Manuales (Documental)</button>' +
+                    '<button type="button" class="btn btn-ai btn-sm" data-action="diagnostico-ai">🧠 Diagnóstico Causal Avanzado</button>' +
+                '</div>' +
             '</div>';
         return;
     }
@@ -992,8 +1001,9 @@ function renderTrazaGrafo(data, symptoms) {
     }).join("");
 
     const flowDiagram = data.trace_diagram
-        ? '<div class="graph-flow-box">' +
-            '<span>📐 RUTA FÍSICA:</span> <b>' + esc(data.trace_diagram) + '</b>' +
+        ? '<div class="graph-flow-box" style="margin-bottom:12px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.25);border-radius:8px;padding:10px 12px;">' +
+            '<span style="font-size:0.65rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;display:block;margin-bottom:4px;">📐 RUTA ELÉCTRICA PASO A PASO:</span>' +
+            '<b style="color:#f8fafc;font-family:var(--mono);font-size:0.8rem;line-height:1.6;">' + esc(data.trace_diagram) + '</b>' +
           '</div>'
         : '';
 
@@ -1012,30 +1022,46 @@ function renderTrazaGrafo(data, symptoms) {
             : '<span style="font-size:.65rem;font-family:var(--mono);color:var(--warn)">⬤ INFERIDO (Topología aproximada)</span>';
 
     container.innerHTML =
-        '<div class="graph-card">' +
-            '<div class="graph-top">' +
-                '<span class="graph-badge">⚡ TRAZA DE CIRCUITO FÍSICA · GRAFO DETERMINISTA</span>' +
+        '<div class="graph-card" style="border-left:4px solid var(--accent);background:linear-gradient(180deg, rgba(0,212,255,0.04) 0%, rgba(15,23,42,0.85) 100%);padding:16px;border-radius:12px;border:1px solid var(--border);border-left:4px solid var(--accent);">' +
+            '<div class="graph-top" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+                '<span class="graph-badge" style="background:rgba(0,212,255,.15);color:var(--accent);border-color:rgba(0,212,255,.4);font-weight:700;">⚡ RUTA ELÉCTRICA Y TOPOLOGÍA DE HARDWARE</span>' +
                 verificationBadge +
             '</div>' +
-            '<div class="graph-hub">' + esc(data.hub_node || "Componente Central") + '</div>' +
+            '<div style="background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.25);border-radius:8px;padding:10px 14px;margin-bottom:12px;">' +
+                '<span style="font-size:0.65rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;display:block;">📍 Componente o Circuito Físico Convergente:</span>' +
+                '<div class="graph-hub" style="font-size:1.15rem;color:#f8fafc;font-weight:700;margin-top:2px;">' + esc(data.hub_node || "Componente Central") + '</div>' +
+            '</div>' +
             flowDiagram +
-            (pcbsChips ? '<div class="diag-chips" style="margin-bottom:6px">' + pcbsChips + '</div>' : '') +
-            (cablesChips ? '<div class="diag-chips" style="margin-bottom:6px">' + cablesChips + '</div>' : '') +
-            (connsChips ? '<div class="diag-chips" style="margin-bottom:6px">' + connsChips + '</div>' : '') +
-            (tpsChips ? '<div class="diag-chips" style="margin-bottom:6px">' + tpsChips + '</div>' : '') +
-            (areasChips ? '<div class="diag-chips" style="margin-bottom:10px">' + areasChips + '</div>' : '') +
-            (manualsChips ?
-                '<div style="margin-top:10px;border-top:1px solid rgba(0,212,255,.15);padding-top:8px">' +
-                    '<div style="font-size:.62rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;margin-bottom:5px">📖 Planos y Esquemas del Circuito (Clic para abrir)</div>' +
-                    '<div class="diag-chips" style="gap:8px">' + manualsChips + '</div>' +
+            (cablesChips || connsChips ?
+                '<div style="margin-bottom:10px;background:rgba(0,0,0,0.2);padding:8px 10px;border-radius:8px;border:1px solid var(--border);">' +
+                    '<div style="font-size:.64rem;font-family:var(--mono);color:#93c5fd;text-transform:uppercase;margin-bottom:5px;">🔌 Cableado, Arneses y Conectores Físicos:</div>' +
+                    '<div class="diag-chips" style="gap:6px;">' + (cablesChips + connsChips) + '</div>' +
                 '</div>'
             : '') +
-            '<div style="margin-top:14px;border-top:1px solid rgba(0,212,255,.2);padding-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
-                '<button type="button" class="btn btn-primary btn-sm" data-action="esquema-svg" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25)">' +
+            (pcbsChips || areasChips ?
+                '<div style="margin-bottom:10px;background:rgba(0,0,0,0.2);padding:8px 10px;border-radius:8px;border:1px solid var(--border);">' +
+                    '<div style="font-size:.64rem;font-family:var(--mono);color:#d8b4fe;text-transform:uppercase;margin-bottom:5px;">📍 Tarjetas Electrónicas (PCBs) y Módulos Físicos:</div>' +
+                    '<div class="diag-chips" style="gap:6px;">' + (pcbsChips + areasChips) + '</div>' +
+                '</div>'
+            : '') +
+            (tpsChips ?
+                '<div style="margin-bottom:10px;background:rgba(0,0,0,0.2);padding:8px 10px;border-radius:8px;border:1px solid var(--border);">' +
+                    '<div style="font-size:.64rem;font-family:var(--mono);color:#fde047;text-transform:uppercase;margin-bottom:5px;">⚡ Puntos de Prueba (TP) e Inspección de Voltajes:</div>' +
+                    '<div class="diag-chips" style="gap:6px;">' + tpsChips + '</div>' +
+                '</div>'
+            : '') +
+            (manualsChips ?
+                '<div style="margin-top:10px;border-top:1px solid rgba(0,212,255,.15);padding-top:10px;">' +
+                    '<div style="font-size:.64rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;margin-bottom:6px;">📖 Planos y Esquemas del Circuito (Clic para abrir en PDF):</div>' +
+                    '<div class="diag-chips" style="gap:8px;">' + manualsChips + '</div>' +
+                '</div>'
+            : '') +
+            '<div style="margin-top:14px;border-top:1px solid rgba(0,212,255,.2);padding-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
+                '<button type="button" class="btn btn-primary btn-sm" data-action="esquema-svg" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25);">' +
                     '<span>⚡</span> Ver en Esquema SVG (Visualizador Interactivo)' +
                 '</button>' +
                 tpMeasureBtn +
-                '<span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Resalta ruta activa en planos vectoriales</span>' +
+                '<span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Resalta la ruta eléctrica activa en el plano vectorial</span>' +
             '</div>' +
         '</div>';
     container.style.display = "block";
@@ -1089,6 +1115,16 @@ async function ejecutarTrazaGrafo() {
     _isTracingGraph = true;
     const btnTrace = document.getElementById("btnTraceGraph");
     const container = document.getElementById("graphTraceResult");
+    const diagResults = document.getElementById("diagResults");
+    const diagDiagram = document.getElementById("diagDiagram");
+    const diagNotice = document.getElementById("diagNotice");
+    const diagEmpty = document.getElementById("diagEmpty");
+
+    if (diagResults) diagResults.innerHTML = "";
+    if (diagDiagram) diagDiagram.style.display = "none";
+    if (diagNotice) diagNotice.style.display = "none";
+    if (diagEmpty) diagEmpty.style.display = "none";
+
     if (btnTrace) { btnTrace.disabled = true; btnTrace.textContent = "Trazando..."; }
 
     if (container) {
@@ -1127,14 +1163,14 @@ async function ejecutarTrazaGrafo() {
             }
             renderTrazaGrafo(resData, symptoms);
         } else {
-            await analizarDiagnostico();
+            renderTrazaGrafo({ found: false, nodes: [], edges: [], message: "No se identificó ruta de hardware en el grafo para los términos ingresados." }, symptoms);
         }
     } catch (err) {
         console.error("Error en traza de grafo:", err);
         toast("Inconveniente al trazar circuito: " + (err.message || err), "err");
     } finally {
         _isTracingGraph = false;
-        if (btnTrace) { btnTrace.disabled = false; btnTrace.textContent = "⚡ Traza de Circuito (Offline)"; }
+        if (btnTrace) { btnTrace.disabled = false; btnTrace.textContent = "⚡ Traza de Circuito (Hardware)"; }
     }
 }
 
@@ -1145,11 +1181,13 @@ function renderDiagnostico(data, mode, symptoms) {
     const meta    = document.getElementById("diagMeta");
     const notice  = document.getElementById("diagNotice");
     const diagram = document.getElementById("diagDiagram");
+    const graphTrace = document.getElementById("graphTraceResult");
+    if (graphTrace) graphTrace.style.display = "none";
     if (list) list.innerHTML = "";
     if (diagram) diagram.style.display = "none";
 
     const results = Array.isArray(data.results) ? data.results : [];
-    if (meta) meta.textContent = (mode === "online" ? "ONLINE" : "OFFLINE") + " · " + results.length + " relaciones encontradas";
+    if (meta) meta.textContent = (mode === "online" ? "ONLINE" : "OFFLINE") + " · " + results.length + " referencias documentales";
     if (notice) {
         notice.textContent = data.message || "";
         notice.style.display = (data.message && results.length) ? "block" : "none";
@@ -1159,11 +1197,22 @@ function renderDiagnostico(data, mode, symptoms) {
         if (empty) {
             empty.style.display = "flex";
             const p = empty.querySelector("p");
-            if (p) p.textContent = data.message || "No se encontraron relaciones suficientes.";
+            if (p) p.textContent = data.message || "No se encontraron referencias documentales suficientes en los manuales.";
         }
         return;
     }
     if (empty) empty.style.display = "none";
+
+    const docBanner = document.createElement("div");
+    docBanner.className = "diag-doc-banner";
+    docBanner.style.cssText = "display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:8px;margin-bottom:14px;";
+    docBanner.innerHTML =
+        '<span style="font-size:1.2rem">📚</span>' +
+        '<div>' +
+            '<div style="font-size:0.75rem;font-weight:700;color:#93c5fd;letter-spacing:0.05em;text-transform:uppercase;">Correlación Documental en los 19 Manuales Elekta</div>' +
+            '<div style="font-size:0.72rem;color:var(--muted)">Referencias cruzadas, procedimientos de servicio y tablas de calibración indexadas textualmente.</div>' +
+        '</div>';
+    list.appendChild(docBanner);
 
     const allSymptoms = symptoms || (Array.isArray(data.signals) ? data.signals : []);
     renderDiagrama(results, allSymptoms);
@@ -1196,15 +1245,18 @@ function renderDiagnostico(data, mode, symptoms) {
 
         card.innerHTML =
             '<div class="diag-rank">' +
-                '<span>RELACIÓN ' + (index + 1) + '</span>' +
+                '<span>📘 REFERENCIA DOCUMENTAL ' + (index + 1) + '</span>' +
                 '<span style="color:' + confColor + ';font-size:.65rem">' + confLabel + '</span>' +
-                '<b>' + Number(result.relative_match || 0) + "% · " + Number(result.matched_count || 0) + "/" + Number(result.signal_count || 0) + " señales</b>" +
+                '<b>' + Number(result.relative_match || 0) + "% · " + Number(result.matched_count || 0) + "/" + Number(result.signal_count || 0) + " términos</b>" +
             "</div>" +
             "<h3>" + esc(result.title || "Conexión técnica documentada") + "</h3>" +
-            '<div class="card-header"><span class="card-manual manual-badge">' + esc(result.manual) + "</span></div>" +
+            '<div class="card-header"><span class="card-manual manual-badge">📄 ' + esc(result.manual) + (result.page ? ' · Pág. ' + Number(result.page) : '') + "</span></div>" +
             '<div class="diag-chips">' + matches + "</div>" +
             componentHtml +
-            '<div class="card-ctx">' + esc(result.context) + "</div>" +
+            '<div class="card-ctx" style="background:rgba(0,0,0,0.25);padding:10px;border-radius:6px;border-left:3px solid var(--border);margin:8px 0;font-size:.8rem;line-height:1.5;">' +
+                '<span style="font-size:.65rem;font-family:var(--mono);color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;">Fragmento del manual de servicio:</span>' +
+                esc(result.context) +
+            '</div>' +
             pdfButton;
 
         list.appendChild(card);
@@ -1309,6 +1361,9 @@ function renderDiagnosticoAi(aiData, symptoms) {
 
     let metaNoticeHtml = "";
     if (aiData._diagnostic_meta) {
+        if (aiData._diagnostic_meta.failover) {
+            metaNoticeHtml += '<div style="font-size:0.75rem;font-family:var(--mono);color:var(--accent);background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.3);padding:8px 12px;border-radius:6px;margin-bottom:10px;">⚡ <strong>Diagnóstico Causal Local por Contingencia:</strong> ' + esc(aiData._diagnostic_meta.failover_notice || "Generado mediante traza topológica y catálogo local de manuales ante indisponibilidad del servicio externo.") + '</div>';
+        }
         if (aiData._diagnostic_meta.truncated) {
             metaNoticeHtml += '<div style="font-size:0.72rem;font-family:var(--mono);color:var(--warn);background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);padding:6px 10px;border-radius:6px;margin-bottom:10px;">⚠️ Aviso: Diagnóstico ajustado por límite de longitud. Verifique los puntos de prueba clave indicados.</div>';
         }
@@ -1395,7 +1450,9 @@ async function analizarDiagnosticoAi() {
     const list    = document.getElementById("diagResults");
     const empty   = document.getElementById("diagEmpty");
     const diagram = document.getElementById("diagDiagram");
+    const graphTrace = document.getElementById("graphTraceResult");
 
+    if (graphTrace) graphTrace.style.display = "none";
     if (empty) empty.style.display   = "none";
     if (diagram) diagram.style.display = "none";
     if (list) {
@@ -1437,12 +1494,13 @@ async function analizarDiagnosticoAi() {
         }
     } catch (error) {
         const errMsg = String((error && error.message) || "Inconveniente al procesar el análisis causal.");
+        const errLower = errMsg.toLowerCase();
         const errType = (error && error.data && error.data.error) || "";
         const isOfflineOrNetworkFail = !isOnline() || (error && error.isOffline) ||
-            errMsg.includes("Failed to fetch") ||
-            errMsg.includes("NetworkError") ||
-            errMsg.includes("Load failed") ||
-            errMsg.includes("Network request failed");
+            errLower.includes("failed to fetch") ||
+            errLower.includes("networkerror") ||
+            errLower.includes("load failed") ||
+            errLower.includes("network request failed");
 
 
         if (isOfflineOrNetworkFail) {
@@ -1460,7 +1518,7 @@ async function analizarDiagnosticoAi() {
                         '<button type="button" class="btn btn-ghost btn-sm" data-action="traza-offline">🧭 Traza de circuito offline</button>' +
                     '</div>' +
                 '</div>';
-        } else if (errType === "no_api_key" || errMsg.includes("clave de API") || errMsg.includes("API_KEY") || errType === "invalid_api_key") {
+        } else if (errType === "no_api_key" || errLower.includes("clave de api") || errMsg.includes("API_KEY") || errType === "invalid_api_key") {
             list.innerHTML =
                 '<div class="diagnostic-card" style="border-left-color:#a855f7">' +
                     '<div class="diag-ai-badge" style="margin-bottom:8px">CONFIGURACIÓN DE SERVICIO</div>' +
@@ -1474,7 +1532,7 @@ async function analizarDiagnosticoAi() {
                         '<button type="button" class="btn btn-ghost btn-sm" data-action="traza-offline">🧭 Traza de circuito offline</button>' +
                     '</div>' +
                 '</div>';
-        } else if (errType === "quota_exceeded" || errMsg.includes("429") || errMsg.includes("cuota") || errMsg.includes("Límite")) {
+        } else if (errType === "quota_exceeded" || errLower.includes("429") || errLower.includes("cuota") || errLower.includes("límite")) {
             list.innerHTML =
                 '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
                     '<div class="diag-rank"><span style="color:var(--warn)">⏳ CUOTA TEMPORAL ALCANZADA</span></div>' +
@@ -1483,14 +1541,17 @@ async function analizarDiagnosticoAi() {
                     '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local instantáneo</button>' +
                     ' <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px" data-action="diagnostico-ai">🔄 Reintentar análisis</button>' +
                 '</div>';
-        } else if (errMsg.includes("agotado") || errMsg.includes("AbortError") || errMsg.includes("timeout")) {
+        } else if (errType === "timeout" || errLower.includes("agotado") || errMsg.includes("AbortError") || errLower.includes("timeout") || errLower.includes("timed out") || errLower.includes("read operation") || errLower.includes("deadline exceeded")) {
             list.innerHTML =
                 '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
                     '<div class="diag-rank"><span style="color:var(--warn)">⏱ TIEMPO DE RESPUESTA EXCEDIDO</span></div>' +
                     '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">El servidor tardó más de lo esperado en responder.</h3>' +
-                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">El análisis puede completarse en el siguiente intento. El diagnóstico local está disponible de inmediato.</p>' +
-                    '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local instantáneo</button>' +
-                    ' <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px" data-action="diagnostico-ai">🔄 Reintentar análisis</button>' +
+                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">El análisis causal avanzado puede completarse en el siguiente intento. Puedes consultar de inmediato la correlación en manuales o la traza de hardware.</p>' +
+                    '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+                        '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">🔍 Relacionar en manuales</button>' +
+                        '<button type="button" class="btn btn-ghost btn-sm" data-action="traza-offline">⚡ Traza de circuito</button>' +
+                        '<button type="button" class="btn btn-ghost btn-sm" data-action="diagnostico-ai">🔄 Reintentar análisis</button>' +
+                    '</div>' +
                 '</div>';
         } else {
             list.innerHTML =
@@ -1525,13 +1586,15 @@ async function analizarDiagnostico() {
     const list    = document.getElementById("diagResults");
     const empty   = document.getElementById("diagEmpty");
     const diagram = document.getElementById("diagDiagram");
+    const graphTrace = document.getElementById("graphTraceResult");
+    if (graphTrace) graphTrace.style.display = "none";
     empty.style.display   = "none";
     diagram.style.display = "none";
     list.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div>' +
-        '<p style="font-size:.8rem;color:var(--muted);margin-top:10px">Relacionando síntomas...</p></div>';
+        '<p style="font-size:.8rem;color:var(--muted);margin-top:10px">Relacionando síntomas en manuales...</p></div>';
     if (button) {
         button.disabled    = true;
-        button.textContent = "Analizando...";
+        button.textContent = "Relacionando...";
     }
     try {
         let data, mode = "offline";
@@ -1557,7 +1620,7 @@ async function analizarDiagnostico() {
     } finally {
         if (button) {
             button.disabled    = false;
-            button.textContent = "🔍 Relacionar en Manuales";
+            button.textContent = "🔍 Relacionar en Manuales (Documental)";
         }
     }
 }

@@ -117,6 +117,11 @@ def _sanitize_error_message(text: object) -> str:
     msg = re.sub(r"AIza[0-9A-Za-z_-]{20,60}", "[CLAVE_ENMASCARADA]", msg)
     msg = re.sub(r"(Bearer\s+)[A-Za-z0-9\-_.]+", r"\1[TOKEN_ENMASCARADO]", msg, flags=re.IGNORECASE)
     msg = re.sub(r"((?:api[-_]?key|key)\s*[=:]\s*)[A-Za-z0-9\-_]+", r"\1[CLAVE_ENMASCARADA]", msg, flags=re.IGNORECASE)
+    low = msg.lower()
+    if "read operation timed out" in low or "read timed out" in low or "socket.timeout" in low or low.strip() == "timed out" or "deadline exceeded" in low:
+        if "[CLAVE_ENMASCARADA]" in msg or "[TOKEN_ENMASCARADO]" in msg:
+            return re.sub(r"(?i)the read operation timed out|read operation timed out|read timed out|deadline exceeded|socket\.timeout:?\s*(?:timed out)?", "Tiempo de respuesta agotado", msg)
+        return "Tiempo de respuesta agotado al conectar con el servicio de análisis técnico."
     return msg
 
 
@@ -614,6 +619,8 @@ def diagnose_ai():
                 status_code = 400
             elif error_type == "quota_exceeded":
                 status_code = 429
+            elif error_type == "timeout":
+                status_code = 504
             else:
                 status_code = 503
             if "message" in ai_result:

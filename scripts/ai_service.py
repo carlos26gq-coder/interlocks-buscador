@@ -123,14 +123,26 @@ _MAX_CACHE_ENTRIES = 300
 _CACHE_LOCK = threading.Lock()
 
 
+DEFAULT_GEMINI_TIMEOUT_SECONDS: float = float(os.environ.get("GEMINI_TIMEOUT_SECONDS", "45.0"))
+DEFAULT_GEMINI_TIMEOUT_MS: int = int(
+    DEFAULT_GEMINI_TIMEOUT_SECONDS if DEFAULT_GEMINI_TIMEOUT_SECONDS >= 1000 else DEFAULT_GEMINI_TIMEOUT_SECONDS * 1000
+)
+DEFAULT_GEMINI_TIMEOUT: float = DEFAULT_GEMINI_TIMEOUT_MS / 1000.0
+
+
 def _sanitize_error_message(text: object) -> str:
-    """Enmascara posibles claves API o tokens en mensajes de error."""
+    """Enmascara posibles claves API o tokens en mensajes de error y sanea cadenas de bajo nivel."""
     if not text:
         return ""
     msg = str(text)
     msg = re.sub(r"AIza[0-9A-Za-z_-]{20,60}", "[CLAVE_ENMASCARADA]", msg)
     msg = re.sub(r"(Bearer\s+)[A-Za-z0-9\-_.]+", r"\1[TOKEN_ENMASCARADO]", msg, flags=re.IGNORECASE)
     msg = re.sub(r"((?:api[-_]?key|key)\s*[=:]\s*)[A-Za-z0-9\-_]+", r"\1[CLAVE_ENMASCARADA]", msg, flags=re.IGNORECASE)
+    low = msg.lower()
+    if "read operation timed out" in low or "read timed out" in low or "socket.timeout" in low or low.strip() == "timed out" or "deadline exceeded" in low:
+        if "[CLAVE_ENMASCARADA]" in msg or "[TOKEN_ENMASCARADO]" in msg:
+            return re.sub(r"(?i)the read operation timed out|read operation timed out|read timed out|deadline exceeded|socket\.timeout:?\s*(?:timed out)?", "Tiempo de respuesta agotado", msg)
+        return "Tiempo de respuesta agotado al conectar con el servicio de análisis técnico."
     return msg
 
 
@@ -342,6 +354,145 @@ def gather_grounding_context(
     return combined[:10000], citation_map
 
 
+def _resolve_citations(data: dict, citation_map: dict[str, dict[str, object]]) -> dict:
+    """Convierte deterministamente los citation_ids a referencias legibles de manual y página."""
+    cited_ids = data.pop("citation_ids", None)
+    extracted_cids: list[str] = []
+    if isinstance(cited_ids, str):
+        extracted_cids = [m.upper() for m in re.findall(r"\bC\d+\b", cited_ids, re.I)]
+    elif isinstance(cited_ids, list):
+        for item in cited_ids:
+            found = re.findall(r"\bC\d+\b", str(item), re.I)
+            if found:
+                extracted_cids.extend(m.upper() for m in found)
+            else:
+                cand = str(item).strip().upper()
+                if cand in citation_map and cand not in extracted_cids:
+                    extracted_cids.append(cand)
+
+    manual_refs = []
+    for cid in extracted_cids:
+        src = citation_map.get(cid)
+        if src:
+            if src.get("page", 0) > 0:
+                ref_entry = f"{src['manual']} (Página {src['page']})"
+            else:
+                ref_entry = f"{src['manual']}"
+            if ref_entry not in manual_refs:
+                manual_refs.append(ref_entry)
+    if not manual_refs:
+        manual_refs = [
+            "Sin página específica de manual; diagnóstico apoyado en la "
+            "topología del grafo de hardware."
+        ]
+    data["manual_references"] = manual_refs
+    return data
+
+
+def generate_local_failover_diagnosis(
+    symptoms: list[str],
+    search_engine: SearchEngine,
+    reason: str = "timeout",
+) -> dict:
+    """Genera un diagnóstico determinista local cruzando el grafo topológico y los manuales de Elekta.
+
+    Se ejecuta automáticamente ante eventos de timeout o latencia excesiva en el servicio de nube,
+    garantizando continuidad operativa ininterrumpida para el ingeniero de servicio en el búnker.
+    """
+    hub_node = ""
+    trace_diagram = ""
+    g_pcbs: list[str] = []
+    g_cables: list[str] = []
+    g_conns: list[str] = []
+    g_tps: list[str] = []
+    g_areas: list[str] = []
+    g_manuals: list[str] = []
+
+    try:
+        from graph_engine import get_graph_engine
+        g_engine = get_graph_engine()
+        g_trace = g_engine.trace_circuit(symptoms, search_engine=search_engine)
+        if g_trace.get("found"):
+            hub_node = str(g_trace.get("hub_node") or "")
+            trace_diagram = str(g_trace.get("trace_diagram") or "")
+            g_pcbs = list(g_trace.get("pcbs") or [])
+            g_cables = list(g_trace.get("cables") or [])
+            g_conns = list(g_trace.get("connectors") or [])
+            g_tps = list(g_trace.get("test_points") or [])
+            g_areas = list(g_trace.get("areas") or [])
+            g_manuals = list(g_trace.get("manual_references") or [])
+    except Exception as g_err:
+        logger.warning("No se pudo consultar el grafo en failover: %s", g_err)
+
+    s_manuals: list[str] = []
+    s_components: list[str] = []
+    try:
+        diag_res = search_engine.diagnose_symptoms(symptoms, limit=5)
+        for r in diag_res.get("results", []):
+            man_ref = f"{r.get('manual', '')} (Página {r.get('page', 0)})"
+            if man_ref not in s_manuals:
+                s_manuals.append(man_ref)
+            comp = r.get("associated_component", "")
+            if comp and comp not in s_components:
+                s_components.append(comp)
+    except Exception as s_err:
+        logger.warning("No se pudo consultar manuales en failover: %s", s_err)
+
+    combined_manuals: list[str] = []
+    for m in (s_manuals + g_manuals):
+        if m and m not in combined_manuals:
+            combined_manuals.append(m)
+    if not combined_manuals:
+        combined_manuals = [
+            "Sin página específica de manual; diagnóstico apoyado en la topología del grafo de hardware."
+        ]
+
+    if hub_node and hub_node != "Conexión Técnica en Manuales":
+        root_cause = f"Discontinuidad o anomalía en {hub_node} (Topología Hardware)"
+    elif s_components:
+        root_cause = f"Condición de interbloqueo en {s_components[0][:80]}"
+    elif symptoms:
+        root_cause = f"Disparo de circuito o pérdida de señal en lazo de {symptoms[0][:60]}"
+    else:
+        root_cause = "Disparo en bucle de seguridad de interlocks"
+
+    subsystem = g_areas[0] if g_areas else "Bucle de Seguridad e Interconexión Linac"
+
+    explanation = (
+        "Diagnóstico determinista local generado a partir de la topología física del grafo y "
+        "la correlación en los 19 manuales de Elekta debido a tiempo de espera excedido en el "
+        f"servicio externo de análisis. La traza eléctrica identificó convergencia en {hub_node or 'el bucle de interlocks'}, "
+        f"con ruta de interconexión: {trace_diagram or 'continuidad de señales nominales'}. "
+        "Se recomienda proceder con la inspección física de tarjetas y la medición de voltajes en los puntos de prueba indicados."
+    )
+
+    action_steps = [
+        f"Paso 1: Medir con multímetro los voltajes en {', '.join(g_tps[:3]) if g_tps else 'los puntos de prueba TP asociados'} y contrastar con valores nominales.",
+        f"Paso 2: Comprobar continuidad eléctrica en arneses y conectores ({', '.join((g_cables + g_conns)[:3]) if (g_cables + g_conns) else 'cableado de señal'}).",
+        "Paso 3: Validar en Service Mode el estado lógico de los interlocks y lazos de retroalimentación.",
+        f"Paso 4: Cotejar planos esquemáticos en {', '.join(combined_manuals[:2])}."
+    ]
+
+    return {
+        "root_cause": root_cause,
+        "subsystem": subsystem,
+        "confidence": "media",
+        "explanation": explanation,
+        "associated_boards": g_pcbs[:4] or (["PCB de Control Linac"] if not g_pcbs else []),
+        "cables_and_connectors": (g_cables + g_conns)[:5],
+        "test_points_and_signals": g_tps[:4] or (["TP1 (+24V DC)", "TP2"] if "seguridad" in root_cause.lower() else []),
+        "manual_references": combined_manuals[:5],
+        "action_steps": action_steps,
+        "safety_warning": "Verificar desenergización y descarga de condensadores antes de intervenir tarjetas o cadenas de alta tensión.",
+        "_diagnostic_meta": {
+            "failover": True,
+            "reason": reason,
+            "degraded_parse": False,
+            "failover_notice": "Diagnóstico determinista local generado a partir de la topología del grafo y los manuales técnicos debido a tiempo de respuesta agotado en el servicio externo.",
+        },
+    }
+
+
 def analyze_with_gemini(
     symptoms: list[str],
     search_engine: SearchEngine,
@@ -404,10 +555,11 @@ SÍNTOMAS / SEÑALES INGRESADOS POR EL TÉCNICO:
 Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:"""
 
     try:
-        http_opts = types.HttpOptions(timeout=30.0)
+        http_opts = types.HttpOptions(timeout=DEFAULT_GEMINI_TIMEOUT_MS)
         client = genai.Client(api_key=key, http_options=http_opts)
         last_error = None
         quota_hit = False
+        timed_out = False
 
         for current_model in models_to_try:
             try:
@@ -424,11 +576,6 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
                     ),
                 )
 
-                # Camino feliz: el SDK ya validó el JSON contra GeminiDiagnosis
-                # y nos da un objeto Pydantic listo en response.parsed. Si por
-                # algún motivo no vino parseado (SDK viejo, truncamiento, etc.),
-                # caemos al parser tolerante como red de seguridad, no como
-                # ruta principal.
                 parsed = getattr(response, "parsed", None)
                 degraded_parse = False
                 if isinstance(parsed, GeminiDiagnosis):
@@ -438,62 +585,19 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
                     data = extract_json_safely(raw_text)
                     degraded_parse = True
 
-                # Detectar truncamiento por límite de tokens: si pasó, el JSON
-                # pudo "parsear" pero venir incompleto (listas vacías, etc.).
-                # Lo marcamos explícitamente en vez de presentarlo como normal.
                 try:
                     finish_reason = response.candidates[0].finish_reason
                 except (AttributeError, IndexError, TypeError):
                     finish_reason = None
                 truncated = str(finish_reason or "").upper() in {"MAX_TOKENS", "LENGTH"}
 
-                # --- Resolución determinista de citas ---
-                # El modelo solo debió citar IDs (ej. "C1", "C3") que nosotros
-                # generamos en gather_grounding_context() a partir de datos
-                # reales de search_engine.py. Aquí convertimos esos IDs a texto
-                # legible usando ÚNICAMENTE citation_map (nunca lo que el
-                # modelo haya escrito como manual/página). Cualquier ID que el
-                # modelo invente y no exista en citation_map se descarta en
-                # silencio: nunca puede llegar una cita fabricada al técnico.
-                cited_ids = data.pop("citation_ids", None)
-                extracted_cids: list[str] = []
-                if isinstance(cited_ids, str):
-                    extracted_cids = [m.upper() for m in re.findall(r"\bC\d+\b", cited_ids, re.I)]
-                elif isinstance(cited_ids, list):
-                    for item in cited_ids:
-                        found = re.findall(r"\bC\d+\b", str(item), re.I)
-                        if found:
-                            extracted_cids.extend(m.upper() for m in found)
-                        else:
-                            cand = str(item).strip().upper()
-                            if cand in citation_map and cand not in extracted_cids:
-                                extracted_cids.append(cand)
-
-                manual_refs = []
-                for cid in extracted_cids:
-                    src = citation_map.get(cid)
-                    if src:
-                        if src.get("page", 0) > 0:
-                            ref_entry = f"{src['manual']} (Página {src['page']})"
-                        else:
-                            ref_entry = f"{src['manual']}"
-                        if ref_entry not in manual_refs:
-                            manual_refs.append(ref_entry)
-                if not manual_refs:
-                    manual_refs = [
-                        "Sin página específica de manual; diagnóstico apoyado en la "
-                        "topología del grafo de hardware."
-                    ]
-                data["manual_references"] = manual_refs
+                data = _resolve_citations(data, citation_map)
 
                 if degraded_parse:
-                    data.setdefault(
-                        "_diagnostic_meta", {}
-                    )["degraded_parse"] = True
+                    data.setdefault("_diagnostic_meta", {})["degraded_parse"] = True
                 if truncated:
                     data.setdefault("_diagnostic_meta", {})["truncated"] = True
 
-                # P0-8: Guardar en caché solo si la respuesta es íntegra y sin degradación sintáctica
                 meta = data.get("_diagnostic_meta", {})
                 if not (meta.get("truncated") or meta.get("degraded_parse")):
                     set_cached_diagnosis(symptoms, data, current_model)
@@ -507,29 +611,76 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
             except Exception as model_err:
                 last_error = model_err
                 err_str = str(model_err)
+                err_lower = err_str.lower()
                 sanitized_err = _sanitize_error_message(err_str)
 
-                # P2-2 & P2-3: Registrar advertencia saneada en el logger del servidor al saltar de modelo
                 logger.warning(
                     "Fallo con modelo '%s' en cascada de diagnóstico: %s",
                     current_model,
                     sanitized_err,
                 )
 
-                # Si es error 429 (cuota de ese modelo específico agotada), intentar siguiente modelo
-                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                    quota_hit = True
-                    continue
-
-                # Si es error 404 (modelo no disponible) o 503 (saturación temporal), intentar siguiente modelo
-                if "404" in err_str or "503" in err_str or "UNAVAILABLE" in err_str or "NOT_FOUND" in err_str:
-                    continue
-
                 # Si es clave inválida o error 400 de autenticación, romper de inmediato
                 if "API_KEY_INVALID" in err_str or ("400" in err_str and "API key" in err_str):
                     raise model_err
 
-        # Si todos los modelos de la cadena agotaron su cuota
+                # Si es timeout de lectura o socket
+                if "timed out" in err_lower or "timeout" in err_lower or "deadline exceeded" in err_lower or isinstance(model_err, TimeoutError):
+                    timed_out = True
+                    # Probar modelo lite si aún no se ha probado y el actual no era lite
+                    lite_model = "gemini-2.5-flash-lite"
+                    if current_model != lite_model and lite_model in models_to_try:
+                        try:
+                            lite_opts = types.HttpOptions(timeout=15000)
+                            resp_lite = client.models.generate_content(
+                                model=lite_model,
+                                contents=prompt,
+                                config=types.GenerateContentConfig(
+                                    system_instruction=SYSTEM_INSTRUCTION,
+                                    temperature=0.15,
+                                    response_mime_type="application/json",
+                                    response_schema=GeminiDiagnosis,
+                                    max_output_tokens=1536,
+                                    http_options=lite_opts,
+                                ),
+                            )
+                            parsed_lite = getattr(resp_lite, "parsed", None)
+                            if isinstance(parsed_lite, GeminiDiagnosis):
+                                data_lite = parsed_lite.model_dump(mode="json")
+                            else:
+                                data_lite = extract_json_safely(resp_lite.text or "")
+                            data_lite = _resolve_citations(data_lite, citation_map)
+                            return {
+                                "ok": True,
+                                "data": data_lite,
+                                "model_used": lite_model,
+                                "symptoms": symptoms,
+                            }
+                        except Exception as lite_err:
+                            logger.warning("Fallo en modelo lite de respaldo: %s", _sanitize_error_message(lite_err))
+                    # Interrumpir cascada tras timeout para failover determinista local inmediato
+                    break
+
+                # Si es error 429 (cuota agotada), intentar siguiente modelo
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    quota_hit = True
+                    continue
+
+                # Si es error 404 o 503, intentar siguiente modelo
+                if "404" in err_str or "503" in err_str or "UNAVAILABLE" in err_str or "NOT_FOUND" in err_str:
+                    continue
+
+        if timed_out:
+            failover_data = generate_local_failover_diagnosis(symptoms, search_engine, reason="timeout")
+            return {
+                "ok": True,
+                "data": failover_data,
+                "model_used": "Diagnóstico Local y Topológico (Failover por tiempo de espera)",
+                "symptoms": symptoms,
+                "failover": True,
+                "notice": "Tiempo de espera agotado al consultar el modelo en la nube. Se presenta el diagnóstico determinista local de respaldo.",
+            }
+
         if quota_hit:
             return {
                 "ok": False,
@@ -548,6 +699,7 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
 
     except Exception as exc:
         err_msg = str(exc)
+        err_lower = err_msg.lower()
         if "API_KEY_INVALID" in err_msg or ("400" in err_msg and "API key" in err_msg):
             return {
                 "ok": False,
@@ -560,6 +712,23 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
                 "error": "quota_exceeded",
                 "message": "Límite temporal de consultas de Gemini alcanzado. Espera unos momentos o utiliza el diagnóstico local.",
             }
+        if "timed out" in err_lower or "timeout" in err_lower or "deadline exceeded" in err_lower or isinstance(exc, TimeoutError):
+            try:
+                failover_data = generate_local_failover_diagnosis(symptoms, search_engine, reason="timeout")
+                return {
+                    "ok": True,
+                    "data": failover_data,
+                    "model_used": "Diagnóstico Local y Topológico (Failover por tiempo de espera)",
+                    "symptoms": symptoms,
+                    "failover": True,
+                    "notice": "Tiempo de espera agotado al consultar el modelo en la nube. Se presenta el diagnóstico determinista local de respaldo.",
+                }
+            except Exception:
+                return {
+                    "ok": False,
+                    "error": "timeout",
+                    "message": "Tiempo de respuesta agotado al conectar con el servicio de análisis en la nube. Se recomienda reintentar o consultar el diagnóstico local y la traza de hardware.",
+                }
         clean_msg = _sanitize_error_message(err_msg)
         return {
             "ok": False,

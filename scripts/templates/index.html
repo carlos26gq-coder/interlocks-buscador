@@ -317,13 +317,34 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
     <button id="btnAddSym" class="btn btn-ghost btn-sm" onclick="agregarSintoma()">+ Síntoma</button>
     <span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Máx. 4 síntomas</span>
   </div>
+
+  <div class="diag-tools-explainer" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:0.75rem;line-height:1.5;">
+    <div style="font-family:var(--mono);font-size:0.72rem;color:var(--accent);font-weight:700;margin-bottom:6px;text-transform:uppercase;">
+      🛠️ HERRAMIENTAS DE DIAGNÓSTICO Y ANÁLISIS:
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:8px;">
+      <div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.25);border-radius:6px;padding:8px 10px;">
+        <span style="color:var(--accent);font-weight:700;">⚡ Traza de Circuito (Hardware / Topología):</span>
+        <p style="color:var(--muted);margin:3px 0 0;font-size:0.72rem;">Grafo determinista de interconexión física: recorre rutas de cables Wxx, conectores SK/PL, relés y tarjetas PCB para identificar la continuidad eléctrica y el componente causante del disparo.</p>
+      </div>
+      <div style="background:rgba(52,211,153,0.04);border:1px solid rgba(52,211,153,0.25);border-radius:6px;padding:8px 10px;">
+        <span style="color:var(--green);font-weight:700;">🔍 Relacionar en Manuales (Búsqueda Cruzada):</span>
+        <p style="color:var(--muted);margin:3px 0 0;font-size:0.72rem;">Búsqueda documental en los 19 manuales técnicos de Elekta: halla páginas de servicio, tablas de calibración y procedimientos de mantenimiento donde coexisten estos síntomas.</p>
+      </div>
+      <div style="background:rgba(168,85,247,0.04);border:1px solid rgba(168,85,247,0.25);border-radius:6px;padding:8px 10px;">
+        <span style="color:#c084fc;font-weight:700;">🧠 Diagnóstico Causal Avanzado:</span>
+        <p style="color:var(--muted);margin:3px 0 0;font-size:0.72rem;">Deducción técnica profunda de causa raíz: integra la arquitectura Linac, esquemas y manuales para sugerir acciones de inspección de campo paso a paso.</p>
+      </div>
+    </div>
+  </div>
+
   <div class="diag-actions">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <button id="btnTraceGraph" class="btn btn-primary" onclick="ejecutarTrazaGrafo()" title="Traza física en el Grafo de Conocimiento (0.01s - 100% offline en búnker)">⚡ Traza de Circuito (Offline)</button>
-      <button id="btnDiagnose" class="btn btn-ghost" onclick="analizarDiagnostico()" title="Buscar correlaciones documentadas en los 19 manuales técnicos">🔍 Relacionar en Manuales</button>
+      <button id="btnTraceGraph" class="btn btn-primary" onclick="ejecutarTrazaGrafo()" title="Traza física en el Grafo de Conocimiento (cables, conectores, relés y PCBs)">⚡ Traza de Circuito (Hardware)</button>
+      <button id="btnDiagnose" class="btn btn-ghost" onclick="analizarDiagnostico()" title="Buscar correlaciones documentadas en los 19 manuales técnicos de Elekta">🔍 Relacionar en Manuales (Documental)</button>
       <button id="btnDiagnoseAi" class="btn btn-ai" onclick="analizarDiagnosticoAi()" title="Razonamiento causal de fallas y análisis de ingeniería">🧠 Diagnóstico Causal Avanzado</button>
     </div>
-    <span id="diagMeta">Modo dual desacoplado</span>
+    <span id="diagMeta">Modo dual desacoplado: Topología Hardware vs Correlación Documental</span>
   </div>
   <div id="graphTraceResult" style="display:none;margin-bottom:14px"></div>
   <div id="diagNotice" class="info-box" style="display:none;margin-bottom:10px"></div>
@@ -394,6 +415,31 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
       <p style="font-size:0.78rem;color:var(--muted);margin-top:4px;line-height:1.4">
         Medición rápida táctil para multímetros analógicos y convencionales, banco simulado con inyección de fallas y telemetría de tolerancias.
       </p>
+    </div>
+  </div>
+
+  <div class="dmm-quick-guide" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:0.75rem;line-height:1.5;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+      <span style="font-family:var(--mono);color:var(--accent);font-weight:700;text-transform:uppercase;font-size:0.72rem;">📖 GUÍA DE OPERACIÓN TÉCNICA DEL MULTÍMETRO:</span>
+      <span style="font-size:0.65rem;color:var(--muted);font-family:var(--mono)">Tolerancias y Diagnóstico de Campo</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:8px;color:var(--text);">
+      <div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.2);border-radius:6px;padding:8px 10px;">
+        <strong style="color:var(--accent)">1. Entrada Manual Rápida (Taller / Campo):</strong>
+        <p style="color:var(--muted);margin:3px 0 0;font-size:0.72rem;">Diseñado para multímetros convencionales (Fluke, etc.). Selecciona el Punto de Prueba (TP), introduce la lectura en el teclado táctil o presets y presiona <b>EVALUAR</b> para verificar tolerancias nominales de fábrica al instante.</p>
+      </div>
+      <div style="background:rgba(168,85,247,0.04);border:1px solid rgba(168,85,247,0.2);border-radius:6px;padding:8px 10px;">
+        <strong style="color:#c084fc">2. Simulador de Banco &amp; Fallas:</strong>
+        <p style="color:var(--muted);margin:3px 0 0;font-size:0.72rem;">Genera telemetría virtual e inyecta condiciones eléctricas de falla (circuito abierto, cortocircuito, caída resistiva o sobretensión) para verificar la lógica de disparo e interlocks sin riesgo de hardware.</p>
+      </div>
+      <div style="background:rgba(52,211,153,0.04);border:1px solid rgba(52,211,153,0.2);border-radius:6px;padding:8px 10px;">
+        <strong style="color:var(--green)">3. Enlace Digital (BLE / USB-Serie):</strong>
+        <p style="color:var(--muted);margin:3px 0 0;font-size:0.72rem;">Conecta multímetros digitales mediante Web Bluetooth o convertidor USB-Serie (RS-232 / UART) para captura continua automatizada de mediciones en tiempo real.</p>
+      </div>
+    </div>
+    <div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);display:flex;align-items:center;gap:6px;font-size:0.7rem;color:var(--muted);">
+      <span>📝</span>
+      <span><b>Exportación a Notas de Campo:</b> Presiona <i>"Guardar en Mis Apuntes"</i> en cualquier evaluación o en el historial para registrar la medición con fecha, valores nominales, desviación Δ y diagnóstico en 1 clic.</span>
     </div>
   </div>
 
