@@ -1,4 +1,5 @@
 venv/
+.venv*/
 manuals/
 __pycache__/
 *.pyc
@@ -10,5 +11,4 @@ AGENTS.md
 .vscode/
 .env.example
 
-# Pruebas automatizadas (QA local; excluidas de despliegue en producción Render)
-tests/
+# Las pruebas automatizadas forman parte del código fuente y deben versionarse.

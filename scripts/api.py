@@ -2,26 +2,33 @@
 
 from __future__ import annotations
 
-from functools import wraps
 import json
 import math
 import os
-from pathlib import Path
 import re
 import secrets
 import threading
 import time
 import uuid
+from functools import wraps
+from pathlib import Path
 
-from flask import Flask, jsonify, make_response, render_template, request, send_from_directory
+from ai_service import analyze_with_gemini
+from flask import (
+    Flask,
+    jsonify,
+    make_response,
+    render_template,
+    request,
+    send_from_directory,
+)
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from httpx import HTTPError
+from postgrest.exceptions import APIError
+from search_engine import SearchEngine, normalize
 from supabase import Client, create_client
 from werkzeug.middleware.proxy_fix import ProxyFix
-
-from search_engine import SearchEngine, normalize
-from ai_service import analyze_with_gemini
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -219,6 +226,29 @@ def notes_load(*, force: bool = False) -> list[dict]:
         app.logger.exception("Error al leer apuntes de Supabase")
         with _notes_lock:
             return list(_notes_cache["data"])
+
+
+def _note_by_id(note_id: str) -> dict | None:
+    if not supabase:
+        return None
+    response = (
+        supabase.table("notes")
+        .select("*")
+        .eq("id", note_id)
+        .limit(1)
+        .execute()
+    )
+    data = response.data if isinstance(response.data, list) else []
+    return data[0] if data and isinstance(data[0], dict) else None
+
+
+def _same_note_content(existing: dict, submitted: dict) -> bool:
+    existing_tags = existing.get("tags") if isinstance(existing.get("tags"), list) else []
+    return (
+        existing.get("title") == submitted["title"]
+        and existing.get("text", "") == submitted["text"]
+        and existing_tags == submitted["tags"]
+    )
 
 
 def note_search(query: str) -> list[dict]:
@@ -658,12 +688,38 @@ def create_note():
         "tags": validated_tags(data),
     }
     try:
-        response = supabase.table("notes").upsert(note_data).execute()
+        response = supabase.table("notes").insert(note_data).execute()
         invalidate_notes_cache()
         created = response.data[0] if isinstance(response.data, list) and response.data else note_data
         return jsonify(created), 201
-    except Exception:
-        app.logger.exception("Error al crear un apunte")
+    except (APIError, HTTPError) as insert_error:
+        # Un reintento offline con el mismo UUID es idempotente, pero nunca debe
+        # convertir POST en una actualización anónima de una nota existente.
+        try:
+            existing = _note_by_id(note_data["id"])
+        except Exception as lookup_error:  # noqa: BLE001 - límite con SDK/transportes externos
+            app.logger.warning(
+                "No se pudo verificar el UUID tras fallar la inserción: %s",
+                _sanitize_error_message(lookup_error),
+            )
+            existing = None
+
+        if existing and _same_note_content(existing, note_data):
+            return jsonify(existing), 200
+        if existing:
+            return jsonify({
+                "ok": False,
+                "error": "note_id_conflict",
+                "message": "El identificador ya pertenece a otro apunte. Las actualizaciones requieren autorización administrativa.",
+            }), 409
+
+        app.logger.error("Error al crear un apunte: %s", _sanitize_error_message(insert_error))
+        return jsonify({"error": "No se pudo guardar el apunte en la nube."}), 502
+    except Exception as unexpected_error:  # noqa: BLE001 - el endpoint debe conservar respuesta JSON
+        app.logger.error(
+            "Error inesperado al crear un apunte: %s",
+            _sanitize_error_message(unexpected_error),
+        )
         return jsonify({"error": "No se pudo guardar el apunte en la nube."}), 502
 
 

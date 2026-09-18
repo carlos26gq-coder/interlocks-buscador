@@ -14,13 +14,12 @@ En el diagnóstico:
 
 from __future__ import annotations
 
-from collections import defaultdict, OrderedDict
-from dataclasses import dataclass
 import functools
 import re
 import threading
 import unicodedata
-
+from collections import OrderedDict, defaultdict
+from dataclasses import dataclass
 
 TOKEN_RE = re.compile(r"[a-z0-9]+")
 _RE_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
@@ -41,6 +40,7 @@ DIAGNOSTIC_WORDS = {
     "rf", "klystron", "modulator", "gun", "dose1", "dose2", "pcb", "card",
     "tarjeta", "area", "module", "circuit", "switch", "relay", "valve",
 }
+LEGACY_SIGNAL_FIELDS = ("interlock", "error", "message", "observations")
 
 MIN_RELATIVE_MATCH_DIAGNOSE = 25
 PDF_CONFIDENCE_THRESHOLD = 50
@@ -140,7 +140,8 @@ def _context(text: str, query: str, before: int = 160, after: int = 320) -> str:
 
 
 def _best_line(text: str, signal_tokens: set[str]) -> str:
-    cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", text)
+    # Preservar CR/LF para que Python y el worker evalúen las mismas líneas.
+    cleaned = re.sub(r"[\x00-\x09\x0b\x0c\x0e-\x1f\x7f-\x9f]", " ", text)
     lines = [re.sub(r"\s+", " ", line).strip() for line in cleaned.splitlines()]
     lines = [line for line in lines if 5 <= len(line) <= 180]
     if not lines:
@@ -399,7 +400,7 @@ class SearchEngine:
     # ─── DIAGNÓSTICO LEGACY (CAMPOS NOMBRADOS) ───────────────────────────────
 
     def diagnose(self, signals: dict[str, str], limit: int = 3) -> dict:
-        symptom_list = [v for k, v in signals.items() if v]
+        symptom_list = [signals.get(field, "") for field in LEGACY_SIGNAL_FIELDS if signals.get(field)]
         return self.diagnose_symptoms(symptom_list, limit=limit)
 
     # ─── DIAGNÓSTICO POR SÍNTOMAS / SEÑALES (RELACIONAR TAB) ─────────────────
@@ -530,7 +531,7 @@ class SearchEngine:
         results = []
 
         for score, document, matched_signals, matched_tokens, title in selected:
-            query_for_context = " ".join(matched_tokens) or next(iter(all_signal_tokens), "")
+            query_for_context = " ".join(sorted(matched_tokens)) or next(iter(sorted(all_signal_tokens)), "")
             completeness = len(matched_signals) / total_signals
             relative = max(1, min(99, round((score / max_score) * (45 + 54 * completeness))))
 

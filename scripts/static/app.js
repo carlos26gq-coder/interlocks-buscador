@@ -17,6 +17,17 @@ const NetworkMonitor = {
 };
 
 let _wasOffline = false;
+let _notesStorageReady = false;
+let _isSyncingNotes = false;
+
+function safeLocalStorageGet(key, fallback = "") {
+    try {
+        const value = localStorage.getItem(key);
+        return value === null ? fallback : value;
+    } catch (_error) {
+        return fallback;
+    }
+}
 
 function actualizarRed() {
     const el  = document.getElementById("estadoRed");
@@ -30,7 +41,7 @@ function actualizarRed() {
             _wasOffline = false;
             toast("Conexión restablecida. Sincronizando datos...", "ok");
         }
-        syncPendientes();
+        if (_notesStorageReady) syncPendientes();
     } else {
         if (!_wasOffline) {
             _wasOffline = true;
@@ -44,8 +55,8 @@ window.addEventListener("offline", actualizarRed);
 actualizarRed();
 
 // ─── DATOS ───────────────────────────────────────────────
-let _r2url = localStorage.getItem("r2url") || (typeof window !== "undefined" && window._INITIAL_R2_URL) || "";
-if (_r2url && !localStorage.getItem("r2url")) { try { localStorage.setItem("r2url", _r2url); } catch (_e) {} }
+let _r2url = safeLocalStorageGet("r2url") || (typeof window !== "undefined" && window._INITIAL_R2_URL) || "";
+if (_r2url && !safeLocalStorageGet("r2url")) { try { localStorage.setItem("r2url", _r2url); } catch (_e) {} }
 let _workerSequence = 0;
 const _workerPending = new Map();
 let _searchWorker = null;
@@ -797,6 +808,10 @@ async function buscar(loadMore = false) {
 
 function cargarMasResultados() {
     if (_searchState.hasMore) buscar(true);
+}
+
+function dispararBusqueda() {
+    return buscar(false);
 }
 
 // ─── MENSAJE DE BIENVENIDA ────────────────────────────────
@@ -1635,6 +1650,12 @@ document.addEventListener("DOMContentLoaded", async function() {
             clearTimeout(timer);
             timer = setTimeout(dispararBusqueda, 180);
         });
+        q.addEventListener("keydown", function(event) {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            clearTimeout(timer);
+            dispararBusqueda();
+        });
     }
     if (m) {
         m.addEventListener("change", dispararBusqueda);
@@ -1707,6 +1728,7 @@ document.addEventListener("DOMContentLoaded", async function() {
     mostrarBienvenida();
     cargarCatalogoManuales();
     await initNotesStorage();
+    _notesStorageReady = true;
 
     if (isOnline()) {
         await syncPendientes();
@@ -1932,7 +1954,6 @@ function mergeCloudNotes(cloudNotes) {
 }
 
 
-let _isSyncingNotes = false;
 async function syncPendientes() {
     if (_isSyncingNotes) return;
     const runSync = async () => {
@@ -2253,4 +2274,3 @@ window.adminSalir = adminSalir;
 window.cargarListaManuales = cargarListaManuales;
 window.abrirMultimetroConTp = abrirMultimetroConTp;
 window.isOnline = isOnline;
-

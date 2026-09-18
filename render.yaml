@@ -2,10 +2,23 @@ services:
   - type: web
     name: interlocks-buscador
     runtime: python
-    # Render buscará api.py en la carpeta scripts/
-    rootDir: scripts
-    buildCommand: pip install -r ../requirements.txt
-    startCommand: gunicorn api:app --bind 0.0.0.0:$PORT --workers 2 --threads 2 --timeout 120 --preload
+    # Desplegar únicamente después de que GitHub Actions apruebe la suite.
+    autoDeployTrigger: checksPass
+    # Los filtros controlan cuándo desplegar; tests y documentación permanecen
+    # versionados en GitHub, pero sus cambios aislados no consumen un deploy.
+    buildFilter:
+      paths:
+        - scripts/**
+        - data/**
+        - requirements.txt
+        - render.yaml
+        - manifest.json
+        - sw.js
+        - Procfile
+    # La raíz del repositorio es necesaria: api.py consume ../data y sirve
+    # manifest.json y sw.js, que viven fuera de scripts/.
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --chdir scripts api:app --bind 0.0.0.0:$PORT --workers 2 --threads 2 --timeout 120 --preload
     healthCheckPath: /health
     envVars:
       - key: ADMIN_PASSWORD

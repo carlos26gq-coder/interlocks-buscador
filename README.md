@@ -47,7 +47,15 @@ El catálogo y los nombres con hash se generan automáticamente. Al cambiar un s
 
 ## Pruebas y validación
 
-Las pruebas del motor y de los datos usan únicamente la biblioteca estándar:
+Las pruebas se versionan en GitHub y funcionan como puerta de calidad antes del
+despliegue. Para preparar un entorno local completo:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+```
+
+Ejecutar la suite:
 
 ```powershell
 python -m unittest discover -s tests -v
@@ -60,6 +68,18 @@ node --check scripts/static/app.js
 node --check scripts/static/search-worker.js
 node --check sw.js
 ```
+
+### Integración GitHub → Render
+
+GitHub Actions ejecuta la suite completa y las validaciones de sintaxis. Render
+usa `autoDeployTrigger: checksPass`, por lo que un commit con checks fallidos no
+se despliega automáticamente.
+
+El `buildFilter` de `render.yaml` solo dispara un deploy cuando cambian archivos
+de runtime (`scripts/`, `data/`, dependencias o assets raíz). Un cambio exclusivo
+en `tests/`, informes o documentación permanece versionado, pero no consume un
+despliegue. En producción Render instala únicamente `requirements.txt`; las
+herramientas de `requirements-dev.txt` no se instalan ni se ejecutan.
 
 ## Alcance del diagnóstico
 

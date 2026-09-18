@@ -5,13 +5,6 @@ const STOP_WORDS = new Set([
     "en", "es", "for", "from", "in", "is", "la", "las", "los", "of", "on", "or",
     "para", "por", "que", "se", "the", "to", "un", "una", "y"
 ]);
-const ACTION_WORDS = new Set([
-    "adjust", "calibrate", "check", "connect", "correct", "disconnect", "ensure",
-    "examine", "inspect", "install", "measure", "remove", "replace", "reset",
-    "restart", "restore", "set", "verify", "ajustar", "calibrar", "comprobar",
-    "corregir", "desconectar", "examinar", "inspeccionar", "reemplazar", "reiniciar",
-    "restablecer", "verificar"
-]);
 const DIAGNOSTIC_WORDS = new Set([
     "interlock", "inhibit", "error", "fault", "alarm", "failure", "failed",
     "calibration", "encoder", "motor", "beam", "dose", "mlc", "leaf", "gantry",
@@ -23,6 +16,7 @@ const DIAGNOSTIC_WORDS = new Set([
 
 const MIN_RELATIVE_MATCH_DIAGNOSE = 25;
 const PDF_CONFIDENCE_THRESHOLD = 50;
+const LEGACY_SIGNAL_FIELDS = ["interlock", "error", "message", "observations"];
 
 let catalog = null;
 const loadedManuals = new Set();
@@ -31,7 +25,11 @@ const postings = new Map();
 const manuals = new Map();
 
 function normalize(value) {
-    return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return String(value || "").toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "");
+}
+
+function compareText(left, right) {
+    return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function tokenize(value) {
@@ -145,7 +143,7 @@ function queryMatchInfo(document, query) {
 
 function makeContext(text, query, before = 160, after = 320) {
     const cleaned = text.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ")
-        .replace(/[^\w\s\.\,\-\:\;\(\)\/]/g, " ")
+        .replace(/[^\p{L}\p{N}_\s.,:;()\/-]/gu, " ")
         .replace(/\s+/g, " ").trim();
 
     const normalizedText = normalize(cleaned);
@@ -164,7 +162,12 @@ function makeContext(text, query, before = 160, after = 320) {
     if (position < 0) {
         const normQuery = normalize(query).trim();
         position = normalizedText.indexOf(normQuery);
-        if (position < 0) position = 0;
+        if (position < 0) {
+            const positions = queryTokens(query)
+                .map(token => normalizedText.indexOf(token))
+                .filter(index => index >= 0);
+            position = positions.length ? Math.min(...positions) : 0;
+        }
     }
 
     const start = Math.max(0, position - before);
@@ -192,7 +195,7 @@ function searchNotes(notes, query) {
 
 async function searchOffline(payload) {
     const query = String(payload.query || "").trim();
-    const manualFilter = String(payload.manual || "").trim().toLowerCase();
+    const manualFilter = normalize(payload.manual).trim();
     const offset = Math.max(0, Number(payload.offset) || 0);
     const limit = Math.min(50, Math.max(1, Number(payload.limit) || 25));
     let manualResults = [];
@@ -205,7 +208,7 @@ async function searchOffline(payload) {
         }).filter(item => item.match.matched).map(item => ({
             document: item.document,
             score: item.match.score
-        })).sort((a, b) => b.score - a.score || a.document.manual.localeCompare(b.document.manual) || a.document.page - b.document.page)
+        })).sort((a, b) => b.score - a.score || compareText(a.document.manual, b.document.manual) || a.document.page - b.document.page)
           .map(item => ({
               type: "manual",
               manual: item.document.manual,
@@ -226,7 +229,8 @@ async function searchOffline(payload) {
 }
 
 function bestLine(text, signalTokens) {
-    const lines = text.split(/\r?\n/).map(line => line.replace(/\s+/g, " ").trim())
+    const cleaned = String(text || "").replace(/[\x00-\x09\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, " ");
+    const lines = cleaned.split(/\r?\n/).map(line => line.replace(/\s+/g, " ").trim())
         .filter(line => line.length >= 5 && line.length <= 180);
     if (!lines.length) return "Evidencia relacionada";
     let best = lines[0];
@@ -240,18 +244,6 @@ function bestLine(text, signalTokens) {
         }
     }
     return best.substring(0, 140);
-}
-
-function codeNearLabel(text, field, valueTokens) {
-    const codes = [...valueTokens].filter(token => /^\d+$/.test(token));
-    if (!codes.length || !["interlock", "error"].includes(field)) return false;
-    const labels = field === "interlock" ? "(?:interlock|inhibit)" : "(?:error|fault)";
-    return codes.some(code => {
-        const escapedCode = code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const codePattern = `(?:i|e)?\\s*${escapedCode}`;
-        return new RegExp(`\\b${labels}\\b[\\W_]{0,20}\\b${codePattern}\\b`).test(text) ||
-            new RegExp(`\\b${codePattern}\\b[\\W_]{0,20}\\b${labels}\\b`).test(text);
-    });
 }
 
 function codeNearAnyLabel(text, valueTokens) {
@@ -273,9 +265,9 @@ async function diagnoseOffline(payload) {
 
     // Detect new format: {symptoms: [...]} vs legacy: {interlock, error, message, observations}
     if (Array.isArray(rawSignals.symptoms)) {
-        return _diagnoseSymptomsOffline(rawSignals.symptoms);
+        return _diagnoseSymptomsOffline(rawSignals.symptoms, payload.limit);
     }
-    return _diagnoseLegacyOffline(rawSignals);
+    return _diagnoseLegacyOffline(rawSignals, payload.limit);
 }
 
 function isNoisePage(normalizedText) {
@@ -353,7 +345,8 @@ function extractAssociatedComponents(text) {
     return parts.length ? parts.join(" · ") : "Componente documentado en manual";
 }
 
-async function _diagnoseSymptomsOffline(symptomList) {
+async function _diagnoseSymptomsOffline(symptomList, requestedLimit = 3) {
+    const resultLimit = Math.min(50, Math.max(1, Number(requestedLimit) || 3));
     const weightsByPosition = [1.4, 1.3, 1.2, 1.1];
     const prepared = [];
     const allSignalTokens = new Set();
@@ -425,7 +418,7 @@ async function _diagnoseSymptomsOffline(symptomList) {
         ranked.push({ score, document: doc, matchedSignals, matchedTokens });
     }
 
-    ranked.sort((a, b) => b.score - a.score || b.matchedSignals.length - a.matchedSignals.length || a.document.page - b.document.page);
+    ranked.sort((a, b) => b.score - a.score || b.matchedSignals.length - a.matchedSignals.length || compareText(a.document.manual, b.document.manual) || a.document.page - b.document.page);
 
     const selected = [];
     const seen = new Set();
@@ -435,7 +428,7 @@ async function _diagnoseSymptomsOffline(symptomList) {
         if (seen.has(key)) continue;
         seen.add(key);
         selected.push({ ...item, title });
-        if (selected.length >= 3) break;
+        if (selected.length >= resultLimit) break;
     }
 
     if (!selected.length) return {
@@ -461,7 +454,7 @@ async function _diagnoseSymptomsOffline(symptomList) {
             title: item.title,
             manual: item.document.manual,
             page: item.document.page,
-            context: makeContext(item.document.text, [...item.matchedTokens].join(" "), 260, 480),
+            context: makeContext(item.document.text, [...item.matchedTokens].sort(compareText).join(" ") || [...allSignalTokens].sort(compareText)[0] || "", 260, 480),
             associated_component: associatedComp,
             matched_signals: item.matchedSignals,
             relative_match: relative,
@@ -487,92 +480,9 @@ async function _diagnoseSymptomsOffline(symptomList) {
     };
 }
 
-async function _diagnoseLegacyOffline(rawSignals) {
-    const weights = { interlock: 1.5, error: 1.5, message: 1.15, observations: 0.8 };
-    const prepared = [];
-    const allSignalTokens = new Set();
-    const candidates = new Set();
-
-    for (const [name, raw] of Object.entries(rawSignals)) {
-        const value = String(raw || "").trim();
-        if (!value) continue;
-        const semanticValue = (name === "interlock" && !/interlock/i.test(value)) ? `interlock ${value}`
-            : (name === "error" && !/(error|fault)/i.test(value)) ? `error ${value}` : value;
-        const valueTokens = new Set(queryTokens(semanticValue));
-        if (!valueTokens.size) continue;
-        prepared.push({ name, value, normalizedValue: normalize(semanticValue), valueTokens, weight: weights[name] || 1 });
-        for (const token of valueTokens) {
-            allSignalTokens.add(token);
-            for (const id of postings.get(token) || []) candidates.add(id);
-        }
-    }
-    if (!prepared.length) return { results: [], signals: [], message: "Ingresa al menos un código o síntoma." };
-
-    const ranked = [];
-    for (const id of candidates) {
-        const document = documents[id];
-        let score = 0;
-        const matchedSignals = [];
-        const matchedTokens = new Set();
-        for (const signal of prepared) {
-            const hits = [...signal.valueTokens].filter(token => document.tokenSet.has(token));
-            if (!hits.length) continue;
-            const specificTokens = [...signal.valueTokens].filter(token => !["interlock", "error", "fault"].includes(token));
-            if (specificTokens.length && !hits.some(token => specificTokens.includes(token))) continue;
-            const coverage = hits.length / signal.valueTokens.size;
-            const exactPhrase = document.normalized.includes(signal.normalizedValue);
-            const codeMatch = codeNearLabel(document.normalized, signal.name, signal.valueTokens);
-            if (["interlock", "error"].includes(signal.name) && [...signal.valueTokens].some(token => /^\d+$/.test(token))) {
-                if (!exactPhrase && !codeMatch) continue;
-            } else if (signal.name === "message" && signal.valueTokens.size > 1 && coverage < 0.5) {
-                continue;
-            } else if (signal.name === "observations" && signal.valueTokens.size > 2 && coverage < 0.34) {
-                continue;
-            }
-            let signalScore = hits.length * 4 + coverage * 12;
-            if (exactPhrase) signalScore += 35;
-            else if (codeMatch) signalScore += 28;
-            score += signalScore * signal.weight;
-            matchedSignals.push({ field: signal.name, value: signal.value, coverage: Math.round(coverage * 100) / 100 });
-            hits.forEach(token => matchedTokens.add(token));
-        }
-        if (!matchedSignals.length) continue;
-        score += Math.max(0, matchedSignals.length - 1) * 28;
-        score += Math.min([...ACTION_WORDS].filter(word => document.tokenSet.has(word)).length, 5) * 1.5;
-        if ((document.text.match(/\. \. \./g) || []).length >= 5 || document.normalized.substring(0, 500).includes("table of contents")) score *= 0.35;
-        ranked.push({ score, document, matchedSignals, matchedTokens });
-    }
-    ranked.sort((a, b) => b.score - a.score || b.matchedSignals.length - a.matchedSignals.length || a.document.page - b.document.page);
-
-    const selected = [];
-    const seen = new Set();
-    for (const item of ranked) {
-        const title = bestLine(item.document.text, allSignalTokens);
-        const key = item.document.manual + "|" + normalize(title).substring(0, 90);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        selected.push({ ...item, title });
-        if (selected.length >= 6) break;
-    }
-    const maxScore = (selected.length && selected[0].score > 0) ? selected[0].score : 1;
-    const totalSignals = prepared.length;
-    const bestMatchedCount = selected.reduce((best, item) => Math.max(best, item.matchedSignals.length), 0);
-    return {
-        results: selected.map(item => ({
-            type: "manual",
-            title: item.title,
-            manual: item.document.manual,
-            page: item.document.page,
-            context: makeContext(item.document.text, [...item.matchedTokens].join(" "), 260, 480),
-            matched_signals: item.matchedSignals,
-            relative_match: Math.max(1, Math.min(99, Math.round(item.score / maxScore * (45 + 54 * item.matchedSignals.length / totalSignals)))),
-            matched_count: item.matchedSignals.length,
-            signal_count: totalSignals
-        })),
-        signals: prepared.map(item => item.value),
-        message: selected.length && bestMatchedCount === totalSignals ? "" :
-            (selected.length > 1 ? "No todas las páginas reúnen todos los síntomas; se muestran las conexiones más relevantes." : "")
-    };
+async function _diagnoseLegacyOffline(rawSignals, requestedLimit = 3) {
+    const symptoms = LEGACY_SIGNAL_FIELDS.map(field => rawSignals[field]).filter(Boolean);
+    return _diagnoseSymptomsOffline(symptoms, requestedLimit);
 }
 
 // ─── KNOWLEDGE GRAPH OFFLINE CIRCUIT TRACER (LAZY LOADED) ───────────────────
