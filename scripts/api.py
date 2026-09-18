@@ -38,7 +38,8 @@ MAX_NOTE_TITLE = 200
 MAX_NOTE_TEXT = 20_000
 MAX_TAGS = 20
 MAX_TAG_LENGTH = 50
-NOTES_CACHE_SECONDS = 30
+# FIXME: _notes_cache is per-worker. With --preload, workers diverge and serve stale data. Consider Redis.
+NOTES_CACHE_SECONDS = 5
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
@@ -243,11 +244,16 @@ def _note_by_id(note_id: str) -> dict | None:
 
 
 def _same_note_content(existing: dict, submitted: dict) -> bool:
-    existing_tags = existing.get("tags") if isinstance(existing.get("tags"), list) else []
+    def _norm_text(v):
+        return (v or '').strip()
+    def _norm_tags(v):
+        if isinstance(v, list):
+            return sorted(str(t) for t in v)
+        return []
     return (
-        existing.get("title") == submitted["title"]
-        and existing.get("text", "") == submitted["text"]
-        and existing_tags == submitted["tags"]
+        _norm_text(existing.get('title')) == _norm_text(submitted.get('title'))
+        and _norm_text(existing.get('text')) == _norm_text(submitted.get('text'))
+        and _norm_tags(existing.get('tags')) == _norm_tags(submitted.get('tags'))
     )
 
 
@@ -676,7 +682,8 @@ def get_notes():
 
 
 @app.route("/notes", methods=["POST"])
-@limiter.limit("30 per hour")
+# FIXME: rate-limit may block large offline sync batches
+@limiter.limit("100 per hour")
 def create_note():
     if not supabase:
         return jsonify({"error": "Supabase no está conectado."}), 503

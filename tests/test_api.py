@@ -122,6 +122,24 @@ class APITests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIsInstance(res.get_json(), list)
 
+    def test_same_note_content_none_text(self):
+        from api import _same_note_content
+        existing = {"title": "A", "text": None, "tags": ["b"]}
+        submitted = {"title": "A", "text": "", "tags": ["b"]}
+        self.assertTrue(_same_note_content(existing, submitted))
+
+    def test_same_note_content_tags_order(self):
+        from api import _same_note_content
+        existing = {"title": "A", "text": "B", "tags": ["a", "b"]}
+        submitted = {"title": "A", "text": "B", "tags": ["b", "a"]}
+        self.assertTrue(_same_note_content(existing, submitted))
+
+    def test_procfile_has_bind_flag(self):
+        procfile_path = ROOT / "Procfile"
+        with procfile_path.open("r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("--bind 0.0.0.0:$PORT", content)
+
 
 if __name__ == "__main__":
     unittest.main()

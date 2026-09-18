@@ -29,6 +29,18 @@ function safeLocalStorageGet(key, fallback = "") {
     }
 }
 
+const _sessionFallback = new Map();
+function safeSessionStorageGet(key, fallback = '') {
+    try { return sessionStorage.getItem(key) ?? fallback; }
+    catch(e) { return _sessionFallback.get(key) ?? fallback; }
+}
+function safeSessionStorageSet(key, value) {
+    try { sessionStorage.setItem(key, value); }
+    catch(e) { _sessionFallback.set(key, value); }
+}
+
+function safeStr(v) { return typeof v === 'string' ? v : (v != null ? String(v) : ''); }
+
 function actualizarRed() {
     const el  = document.getElementById("estadoRed");
     const txt = document.getElementById("estadoTxt");
@@ -641,8 +653,8 @@ async function verNotaEnGrande(id) {
     
     if (!nota) { toast("⚠️ Apunte no encontrado", "err"); return; }
     
-    document.getElementById("viewNoteTitle").innerText = nota.title;
-    document.getElementById("viewNoteText").innerText = nota.text;
+    document.getElementById("viewNoteTitle").innerText = safeStr(nota.title);
+    document.getElementById("viewNoteText").innerText = safeStr(nota.text);
     
     const tagsContainer = document.getElementById("viewNoteTags");
     tagsContainer.innerHTML = "";
@@ -816,8 +828,8 @@ function dispararBusqueda() {
 
 // ─── MENSAJE DE BIENVENIDA ────────────────────────────────
 function mostrarBienvenida() {
-    if (sessionStorage.getItem("bienvenidaMostrada")) return;
-    sessionStorage.setItem("bienvenidaMostrada", "true");
+    if (safeSessionStorageGet("bienvenidaMostrada")) return;
+    safeSessionStorageSet("bienvenidaMostrada", "true");
 
     const modal = document.createElement("div");
     modal.id = "modalBienvenida";
@@ -1987,10 +1999,25 @@ async function syncPendientes() {
                     pendDel(item.id);
                 }
             } catch(error) {
-                if (error && (error.status === 404 || error.status === 400)) {
+                const status = error?.status ?? error?.response?.status;
+                if (status === 404 || status === 400) {
                     pendDel(item.id);
+                    continue;
                 }
-                console.warn("Sincronización pendiente", error);
+                if (status === 409) {
+                    if (item.op === 'create' || item.op === undefined) {
+                        const oldId = item.id;
+                        const newId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+                        item.payload = { ...item.payload, id: newId };
+                        item.id = newId;
+                        pendDel(oldId);
+                        pendAdd(item.payload);
+                    } else {
+                        pendDel(item.id);
+                    }
+                    continue;
+                }
+                console.warn('[sync] Error de red, reintentando más tarde:', error);
                 break;
             }
         }
@@ -2035,6 +2062,7 @@ async function cargarNotas() {
         const tags = (n.tags||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join("");
         const pend = pendLoad().some(p=>p.id===n.id);
         
+        const textoSeguro = safeStr(n.text);
         d.innerHTML =
             '<div class="note-item-header">'+
               '<div class="note-item-title" style="cursor:pointer; color:var(--accent);" data-action="ver-nota-grande" data-id="'+esc(n.id)+'">'+
@@ -2045,7 +2073,7 @@ async function cargarNotas() {
                 '<button type="button" class="btn btn-danger btn-sm" data-action="eliminar-nota" data-id="'+esc(n.id)+'">🗑</button>'+
               '</div>'+
             '</div>'+
-            '<div class="note-item-text" style="cursor:pointer;" data-action="ver-nota-grande" data-id="'+esc(n.id)+'">'+esc(n.text.substring(0, 100))+(n.text.length > 100 ? '...' : '')+'</div>'+
+            '<div class="note-item-text" style="cursor:pointer;" data-action="ver-nota-grande" data-id="'+esc(n.id)+'">'+esc(textoSeguro.substring(0, 100))+(textoSeguro.length > 100 ? '...' : '')+'</div>'+
             (tags?'<div class="card-tags">'+tags+'</div>':"");
         lista.appendChild(d);
     });
