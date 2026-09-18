@@ -180,10 +180,13 @@ class AuditP0MasterFixesSuite(unittest.TestCase):
         self.assertIn('typeof ev.tolerance_min === "number"', self.multimeter_js)
         self.assertIn('evaluacion.status_badge === "DESCONOCIDO"', self.multimeter_js)
 
-    def test_m03_offline_catalog_tp3_notes_and_specs_parity(self):
-        """El catálogo offline de multimeter.js contiene la especificación y nota exacta de TP3."""
-        self.assertIn('"TP3":', self.multimeter_js)
-        self.assertIn('800V pico / 3.5µs (Pulso de rejilla de tiratrón)', self.multimeter_js)
+    def test_m03_offline_catalog_tp3_notes_and_specs_parity_json(self):
+        """El catálogo offline en JSON contiene la especificación y nota exacta de TP3."""
+        import json
+        with open("scripts/static/multimeter_catalog.json", "r", encoding="utf-8") as f:
+            catalog = json.load(f)
+        self.assertIn("TP3", catalog)
+        self.assertIn("800V pico / 3.5µs (Pulso de rejilla de tiratrón)", catalog["TP3"]["spec"])
 
     def test_m05_keydown_deduplication_on_editable_elements(self):
         """multimeter.js comprueba isEditable y retorna inmediatamente para no duplicar pulsaciones."""
@@ -322,19 +325,11 @@ class AuditP0MasterFixesSuite(unittest.TestCase):
 
     # ─── CV-01 / DUP-03: PARIDAD EXACTA DE EMBEDDED_SUBSYSTEMS ────────────────
 
-    def test_cv01_embedded_subsystems_exact_parity_with_python(self):
-        """CV-01 / DUP-03: EMBEDDED_SUBSYSTEMS en circuit-visualizer.js es 100% idéntico a circuit_data.SUBSYSTEMS."""
-        js_subsystems = None
-        for line in self.cv_js.splitlines():
-            if "const EMBEDDED_SUBSYSTEMS = " in line:
-                json_str = line.split("const EMBEDDED_SUBSYSTEMS = ")[1].strip().rstrip(";")
-                js_subsystems = json.loads(json_str)
-                break
-        if js_subsystems is None:
-            match = re.search(r"const EMBEDDED_SUBSYSTEMS\s*=\s*(\{.+?\});\s*(?:\r?\n|$)", self.cv_js, re.DOTALL)
-            self.assertIsNotNone(match, "No se encontró EMBEDDED_SUBSYSTEMS en circuit-visualizer.js")
-            js_subsystems = json.loads(match.group(1))
-
+    def test_cv01_circuit_schematics_exact_parity_with_python(self):
+        """CV-01 / DUP-03: circuit_schematics.json es 100% idéntico a circuit_data.SUBSYSTEMS."""
+        import json
+        with open("scripts/static/circuit_schematics.json", "r", encoding="utf-8") as f:
+            js_subsystems = json.load(f)
         self.assertEqual(js_subsystems, circuit_data.SUBSYSTEMS)
 
     # ─── X-13 / DUP-05: SINCRONIZACIÓN DE PALABRAS GENÉRICAS ───────────────────
@@ -350,14 +345,18 @@ class AuditP0MasterFixesSuite(unittest.TestCase):
 
     # ─── M-03 / M-04: PARIDAD PROFUNDA DE CATÁLOGO Y MAPAS TP ─────────────────
 
-    def test_m03_m04_full_catalog_and_node_to_tp_deep_parity(self):
-        """M-03 y M-04: Cada entrada y mapeo de multimeter.js coincide campo a campo con multimeter_service.py."""
+    def test_m03_m04_full_catalog_and_node_to_tp_deep_parity_json(self):
+        """M-03 y M-04: El catálogo offline cargado es igual al backend y el mapeo en JS coincide."""
         from multimeter_service import TEST_POINTS_CATALOG, NODE_TO_TP_MAP
         self.assertEqual(len(TEST_POINTS_CATALOG), 20)
         self.assertEqual(len(NODE_TO_TP_MAP), 12)
 
+        import json
+        with open("scripts/static/multimeter_catalog.json", "r", encoding="utf-8") as f:
+            catalog = json.load(f)
+            
         for tp_id in TEST_POINTS_CATALOG:
-            self.assertIn(f'"{tp_id}":', self.multimeter_js)
+            self.assertIn(tp_id, catalog)
 
         for node_id, mapped_tp in NODE_TO_TP_MAP.items():
             self.assertIn(f'"{node_id}": "{mapped_tp}"', self.multimeter_js)

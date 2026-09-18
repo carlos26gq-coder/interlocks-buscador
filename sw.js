@@ -8,6 +8,7 @@ const CORE = [
     "/static/multimeter.js",
     "/static/log-parser.js",
     "/static/circuit_schematics.json",
+    "/static/multimeter_catalog.json",
     "/static/search-worker.js",
     "/static/linac_graph.json",
     "/static/icon-192.png",

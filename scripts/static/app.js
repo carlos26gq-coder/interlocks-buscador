@@ -157,7 +157,7 @@ async function apiRequest(url, options = {}) {
         let data = null;
         try { data = await response.json(); } catch { data = null; }
 
-        // For AI endpoint: if response is JSON with ok:true, return it even at odd status codes
+        // For Avanzado endpoint: if response is JSON with ok:true, return it even at odd status codes
         if (url.includes("/ai") && data && data.ok) return data;
 
         if (!response.ok) {

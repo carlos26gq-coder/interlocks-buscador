@@ -403,6 +403,14 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
     </div>
   </div>
   <div id="cvZoomPercent" class="cv-zoom-badge">100%</div>
+  
+  <div id="cvLegend" style="background:var(--surface); border:1px solid var(--border); padding:10px; margin-top:10px; border-radius:8px; font-size: 0.8rem; display: flex; gap: 15px; flex-wrap: wrap;">
+    <strong style="color:var(--accent)">Leyenda:</strong>
+    <span><span style="color:#4ade80; font-weight:bold;">█ Verde:</span> Nominal/Energizado</span>
+    <span><span style="color:#ef4444; font-weight:bold;">█ Rojo:</span> Falla/Disparado/Abierto</span>
+    <span><span style="color:#f59e0b; font-weight:bold;">█ Ámbar:</span> Advertencia/Marginal</span>
+    <span style="color:var(--muted)"><em>Haz clic en componentes para simular abrir/cerrar.</em></span>
+  </div>
 
   <div id="cvInspectorDrawer" class="cv-inspector-drawer"></div>
 </div>

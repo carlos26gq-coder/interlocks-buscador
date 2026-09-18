@@ -306,10 +306,13 @@ class AuditFixesVerificationSuite(unittest.TestCase):
 
     # ─── 5. P3: PARIDAD DEL MULTÍMETRO FRONTEND / BACKEND ───────────────────
 
-    def test_p3_1_all_test_points_parity_python_vs_js(self):
-        """Todos los puntos de prueba del catálogo Python existen en OFFLINE_CATALOG de multimeter.js."""
+    def test_p3_1_all_test_points_parity_python_vs_json(self):
+        """Todos los puntos de prueba del catálogo Python existen en multimeter_catalog.json."""
+        import json
+        with open("scripts/static/multimeter_catalog.json", "r", encoding="utf-8") as f:
+            catalog = json.load(f)
         for tp_id, tp in TEST_POINTS_CATALOG.items():
-            self.assertIn(f'"{tp_id}"', self.multimeter_js, f"Punto de prueba {tp_id} falta en multimeter.js")
+            self.assertIn(tp_id, catalog, f"Punto de prueba {tp_id} falta en multimeter_catalog.json")
 
     def test_p3_2_unified_failure_status_badge(self):
         """El badge para FUERA_DE_TOLERANCIA en multimeter.js está alineado con 'FALLA' del backend."""
