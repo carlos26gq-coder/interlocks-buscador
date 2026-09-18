@@ -10,5 +10,7 @@ AGENTS.md
 .geminirules
 .vscode/
 .env.example
+node_modules/
+.playwright-browsers/
 
 # Las pruebas automatizadas forman parte del código fuente y deben versionarse.

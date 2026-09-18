@@ -380,12 +380,18 @@ def _resolve_citations(data: dict, citation_map: dict[str, dict[str, object]]) -
                 ref_entry = f"{src['manual']}"
             if ref_entry not in manual_refs:
                 manual_refs.append(ref_entry)
-    if not manual_refs:
-        manual_refs = [
-            "Sin página específica de manual; diagnóstico apoyado en la "
-            "topología del grafo de hardware."
-        ]
+    # Una respuesta sin citas válidas no puede publicarse como diagnóstico
+    # documentado. La UI debe mostrarla como no correlacionada y sin acciones.
     data["manual_references"] = manual_refs
+    if not manual_refs:
+        data["root_cause"] = "Sin correlación documentada"
+        data["confidence"] = "baja"
+        data["associated_boards"] = []
+        data["cables_and_connectors"] = []
+        data["test_points_and_signals"] = []
+        data["action_steps"] = []
+        data["explanation"] = "No se encontró una cita válida en el corpus local para sostener este diagnóstico."
+        data.setdefault("_diagnostic_meta", {})["evidence_blocked"] = True
     return data
 
 
@@ -442,10 +448,21 @@ def generate_local_failover_diagnosis(
     for m in (s_manuals + g_manuals):
         if m and m not in combined_manuals:
             combined_manuals.append(m)
-    if not combined_manuals:
-        combined_manuals = [
-            "Sin página específica de manual; diagnóstico apoyado en la topología del grafo de hardware."
-        ]
+    has_evidence = bool(combined_manuals or hub_node or g_pcbs or g_cables or g_conns or g_tps)
+    if not has_evidence:
+        return {
+            "root_cause": "Sin correlación documentada",
+            "subsystem": "No identificado",
+            "confidence": "baja",
+            "explanation": "No se encontró evidencia suficiente en manuales ni topología local.",
+            "associated_boards": [],
+            "cables_and_connectors": [],
+            "test_points_and_signals": [],
+            "manual_references": [],
+            "action_steps": [],
+            "safety_warning": "No intervenir componentes basándose únicamente en esta entrada.",
+            "_diagnostic_meta": {"failover": True, "reason": reason, "evidence_blocked": True},
+        }
 
     if hub_node and hub_node != "Conexión Técnica en Manuales":
         root_cause = f"Discontinuidad o anomalía en {hub_node} (Topología Hardware)"

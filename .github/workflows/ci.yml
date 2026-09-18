@@ -60,3 +60,40 @@ jobs:
           node --check scripts/static/log-parser.js
           node --check scripts/static/multimeter.js
           node --check sw.js
+
+  browser-contract:
+    name: Browser, DOM and Service Worker smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install backend and browser dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          npm install --no-audit --no-fund
+          npx playwright install chromium
+      - name: Start local Flask app
+        shell: bash
+        run: |
+          python -c "import sys; sys.path.insert(0, 'scripts'); from api import app; app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)" > /tmp/solvi-flask.log 2>&1 &
+          echo $! > /tmp/solvi-flask.pid
+          for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:5000/health && exit 0; sleep 1; done
+          cat /tmp/solvi-flask.log
+          exit 1
+      - name: Run real browser and Service Worker flow
+        run: npm run test:browser
+      - name: Stop local Flask app
+        if: always()
+        shell: bash
+        run: if [ -f /tmp/solvi-flask.pid ]; then kill "$(cat /tmp/solvi-flask.pid)" || true; fi

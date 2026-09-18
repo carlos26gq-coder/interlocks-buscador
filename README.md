@@ -8,7 +8,10 @@ La consulta de manuales y el diagnóstico no requieren cuenta ni contraseña. La
 
 - **Online:** Flask utiliza un índice invertido construido al iniciar el servidor. `/search` ofrece resultados paginados y `/diagnose` combina varios síntomas.
 - **Offline:** un Web Worker carga los fragmentos compactos de `data/search/`, crea su índice fuera del hilo visual y ejecuta la misma búsqueda localmente.
-- **PWA:** el service worker guarda la aplicación, el catálogo y todos los fragmentos de manuales. Los PDF permanecen en Cloudflare R2 y requieren conexión, salvo que el usuario los haya descargado.
+- **PWA:** el service worker guarda la aplicación y el catálogo; los fragmentos de manuales se descargan y cachean al realizar una búsqueda que los necesita. Los PDF permanecen en Cloudflare R2 y requieren conexión, salvo que el usuario los haya descargado.
+- **PDF offline:** no se precargan los 19 manuales completos; cada PDF queda disponible sin conexión únicamente después de una descarga explícita y caché local.
+- **DMM:** el multímetro es virtual/manual y simulado. BLE y Web Serial no forman parte del producto actual.
+- **Trazabilidad:** las afirmaciones técnicas publicables se registran en `data/documentary_traceability.json` con manual, página y extracto.
 - **Apuntes:** Supabase es la fuente compartida. Las notas nuevas creadas sin conexión quedan en una cola local y se eliminan de la cola solamente después de una respuesta exitosa del servidor.
 
 ## Variables de entorno
@@ -19,10 +22,12 @@ Configurar en Render, nunca dentro del repositorio:
 ADMIN_PASSWORD=...
 R2_PUBLIC_URL=https://...r2.dev
 SUPABASE_URL=https://...supabase.co
-SUPABASE_KEY=clave_publicable_o_anon
+SUPABASE_KEY=clave_service_role_solo_en_Render
 ```
 
 La tabla `notes` debe aceptar las columnas `id` (UUID), `title` (texto), `text` (texto) y `tags` (array de texto o JSON compatible). Revisar las políticas RLS: la API controla edición y eliminación mediante `ADMIN_PASSWORD`, pero la clave utilizada por el servidor también debe tener los permisos mínimos necesarios.
+
+La migración reproducible está en `supabase/migrations/001_notes_rls.sql`. Activa RLS y bloquea el acceso directo de `anon`/`authenticated`; Render debe usar una clave `service_role` protegida. En despliegues con varios workers configure `RATELIMIT_STORAGE_URI` y `NOTES_CACHE_REDIS_URL` apuntando al mismo Redis; así los límites y la caché de apuntes no se dividen por proceso.
 
 ## Añadir o actualizar un manual
 
@@ -55,6 +60,14 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 ```
 
+El bootstrap reproducible valida Python 3.12, instala las dependencias fijadas
+y ejecuta `pip check`:
+
+```powershell
+$env:SOLVI_PYTHON312 = "C:\ruta\a\python312\python.exe"
+.\scripts\bootstrap_local.ps1 -VenvPath .venv-solvi312
+```
+
 Ejecutar la suite:
 
 ```powershell
@@ -68,6 +81,18 @@ node --check scripts/static/app.js
 node --check scripts/static/search-worker.js
 node --check sw.js
 ```
+
+El flujo real de navegador, DOM, Service Worker y simulador usa Playwright:
+
+```powershell
+npm install
+npx playwright install chromium
+$env:SOLVI_BASE_URL = "http://127.0.0.1:5000"
+npm run test:browser
+```
+
+La prueba no necesita credenciales reales de Supabase, Redis o R2; valida sus
+contratos locales. Los binarios de Chromium y los PDFs permanecen fuera de Git.
 
 ### Integración GitHub → Render
 

@@ -248,10 +248,10 @@ class MultimeterIntegrationSuite(unittest.TestCase):
         self.assertIn("MAX_HISTORY_RECORDS", self.multimeter_js)
         self.assertIn("_history.length = MAX_HISTORY_RECORDS", self.multimeter_js)
 
-        # 2. Desactivación de timers y hardware en onDeactivate
+        # 2. Desactivación de timers de simulación en onDeactivate
         self.assertIn("function onDeactivate()", self.multimeter_js)
         self.assertIn("pausarTelemetriaVirtual()", self.multimeter_js)
-        self.assertIn("desconectarHardware()", self.multimeter_js)
+        self.assertNotIn("desconectarHardware", self.multimeter_js)
 
         # 3. Frecuencia controlada de telemetría para evitar saturación de CPU
         self.assertIn("THROTTLE_SIMULATION_MS", self.multimeter_js)
@@ -361,11 +361,10 @@ class MultimeterIntegrationSuite(unittest.TestCase):
         self.assertIn("dmm-quick-guide", self.html)
         self.assertIn("Entrada Manual Rápida", self.html)
         self.assertIn("Simulador de Banco", self.html)
-        self.assertIn("Enlace Digital (BLE / USB-Serie)", self.html)
+        self.assertNotIn("Enlace Digital (BLE / USB-Serie)", self.html)
         self.assertIn("Guardar en Mis Apuntes", self.html)
         self.assertIn("Guía rápida:", self.multimeter_js)
 
 
 if __name__ == "__main__":
     unittest.main()
-

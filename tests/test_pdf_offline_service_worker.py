@@ -78,17 +78,18 @@ class PdfOfflineServiceWorkerSuite(unittest.TestCase):
         self.assertIn('data-action="descargar-pdf-offline"', self.app_js)
         self.assertIn("caches.open", self.app_js)
 
-    def test_sw_full_caching_on_first_range_request(self):
-        """P0: Verifica que en peticiones con Range no cacheadas, sw.js descargue y almacene el PDF completo (status 200)."""
+    def test_sw_full_caching_requires_explicit_download(self):
+        """El visor no precachea un PDF al abrirlo; solo una descarga explícita lo persiste."""
         self.assertIn("filterHeadersWithoutRange", self.sw_js)
         self.assertIn("cleanRequest", self.sw_js)
         self.assertIn("fullResponse.status === 200", self.sw_js)
-        self.assertIn("cache.put(cleanRequest, fullResponse.clone())", self.sw_js)
+        self.assertIn("explicitDownload", self.sw_js)
+        self.assertIn("if (explicitDownload) await cache.put(cleanRequest, fullResponse.clone())", self.sw_js)
 
-    def test_sw_buffer_reuse_optimizes_mobile_ram(self):
-        """Verifica que returnPartialContent reutilice el ArrayBuffer (_lastPdfBuffer) en peticiones consecutivas."""
-        self.assertIn("_lastPdfBuffer", self.sw_js)
-        self.assertIn("_lastPdfUrl", self.sw_js)
+    def test_sw_does_not_retain_pdf_buffer_globally(self):
+        """El ArrayBuffer temporal no queda retenido entre PDFs para limitar RAM móvil."""
+        self.assertNotIn("_lastPdfBuffer", self.sw_js)
+        self.assertNotIn("_lastPdfUrl", self.sw_js)
 
     def test_app_js_pdf_button_always_rendered_for_manuals(self):
         """Verifica que la tarjeta de búsqueda siempre muestre el botón 'Ver pág.' para manuales técnicos."""
@@ -103,4 +104,3 @@ class PdfOfflineServiceWorkerSuite(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

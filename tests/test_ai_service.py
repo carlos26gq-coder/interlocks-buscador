@@ -184,7 +184,10 @@ Fin del reporte."""
         res = analyze_with_gemini(["ITEM 409"], engine, api_key="fake_key")
         self.assertTrue(res["ok"])
         manual_refs = res["data"]["manual_references"]
-        self.assertTrue(any("grafo de hardware" in ref or "Sin página" in ref for ref in manual_refs))
+        # Una cita inventada no puede degradarse a una atribución topológica
+        # no verificable: el contrato actual bloquea el diagnóstico.
+        self.assertEqual(manual_refs, [])
+        self.assertTrue(res["data"].get("_diagnostic_meta", {}).get("evidence_blocked"))
         self.assertFalse(any("C99" in ref or "Página 99" in ref for ref in manual_refs))
 
     @patch("ai_service.genai.Client")
@@ -210,9 +213,8 @@ Fin del reporte."""
         res = analyze_with_gemini(["ITEM 409"], engine, api_key="fake_key")
         self.assertTrue(res["ok"])
         manual_refs = res["data"]["manual_references"]
-        self.assertEqual(len(manual_refs), 1)
-        self.assertIn("grafo de hardware", manual_refs[0])
-        self.assertNotIn("ht_rf (Página 22)", manual_refs)
+        self.assertEqual(manual_refs, [])
+        self.assertTrue(res["data"].get("_diagnostic_meta", {}).get("evidence_blocked"))
 
     @patch("ai_service.genai.Client")
     def test_analyze_with_gemini_finish_reason_max_tokens_flagged(self, mock_client_cls):
@@ -255,7 +257,8 @@ Fin del reporte."""
 
         res = analyze_with_gemini(["ITEM 112"], engine, api_key="fake_key")
         self.assertTrue(res["ok"])
-        self.assertEqual(res["data"]["root_cause"], "Falla en contactor K1")
+        self.assertEqual(res["data"]["root_cause"], "Sin correlación documentada")
+        self.assertTrue(res["data"].get("_diagnostic_meta", {}).get("evidence_blocked"))
         self.assertTrue(res["data"].get("_diagnostic_meta", {}).get("degraded_parse"))
 
     # ─── 6. RESILENCIA ANTE TIMEOUTS Y FAILOVER LOCAL DETERMINISTA ───────────

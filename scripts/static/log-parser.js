@@ -574,6 +574,10 @@ class LogParser {
     }
 }
 
+// El shell HTML invoca el analizador mediante wrappers globales.
+// Exponer explícitamente la clase evita que el binding léxico quede aislado.
+if (typeof window !== "undefined") window.LogParser = LogParser;
+
 document.addEventListener("DOMContentLoaded", () => {
     const dropZone = document.getElementById("logDropZone");
     if (dropZone) {
@@ -590,7 +594,7 @@ document.addEventListener("DOMContentLoaded", () => {
         fileInput.addEventListener("change", LogParser.handleFileSelect);
     }
 
-    const entriesContainer = document.getElementById("logEntriesContainer");
+    const entriesContainer = document.getElementById("logResults");
     if (entriesContainer) {
         entriesContainer.addEventListener("click", (e) => {
             const btn = e.target.closest("[data-log-action]");

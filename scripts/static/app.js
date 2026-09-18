@@ -20,6 +20,13 @@ let _wasOffline = false;
 let _notesStorageReady = false;
 let _isSyncingNotes = false;
 
+function setNotesSyncStatus(text, tone = "muted") {
+    const el = document.getElementById("notesSyncStatus");
+    if (!el) return;
+    el.textContent = "Estado: " + text;
+    el.style.color = tone === "ok" ? "var(--green)" : tone === "warn" ? "var(--warn)" : "var(--muted)";
+}
+
 function safeLocalStorageGet(key, fallback = "") {
     try {
         const value = localStorage.getItem(key);
@@ -59,6 +66,7 @@ function actualizarRed() {
             _wasOffline = true;
             toast("Modo sin conexión activado. Las herramientas locales siguen operativas.", "warn");
         }
+        setNotesSyncStatus("pendiente de conexión", "warn");
     }
     NetworkMonitor.notify(online);
 }
@@ -218,6 +226,8 @@ function toast(msg, tipo) {
     document.querySelectorAll(".toast").forEach(t => t.remove());
     const t = document.createElement("div");
     t.className = "toast " + (tipo==="err" ? "terr" : tipo==="warn" ? "twarn" : "tok");
+    t.setAttribute("role", tipo === "err" ? "alert" : "status");
+    t.setAttribute("aria-live", tipo === "err" ? "assertive" : "polite");
     t.textContent = msg;
     if (document.body) {
         document.body.appendChild(t);
@@ -281,6 +291,13 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
         try { window._pdfRenderTask.cancel(); } catch (_e) {}
         window._pdfRenderTask = null;
     }
+    if (window._pdfLoadingTask) {
+        try { window._pdfLoadingTask.destroy(); } catch (_e) {}
+        window._pdfLoadingTask = null;
+    }
+    if (window._pdfLoadTimer) clearTimeout(window._pdfLoadTimer);
+    const loadSequence = (window._pdfLoadSequence || 0) + 1;
+    window._pdfLoadSequence = loadSequence;
 
     let modal = document.getElementById("pdfModal");
     if (!modal) {
@@ -311,24 +328,38 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
     window._pdfDoc      = null;
     window._pdfPage     = pageNum;
     window._pdfRendering = false;
+    window._pdfLoadingTask = null;
 
     activarZoomCanvas();
 
     const isMobileOrTablet = /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent);
     const shouldDisableRange = isMobileOrTablet || !isOnline();
 
-    pdfjsLib.getDocument({ 
+    const loadingTask = pdfjsLib.getDocument({
         url: pdfUrl, 
         disableRange: shouldDisableRange, 
         disableStream: false,
         disableAutoFetch: true,
         maxImageSize: 1024 * 1024 * 16
-    })
-        .promise.then(function(doc) {
+    });
+    window._pdfLoadingTask = loadingTask;
+    window._pdfLoadTimer = setTimeout(() => {
+        try { loadingTask.destroy(); } catch (_e) {}
+    }, 15000);
+    loadingTask.promise.then(function(doc) {
+            if (loadSequence !== window._pdfLoadSequence) {
+                try { doc.destroy(); } catch (_e) {}
+                return;
+            }
+            clearTimeout(window._pdfLoadTimer);
+            window._pdfLoadingTask = null;
             window._pdfDoc = doc;
             document.getElementById("pdfPagInfo").textContent = "Pág. " + pageNum + " / " + doc.numPages;
             renderPdfPagina(pageNum);
         }).catch(function(err) {
+            clearTimeout(window._pdfLoadTimer);
+            if (loadSequence !== window._pdfLoadSequence) return;
+            window._pdfLoadingTask = null;
             let errorTitulo = "Error al Cargar Documento";
             let errorDetalle = "No se pudo renderizar el archivo PDF solicitado.";
             const errName = (err && err.name) || "";
@@ -365,11 +396,15 @@ async function cacheManualOffline(pdfUrl, manualName) {
     try {
         if ("caches" in window) {
             const cacheKeys = await caches.keys();
-            const activeCacheName = cacheKeys.find(k => k.startsWith("solvi-")) || "solvi-v27";
+            const activeCacheName = cacheKeys.find(k => k.startsWith("solvi-")) || "solvi-v28";
             const cache = await caches.open(activeCacheName);
             const existing = await cache.match(pdfUrl, { ignoreSearch: true });
             if (!existing) {
-                const resp = await fetch(pdfUrl, { cache: "no-cache" });
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 30000);
+                let resp;
+                try { resp = await fetch(pdfUrl, { cache: "no-cache", signal: controller.signal }); }
+                finally { clearTimeout(timeout); }
                 if (resp && resp.ok) {
                     await cache.put(pdfUrl, resp.clone());
                     toast(`✅ "${manualName}" guardado en caché offline`, "ok");
@@ -532,6 +567,12 @@ function cerrarVisorPDF() {
         try { window._pdfRenderTask.cancel(); } catch (_e) {}
         window._pdfRenderTask = null;
     }
+    if (window._pdfLoadingTask) {
+        try { window._pdfLoadingTask.destroy(); } catch (_e) {}
+        window._pdfLoadingTask = null;
+    }
+    if (window._pdfLoadTimer) clearTimeout(window._pdfLoadTimer);
+    window._pdfLoadSequence = (window._pdfLoadSequence || 0) + 1;
     const canvas = document.getElementById("pdfCanvas");
     if (canvas) {
         canvas.width = 1;
@@ -1700,6 +1741,9 @@ document.addEventListener("DOMContentLoaded", async function() {
         } else if (action === "ver-nota-grande") {
             event.preventDefault();
             verNotaEnGrande(el.dataset.id);
+        } else if (action === "cargar-mas-notas") {
+            event.preventDefault();
+            cargarMasNotas();
         } else if (action === "editar-nota") {
             event.preventDefault();
             editarNota(el.dataset.id);
@@ -1742,7 +1786,9 @@ document.addEventListener("DOMContentLoaded", async function() {
 
     if (isOnline()) {
         await syncPendientes();
-        apiRequest("/notes").then(data => { if (Array.isArray(data)) mergeCloudNotes(data); }).catch(()=>{});
+        apiRequest("/notes?page=1&limit=100").then(data => {
+            if (Array.isArray(data) || Array.isArray(data?.notes)) mergeCloudNotes(data);
+        }).catch(() => setNotesSyncStatus("pendiente de reintento", "warn"));
     }
 });
 
@@ -1951,9 +1997,18 @@ function pendAddDelete(id) {
 }
 
 function mergeCloudNotes(cloudNotes) {
+    // Acepta la respuesta histórica (array) y la respuesta paginada
+    // {notes: [...], has_more: bool} sin perder apuntes offline pendientes.
+    if (!Array.isArray(cloudNotes)) cloudNotes = cloudNotes?.notes || [];
     const pends = pendLoad();
     const deletedIds = new Set(pends.filter(p => p.op === "delete").map(p => p.id));
-    const merged = Array.isArray(cloudNotes) ? cloudNotes.filter(note => !deletedIds.has(note.id)) : [];
+    const merged = notasLocal().filter(note => !deletedIds.has(note.id));
+    for (const cloudNote of (Array.isArray(cloudNotes) ? cloudNotes : [])) {
+        if (deletedIds.has(cloudNote.id)) continue;
+        const index = merged.findIndex(note => note.id === cloudNote.id);
+        if (index >= 0) merged[index] = cloudNote;
+        else merged.push(cloudNote);
+    }
     for (const pending of pends) {
         if (pending.op === "create" && !merged.some(note => note.id === pending.id)) {
             merged.push(pending.payload);
@@ -1968,7 +2023,8 @@ async function syncPendientes() {
     if (_isSyncingNotes) return;
     const runSync = async () => {
         const pend = pendLoad();
-        if (!pend.length) return;
+        if (!pend.length) { setNotesSyncStatus("sincronizado", "ok"); return; }
+        setNotesSyncStatus("sincronizando…");
         let ok = 0;
         
         const creates = pend.filter(item => item.op === "create");
@@ -2009,6 +2065,7 @@ async function syncPendientes() {
                     continue;
                 }
                 console.warn('[sync] Error de red en batch:', error);
+                setNotesSyncStatus("pendiente de reintento", "warn");
                 break;
             }
         }
@@ -2031,6 +2088,7 @@ async function syncPendientes() {
             }
         }
         if (ok > 0) toast("☁️ " + ok + " apunte(s) sincronizado(s)");
+        if (!pendLoad().length) setNotesSyncStatus("sincronizado", "ok");
     };
 
     _isSyncingNotes = true;
@@ -2049,21 +2107,36 @@ async function syncPendientes() {
 
 // ─── ADMIN ───────────────────────────────────────────────
 let _adminPw = ""; 
+let _notesPage = 1;
+let _notesHasMore = false;
 
 // ─── NOTAS cargar ────────────────────────────────────────
-async function cargarNotas() {
+async function cargarNotas(reset = true) {
     const lista = document.getElementById("listaNotas");
     const empty = document.getElementById("sinNotas");
     if (!lista) return;
-    lista.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+    if (reset) {
+        _notesPage = 1;
+        _notesHasMore = false;
+        lista.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+    }
     if (empty) empty.style.display = "none";
     let notas = [];
     if (isOnline()) {
-        try { notas = mergeCloudNotes(await apiRequest("/notes")); }
+        try {
+            const cloudData = await apiRequest("/notes?page=" + _notesPage + "&limit=100");
+            _notesHasMore = !Array.isArray(cloudData) && cloudData.has_more === true;
+            notas = mergeCloudNotes(Array.isArray(cloudData) ? cloudData : (cloudData.notes || []));
+        }
         catch { notas = notasLocal(); }
     } else { notas = notasLocal(); }
     lista.innerHTML = "";
-    if (!notas || !notas.length) { if(empty) empty.style.display="flex"; return; }
+    if (!notas || !notas.length) {
+        if(empty) empty.style.display="flex";
+        const more = document.getElementById("notesLoadMore");
+        if (more) more.style.display = "none";
+        return;
+    }
     
     notas.forEach(n => {
         const d = document.createElement("div");
@@ -2086,6 +2159,14 @@ async function cargarNotas() {
             (tags?'<div class="card-tags">'+tags+'</div>':"");
         lista.appendChild(d);
     });
+    const more = document.getElementById("notesLoadMore");
+    if (more) more.style.display = _notesHasMore ? "block" : "none";
+}
+
+async function cargarMasNotas() {
+    if (!_notesHasMore || !isOnline()) return;
+    _notesPage += 1;
+    await cargarNotas(false);
 }
 
 // ─── NOTAS formulario ────────────────────────────────────

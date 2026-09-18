@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "purpose": "Registro mínimo de afirmaciones técnicas publicables y su evidencia en el corpus local.",
+  "entries": [
+    {
+      "id": "TP100",
+      "claim": "La polarización de la cámara de ionización es -320.0 V DC.",
+      "manual": "dosimetry",
+      "page": 43,
+      "physical_page": 43,
+      "extract": "The RHCA (Area 12) supplies the -320 V DC polarized voltage to the ion chamber through a coaxial cable. The voltage is measured at the ion chamber. If the voltage is missing, an inhibit prevents the operation of the linear accelerator.",
+      "status": "verified_voltage_not_label",
+      "caveat": "La página verifica la tensión y su función; no imprime literalmente la etiqueta TP100. No usar TP100 como evidencia textual de esa página."
+    },
+    {
+      "id": "PCB_PPG",
+      "claim": "La PCB PPG pertenece al sistema HT/RF del HTCA.",
+      "manual": "ht_rf",
+      "page": 49,
+      "physical_page": 49,
+      "extract": "The HTCA is in Area 16 on the gantry drum. The HT and RF system PCBs are: PPG PCB.",
+      "status": "verified_text"
+    },
+    {
+      "id": "ITEM_506",
+      "claim": "ITEM 506 DS1 SUPPLY aparece en el esquema de dosimetría.",
+      "manual": "diagrams",
+      "page": 217,
+      "physical_page": 217,
+      "extract": "DOSE-A PCB 12B ... PCB 12S ... ITEM 506 DS1 SUPPLY ... ITEM 456 DS2 SUPPLY ...",
+      "status": "verified_text"
+    },
+    {
+      "id": "ITEM_456",
+      "claim": "ITEM 456 DS2 SUPPLY aparece en el esquema de dosimetría.",
+      "manual": "diagrams",
+      "page": 217,
+      "physical_page": 217,
+      "extract": "DOSE-A PCB 12B ... PCB 12S ... ITEM 506 DS1 SUPPLY ... ITEM 456 DS2 SUPPLY ...",
+      "status": "verified_text"
+    },
+    {
+      "id": "OFFLINE_PDF_ON_DEMAND",
+      "claim": "Los PDFs se descargan bajo demanda y quedan disponibles offline solo después de una descarga explícita.",
+      "source": "scripts/static/app.js:363-384; scripts/static/sw.js",
+      "status": "runtime_verified",
+      "caveat": "No se precachea el corpus completo de PDFs. El índice de búsqueda y los esquemas sí forman parte del núcleo offline."
+    }
+  ]
+}

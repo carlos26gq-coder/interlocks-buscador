@@ -264,7 +264,8 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
                 "type": "pcb",
                 "x": 470, "y": 130, "width": 210, "height": 100,
                 "spec": "Modulator Timing, Pulse Generator & Bias Board",
-                "manual": "ht_rf", "page": 22,
+                "manual": "ht_rf", "page": 49,
+                "evidence_status": "verified_text",
                 "role": "Sincronización de pulsos y control de disparo de tiratrón"
             },
             {
@@ -424,7 +425,7 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
         "badge": "-320V Bias / D_RATE 1 & 2",
         "icon": "🎯",
         "description": "Cámara de ionización plana de transmisión segmentada: polarización -320V HV, integración de carga analógica en PCB 12B y PCB 12S, señales D_RATE 1/2 y corte redundante por Interlock 456 / 506.",
-        "manual_references": ["dosimetry (Pág 18)", "technical (Pág 103)", "diagrams (Pág 22)"],
+        "manual_references": ["dosimetry (Pág 43)", "diagrams (Pág 217)"],
         "viewBox": "0 0 1200 680",
         "nodes": [
             {
@@ -434,7 +435,8 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
                 "type": "source",
                 "x": 50, "y": 140, "width": 165, "height": 80,
                 "spec": "-320.0V DC polarización constante de cámara",
-                "manual": "dosimetry", "page": 12,
+                "manual": "dosimetry", "page": 43,
+                "evidence_status": "verified_voltage_not_label",
                 "role": "Generación de campo eléctrico para colección de iones"
             },
             {
@@ -444,7 +446,8 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
                 "type": "test_point",
                 "x": 245, "y": 155, "width": 65, "height": 42,
                 "spec": "-320V DC ± 2V (Monitor de Polarización)",
-                "manual": "dosimetry", "page": 13,
+                "manual": "dosimetry", "page": 43,
+                "evidence_status": "verified_voltage_not_label",
                 "role": "Verificación de estabilidad de la tensión de polarización"
             },
             {
@@ -514,7 +517,8 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
                 "type": "signal",
                 "x": 765, "y": 250, "width": 155, "height": 65,
                 "spec": "ITEM 506 / Comparador de dosis prescrita alcanzada",
-                "manual": "catalogue", "page": 55,
+                "manual": "diagrams", "page": 217,
+                "evidence_status": "verified_text",
                 "role": "Señal de finalización normal del campo de tratamiento"
             },
             {
@@ -564,7 +568,8 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
                 "type": "signal",
                 "x": 765, "y": 485, "width": 155, "height": 65,
                 "spec": "ITEM 456 / Disparo por exceso de dosis (+10% MU o +25MU)",
-                "manual": "catalogue", "page": 58,
+                "manual": "diagrams", "page": 217,
+                "evidence_status": "verified_text",
                 "role": "Disparo de seguridad en caso de fallo del canal primario"
             },
             {

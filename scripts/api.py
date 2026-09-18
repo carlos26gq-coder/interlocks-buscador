@@ -30,6 +30,11 @@ from search_engine import SearchEngine, normalize
 from supabase import Client, create_client
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+try:
+    import redis as redis_lib
+except ImportError:  # Redis es opcional en desarrollo; Render debe configurarlo para compartir caché.
+    redis_lib = None
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DATA_PATH = DATA_DIR / "all_manuals.json"
@@ -38,8 +43,10 @@ MAX_NOTE_TITLE = 200
 MAX_NOTE_TEXT = 20_000
 MAX_TAGS = 20
 MAX_TAG_LENGTH = 50
-# FIXME: _notes_cache is per-worker. With --preload, workers diverge and serve stale data. Consider Redis.
 NOTES_CACHE_SECONDS = 5
+NOTES_CACHE_REDIS_URL = (os.environ.get("NOTES_CACHE_REDIS_URL") or os.environ.get("REDIS_URL", "")).strip()
+MAX_NOTES_PAGE = 100
+MAX_NOTES_SEARCH = 500
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
@@ -49,7 +56,7 @@ limiter = Limiter(
     key_func=get_remote_address,
     app=app,
     default_limits=[],
-    storage_uri=os.environ.get("RATELIMIT_STORAGE_URI", "memory://"),
+    storage_uri=os.environ.get("RATELIMIT_STORAGE_URI") or os.environ.get("REDIS_URL", "memory://"),
 )
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "").strip()
@@ -71,6 +78,26 @@ search_engine = SearchEngine(manuals)
 BUILD_TIME = str(int(time.time()))
 _notes_cache = {"loaded_at": 0.0, "data": []}
 _notes_lock = threading.Lock()
+_notes_shared_cache = None
+
+
+def _get_shared_cache():
+    """Obtiene Redis una sola vez; sin URL se mantiene el fallback local de desarrollo."""
+    global _notes_shared_cache
+    if _notes_shared_cache is not None:
+        return _notes_shared_cache
+    if not NOTES_CACHE_REDIS_URL or redis_lib is None:
+        return None
+    try:
+        _notes_shared_cache = redis_lib.Redis.from_url(
+            NOTES_CACHE_REDIS_URL, decode_responses=True, socket_timeout=1
+        )
+        _notes_shared_cache.ping()
+        return _notes_shared_cache
+    except Exception as exc:
+        app.logger.warning("Caché Redis de apuntes no disponible: %s", _sanitize_error_message(exc))
+        _notes_shared_cache = None
+        return None
 
 app.logger.info(
     "SOLVI iniciado: %s páginas, %s manuales, Supabase=%s, R2=%s",
@@ -173,12 +200,36 @@ def validated_tags(data: dict) -> list[str]:
 
 
 def validated_uuid(value: object, *, generate: bool = False) -> str:
-    if not value and generate:
+    if (value is None or value == "") and generate:
         return str(uuid.uuid4())
+    if not isinstance(value, str):
+        raise ValidationError("El identificador del apunte debe ser texto UUID.")
     try:
-        return str(uuid.UUID(str(value)))
+        return str(uuid.UUID(value))
     except (ValueError, TypeError, AttributeError) as exc:
         raise ValidationError("El identificador del apunte no es válido.") from exc
+
+
+def strict_string_list(value: object, *, key: str, max_items: int, max_length: int, required: bool = False) -> list[str]:
+    """Valida listas JSON sin convertir silenciosamente números/objetos a texto."""
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        raise ValidationError(f"'{key}' debe ser una lista de textos.")
+    if len(value) > max_items:
+        raise ValidationError(f"'{key}' admite como máximo {max_items} elementos.")
+    clean = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValidationError(f"Cada elemento de '{key}' debe ser texto.")
+        item = item.strip()
+        if len(item) > max_length:
+            raise ValidationError(f"Cada elemento de '{key}' admite hasta {max_length} caracteres.")
+        if item:
+            clean.append(item)
+    if required and not clean:
+        raise ValidationError(f"'{key}' requiere al menos un elemento.")
+    return clean
 
 
 def check_password(password: object) -> bool:
@@ -207,24 +258,66 @@ def invalidate_notes_cache() -> None:
     with _notes_lock:
         _notes_cache["loaded_at"] = 0.0
         _notes_cache["data"] = []
+    shared_cache = _get_shared_cache()
+    if shared_cache is not None:
+        try:
+            keys = list(shared_cache.scan_iter(match="solvi:notes:*", count=100))
+            if keys:
+                shared_cache.delete(*keys)
+        except Exception as exc:
+            app.logger.debug("Invalidación de caché Redis omitida: %s", _sanitize_error_message(exc))
 
 
-def notes_load(*, force: bool = False) -> list[dict]:
+def notes_load(*, force: bool = False, limit: int | None = None, offset: int = 0) -> list[dict]:
     if not supabase:
         return []
+    if limit is not None:
+        limit = max(1, min(MAX_NOTES_PAGE, int(limit)))
+        offset = max(0, int(offset))
+    cache_key = f"solvi:notes:{offset}:{limit or 'all'}"
+    shared_cache = _get_shared_cache()
+    if shared_cache is not None and not force:
+        try:
+            cached_json = shared_cache.get(cache_key)
+            if cached_json:
+                cached_data = json.loads(cached_json)
+                if isinstance(cached_data, list):
+                    return cached_data
+        except Exception as exc:
+            app.logger.debug("Lectura de caché Redis omitida: %s", _sanitize_error_message(exc))
     now = time.monotonic()
-    with _notes_lock:
-        if not force and now - _notes_cache["loaded_at"] < NOTES_CACHE_SECONDS:
-            return list(_notes_cache["data"])
-    try:
-        response = supabase.table("notes").select("*").execute()
-        data = response.data if isinstance(response.data, list) else []
+    if limit is None:
         with _notes_lock:
-            _notes_cache["loaded_at"] = now
-            _notes_cache["data"] = data
+            if not force and now - _notes_cache["loaded_at"] < NOTES_CACHE_SECONDS:
+                return list(_notes_cache["data"])
+    try:
+        query = supabase.table("notes").select("*")
+        try:
+            query = query.order("created_at", desc=True)
+        except (AttributeError, TypeError):
+            # Compatibilidad con adaptadores/mocks antiguos; la migración crea el índice.
+            pass
+        if limit is not None:
+            try:
+                query = query.range(offset, offset + limit - 1)
+            except (AttributeError, TypeError):
+                pass
+        response = query.execute()
+        data = response.data if isinstance(response.data, list) else []
+        if limit is None:
+            with _notes_lock:
+                _notes_cache["loaded_at"] = now
+                _notes_cache["data"] = data
+        if shared_cache is not None:
+            try:
+                shared_cache.setex(cache_key, NOTES_CACHE_SECONDS, json.dumps(data, ensure_ascii=False))
+            except Exception as exc:
+                app.logger.debug("Escritura de caché Redis omitida: %s", _sanitize_error_message(exc))
         return list(data)
     except Exception:
         app.logger.exception("Error al leer apuntes de Supabase")
+        if limit is not None:
+            return []
         with _notes_lock:
             return list(_notes_cache["data"])
 
@@ -260,7 +353,7 @@ def _same_note_content(existing: dict, submitted: dict) -> bool:
 def note_search(query: str) -> list[dict]:
     normalized_query = normalize(query)
     results = []
-    for note in notes_load():
+    for note in notes_load(limit=MAX_NOTES_SEARCH, offset=0):
         tags = note.get("tags") if isinstance(note.get("tags"), list) else []
         searchable = normalize(
             f"{note.get('title', '')} {note.get('text', '')} {' '.join(map(str, tags))}"
@@ -417,18 +510,8 @@ def diagnose():
     data = json_body()
     # New format: {"symptoms": ["...", "...", ...]} — up to 4 free-form symptom strings
     symptoms_raw = data.get("symptoms")
-    if isinstance(symptoms_raw, str):
-        symptoms_raw = [symptoms_raw]
-    if isinstance(symptoms_raw, list):
-        symptoms = []
-        for item in symptoms_raw[:4]:
-            if not isinstance(item, str):
-                item = str(item)
-            cleaned = item.strip()
-            if len(cleaned) > 300:
-                raise ValidationError("Cada síntoma admite hasta 300 caracteres.")
-            if cleaned:
-                symptoms.append(cleaned)
+    if symptoms_raw is not None:
+        symptoms = strict_string_list(symptoms_raw, key="symptoms", max_items=4, max_length=300)
         result = search_engine.diagnose_symptoms(symptoms, limit=3)
     else:
         # Legacy named-fields format (backward compatibility)
@@ -448,22 +531,9 @@ def diagnose():
 def diagnose_graph():
     try:
         data = json_body()
-        symptoms_raw = data.get("symptoms", [])
-        if isinstance(symptoms_raw, str):
-            symptoms_raw = [symptoms_raw]
-        if not isinstance(symptoms_raw, list) or not symptoms_raw:
-            raise ValidationError("Debes ingresar al menos un síntoma o código de hardware.")
-        symptoms = []
-        for s in symptoms_raw[:6]:
-            if not isinstance(s, str):
-                s = str(s)
-            cleaned = s.strip()
-            if len(cleaned) > 300:
-                raise ValidationError("Cada síntoma admite hasta 300 caracteres.")
-            if cleaned:
-                symptoms.append(cleaned)
-        if not symptoms:
-            raise ValidationError("Ingresa al menos un síntoma o código de hardware.")
+        symptoms = strict_string_list(
+            data.get("symptoms", []), key="symptoms", max_items=6, max_length=300, required=True
+        )
 
         from graph_engine import get_graph_engine
         engine = get_graph_engine()
@@ -518,11 +588,9 @@ def circuit_match():
     try:
         data = json_body()
         components_raw = data.get("components", [])
-        if isinstance(components_raw, str):
-            components_raw = [components_raw]
-        if not isinstance(components_raw, list):
-            raise ValidationError("'components' debe ser una lista de identificadores o síntomas.")
-        components = [str(c).strip()[:100] for c in components_raw[:50] if c is not None and str(c).strip()]
+        components = strict_string_list(
+            components_raw, key="components", max_items=50, max_length=100
+        )
         from circuit_data import match_subsystem_for_trace
         res = match_subsystem_for_trace(components)
         return jsonify({"ok": True, **res}), 200
@@ -549,7 +617,10 @@ def multimeter_test_points():
 def multimeter_evaluate():
     try:
         data = json_body()
-        tp_id = str(data.get("test_point_id") or "GEN_VOLT_24").strip()[:64]
+        tp_raw = data.get("test_point_id", "GEN_VOLT_24")
+        if not isinstance(tp_raw, str):
+            raise ValidationError("'test_point_id' debe ser texto.")
+        tp_id = tp_raw.strip()[:64]
 
         val_raw = data.get("measured_value")
         if val_raw is None:
@@ -562,7 +633,10 @@ def multimeter_evaluate():
         if not math.isfinite(measured_val):
             raise ValidationError("El parámetro 'measured_value' debe ser finito.")
 
-        unit = str(data.get("unit") or "V").strip()[:10]
+        unit_raw = data.get("unit", "V")
+        if not isinstance(unit_raw, str):
+            raise ValidationError("'unit' debe ser texto.")
+        unit = unit_raw.strip()[:10]
 
         custom_nom = data.get("custom_nominal")
         if custom_nom is not None:
@@ -603,9 +677,13 @@ def multimeter_evaluate():
 def multimeter_simulate():
     try:
         data = json_body()
-        tp_id = str(data.get("test_point_id") or "TP1").strip()[:64]
-        fault = str(data.get("fault_type") or "normal").strip()[:32]
-        add_noise = bool(data.get("add_noise", True))
+        tp_raw = data.get("test_point_id", "TP1")
+        fault_raw = data.get("fault_type", "normal")
+        add_noise = data.get("add_noise", True)
+        if not isinstance(tp_raw, str) or not isinstance(fault_raw, str) or not isinstance(add_noise, bool):
+            raise ValidationError("test_point_id y fault_type deben ser texto; add_noise debe ser booleano.")
+        tp_id = tp_raw.strip()[:64]
+        fault = fault_raw.strip()[:32]
 
         from multimeter_service import simulate_reading
         result = simulate_reading(tp_id=tp_id, fault_type=fault, add_noise=add_noise)
@@ -623,27 +701,16 @@ def multimeter_simulate():
 def diagnose_ai():
     try:
         data = json_body()
-        symptoms_raw = data.get("symptoms", [])
-        if isinstance(symptoms_raw, str):
-            symptoms_raw = [symptoms_raw]
-        if not isinstance(symptoms_raw, list) or not symptoms_raw:
-            raise ValidationError("Debes ingresar al menos un síntoma o descripción técnica.")
+        symptoms = strict_string_list(
+            data.get("symptoms", []), key="symptoms", max_items=6, max_length=300, required=True
+        )
 
-        symptoms = []
-        for item in symptoms_raw[:6]:
-            if not isinstance(item, str):
-                item = str(item)
-            cleaned = item.strip()
-            if len(cleaned) > 300:
-                raise ValidationError("Cada síntoma admite hasta 300 caracteres.")
-            if cleaned:
-                symptoms.append(cleaned)
-
-        if not symptoms:
-            raise ValidationError("Ingresa al menos un síntoma o descripción técnica.")
-
-        client_key = str(data.get("api_key", "")).strip()[:256]
-        model_override = str(data.get("model", "") or data.get("model_override", "")).strip()[:100]
+        client_key_raw = data.get("api_key", "")
+        model_raw = data.get("model", data.get("model_override", ""))
+        if not isinstance(client_key_raw, str) or not isinstance(model_raw, str):
+            raise ValidationError("api_key y model deben ser texto.")
+        client_key = client_key_raw.strip()[:256]
+        model_override = model_raw.strip()[:100]
         from ai_service import ALLOWED_GEMINI_MODELS
         if model_override and model_override not in ALLOWED_GEMINI_MODELS:
             raise ValidationError("Modelo de diagnóstico no permitido.")
@@ -677,8 +744,30 @@ def diagnose_ai():
 
 
 @app.route("/notes", methods=["GET"])
+@limiter.limit("120 per minute")
 def get_notes():
-    return jsonify(notes_load()), 200
+    # Compatibilidad: sin parámetros se conserva la respuesta de lista usada por
+    # clientes antiguos. Las llamadas paginadas reciben metadatos explícitos.
+    page_raw = request.args.get("page")
+    limit_raw = request.args.get("limit")
+    if page_raw is None and limit_raw is None:
+        return jsonify(notes_load()), 200
+    try:
+        page = int(page_raw or 1)
+        limit = int(limit_raw or MAX_NOTES_PAGE)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("La paginación de apuntes no es válida.") from exc
+    if page < 1 or limit < 1 or limit > MAX_NOTES_PAGE:
+        raise ValidationError(f"La página debe ser >= 1 y el límite debe estar entre 1 y {MAX_NOTES_PAGE}.")
+    offset = (page - 1) * limit
+    notes = notes_load(limit=limit, offset=offset)
+    return jsonify({
+        "notes": notes,
+        "page": page,
+        "limit": limit,
+        "offset": offset,
+        "has_more": len(notes) == limit,
+    }), 200
 
 
 @app.route("/notes/batch", methods=["POST"])
@@ -696,7 +785,7 @@ def create_notes_batch():
     valid_notes = []
     for note in notes_raw:
         if not isinstance(note, dict):
-            continue
+            raise ValidationError("Cada elemento de 'notes' debe ser un objeto JSON.")
         valid_notes.append({
             "id": validated_uuid(note.get("id"), generate=True),
             "title": bounded_text(note, "title", MAX_NOTE_TITLE, required=True),
@@ -792,6 +881,7 @@ def create_note():
 
 
 @app.route("/notes/<nid>", methods=["PUT"])
+@limiter.limit("30 per minute")
 @require_admin
 def update_note(nid):
     if not supabase:
@@ -814,6 +904,7 @@ def update_note(nid):
 
 
 @app.route("/notes/<nid>", methods=["DELETE"])
+@limiter.limit("30 per minute")
 @require_admin
 def delete_note(nid):
     if not supabase:
@@ -840,6 +931,7 @@ def admin_check():
 
 
 @app.route("/admin/manuals")
+@limiter.limit("30 per minute")
 @require_admin
 def list_manuals():
     return jsonify([
@@ -849,6 +941,7 @@ def list_manuals():
 
 
 @app.route("/admin/config")
+@limiter.limit("30 per minute")
 @require_admin
 def admin_config():
     return jsonify({
@@ -941,8 +1034,24 @@ def openapi_spec():
                 }
             },
             "/notes": {
-                "get": {"summary": "Obtener apuntes de campo"},
+                "get": {
+                    "summary": "Obtener apuntes de campo",
+                    "parameters": [
+                        {"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1, "default": 1}},
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": MAX_NOTES_PAGE, "default": MAX_NOTES_PAGE}},
+                    ],
+                    "responses": {"200": {"description": "Página de apuntes con has_more"}},
+                },
                 "post": {"summary": "Crear apunte de campo"},
+            },
+            "/notes/batch": {
+                "post": {
+                    "summary": "Sincronizar apuntes pendientes de forma idempotente",
+                    "responses": {
+                        "200": {"description": "Apuntes aceptados o ya existentes"},
+                        "400": {"description": "Límite o tipos inválidos", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}},
+                    },
+                }
             },
             "/health": {
                 "get": {"summary": "Estado del servidor y servicios conectados"},

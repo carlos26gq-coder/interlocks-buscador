@@ -1,5 +1,5 @@
-// SOLVI Service Worker v27 — aplicación, índices offline, esquemas de circuitos SVG, multímetro y manuales PDF.
-const CACHE = "solvi-v27";
+// SOLVI Service Worker v28 — aplicación, índices offline, esquemas de circuitos SVG, multímetro y manuales PDF.
+const CACHE = "solvi-v28";
 const CORE = [
     "/",
     "/manifest.json",
@@ -27,23 +27,10 @@ async function addResilient(cache, url) {
     }
 }
 
-async function cacheOfflineManuals(cache) {
-    try {
-        const response = await fetch("/data/search/catalog.json", {cache: "no-cache"});
-        if (!response.ok) return;
-        const catalog = await response.clone().json();
-        await cache.put("/data/search/catalog.json", response);
-        await Promise.allSettled((catalog.manuals || []).map(item => addResilient(cache, item.file)));
-    } catch (error) {
-        console.warn("SW: no se pudo preparar el catálogo offline", error);
-    }
-}
-
 self.addEventListener("install", event => {
     event.waitUntil((async () => {
         const cache = await caches.open(CACHE);
         await Promise.allSettled(CORE.map(url => addResilient(cache, url)));
-        await cacheOfflineManuals(cache);
         await self.skipWaiting();
     })());
 });
@@ -56,10 +43,20 @@ self.addEventListener("activate", event => {
     })());
 });
 
+async function fetchWithTimeout(request, timeoutMs = 8000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(request, { signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function networkFirst(request) {
     const cache = await caches.open(CACHE);
     try {
-        const response = await fetch(request);
+        const response = await fetchWithTimeout(request);
         if (response && response.ok) await cache.put(request, response.clone());
         return response;
     } catch (error) {
@@ -74,16 +71,13 @@ async function cacheFirst(request) {
     const cache = await caches.open(CACHE);
     const cached = await cache.match(request, {ignoreSearch: true});
     if (cached) return cached;
-    const response = await fetch(request);
+    const response = await fetchWithTimeout(request);
     if (response && response.ok) await cache.put(request, response.clone());
     return response;
 }
 
 // Estrategia especializada para PDFs de manuales (Cloudflare R2 o rutas locales).
 // Soporta cabeceras de rango HTTP 206 y caching resiliente para modo offline.
-let _lastPdfUrl = "";
-let _lastPdfBuffer = null;
-
 function filterHeadersWithoutRange(headers) {
     const newHeaders = new Headers(headers);
     newHeaders.delete("range");
@@ -103,9 +97,10 @@ async function cacheFirstPdf(request) {
     }
 
     try {
+        const explicitDownload = request.headers.get("X-SOLVI-Offline-Download") === "1";
         const rangeHeader = request.headers.get("range");
         // Si la petición tiene cabecera Range y no está en caché, descargamos el archivo completo
-        // (sin Range) para almacenarlo en CacheStorage (status 200) y luego servir el rango solicitado (206).
+        // (sin Range) para servir el rango solicitado (206). Solo una descarga explícita lo persiste.
         if (rangeHeader) {
             try {
                 const cleanRequest = new Request(request.url, {
@@ -114,9 +109,9 @@ async function cacheFirstPdf(request) {
                     mode: request.mode,
                     credentials: request.credentials
                 });
-                const fullResponse = await fetch(cleanRequest);
+                const fullResponse = await fetchWithTimeout(cleanRequest, 15000);
                 if (fullResponse && fullResponse.status === 200) {
-                    await cache.put(cleanRequest, fullResponse.clone());
+                    if (explicitDownload) await cache.put(cleanRequest, fullResponse.clone());
                     return returnPartialContent(request.url, fullResponse, rangeHeader);
                 }
             } catch (_errRangeFetch) {
@@ -124,9 +119,9 @@ async function cacheFirstPdf(request) {
             }
         }
 
-        const response = await fetch(request);
+        const response = await fetchWithTimeout(request, 15000);
         // CacheStorage solo acepta status 200; no intentar cache.put con 206 Partial Content
-        if (response && response.status === 200) {
+        if (explicitDownload && response && response.status === 200) {
             await cache.put(request, response.clone());
         }
         return response;
@@ -142,13 +137,9 @@ async function cacheFirstPdf(request) {
 async function returnPartialContent(url, cachedResponse, rangeHeader) {
     try {
         let buffer;
-        if (_lastPdfUrl === url && _lastPdfBuffer) {
-            buffer = _lastPdfBuffer;
-        } else {
-            buffer = await cachedResponse.arrayBuffer();
-            _lastPdfUrl = url;
-            _lastPdfBuffer = buffer;
-        }
+        // No retener el PDF completo en una variable global: CacheStorage es la
+        // fuente persistente y el buffer temporal se libera al terminar la respuesta.
+        buffer = await cachedResponse.arrayBuffer();
         const total = buffer.byteLength;
         const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
         if (!match) {

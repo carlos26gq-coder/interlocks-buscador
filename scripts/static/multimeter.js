@@ -3,7 +3,7 @@
  *
  * Soporte especializado para modelos antiguos de multímetros (Entrada Manual Táctil),
  * Simulador de Banco Linac con inyección de fallas y telemetría virtual,
- * y pasarela lista para hardware futuro (Web Bluetooth / Web Serial).
+ * y simulación virtual de mediciones/fallas sin conexión a equipos físicos.
  *
  * Diseñado con salvaguardas estrictas contra saturación de RAM, límites acotados
  * de historial, protección de batería/CPU en segundo plano y operación desacoplada 100% offline.
@@ -56,7 +56,7 @@
 
     // ─── ESTADO INTERNO DEL MÓDULO ───────────────────────────────────────
     let _activeTpId = "TP1";
-    let _activeMode = "manual"; // 'manual', 'simulation', 'hardware'
+    let _activeMode = "manual"; // 'manual' o 'simulation'
     let _currentInputStr = "";
     let _history = []; // Registros históricos limitados a MAX_HISTORY_RECORDS
     let _lastEvaluation = null; // Última evaluación generada (activa en pantalla)
@@ -64,10 +64,6 @@
     let _simFaultType = "normal";
     let _audioContext = null;
     let _audioBuzzerEnabled = false;
-    let _bleDevice = null;
-    let _serialPort = null;
-    let _serialReader = null;
-    let _serialAbortController = null;
     let _isModalOpen = false;
     let _pausedByVisibility = false;
 
@@ -441,7 +437,8 @@
             const ev = generarLecturaSimulada(_activeTpId, _simFaultType);
             _lastEvaluation = ev;
 
-            const valStr = ev.measured_value.toFixed(3);
+            const valStr = (typeof ev.measured_value === "number" && Number.isFinite(ev.measured_value))
+                ? ev.measured_value.toFixed(3) : "N/D";
             const dispVal = document.getElementById("dmmDisplayValue");
             if (dispVal) dispVal.textContent = valStr;
             const modalDispVal = document.getElementById("dmmModalDisplayValue");
@@ -475,7 +472,8 @@
         const ev = generarLecturaSimulada(_activeTpId, _simFaultType);
         _lastEvaluation = ev;
 
-        const valStr = ev.measured_value.toFixed(3);
+        const valStr = (typeof ev.measured_value === "number" && Number.isFinite(ev.measured_value))
+            ? ev.measured_value.toFixed(3) : "N/D";
         const dispVal = document.getElementById("dmmDisplayValue");
         if (dispVal) dispVal.textContent = valStr;
         const modalDispVal = document.getElementById("dmmModalDisplayValue");
@@ -492,153 +490,6 @@
         _simFaultType = tipoFalla;
         if (!_simulationIntervalId) {
             capturarMuestraSimulada();
-        }
-    }
-
-    // ─── PASARELA HARDWARE (WEB BLUETOOTH / WEB SERIAL) ──────────────────
-    async function conectarBluetooth() {
-        if (!navigator.bluetooth) {
-            alertarHardwareNoSoportado("Bluetooth");
-            return;
-        }
-
-        try {
-            const statusEl = document.getElementById("dmmHwStatus");
-            if (statusEl) statusEl.textContent = "Buscando multímetro BLE cercano...";
-
-            const device = await navigator.bluetooth.requestDevice({
-                acceptAllDevices: true,
-                optionalServices: ["generic_access", 0xFFF0, 0xFFE0]
-            });
-
-            _bleDevice = device;
-            device.addEventListener("gattserverdisconnected", () => {
-                if (statusEl) statusEl.textContent = "Multímetro BLE desconectado.";
-                if (typeof window.toast === "function") window.toast("Multímetro BLE desconectado", "warn");
-            });
-
-            if (device.gatt) {
-                try {
-                    await device.gatt.connect();
-                } catch (_connErr) {
-                    // Si el dispositivo requiere pairing previo, informamos al operador
-                }
-            }
-
-            if (statusEl) statusEl.textContent = `Conectado: ${device.name || 'DMM Bluetooth'}`;
-            if (typeof window.toast === "function") window.toast(`Conectado a ${device.name || 'DMM BLE'}`, "ok");
-        } catch (err) {
-            const statusEl = document.getElementById("dmmHwStatus");
-            if (err && err.name === "NotFoundError") {
-                if (statusEl) statusEl.textContent = "Búsqueda cancelada por el operador.";
-            } else {
-                if (statusEl) statusEl.textContent = "No se pudo enlazar multímetro BLE.";
-            }
-        }
-    }
-
-    async function conectarSerial() {
-        if (!navigator.serial) {
-            alertarHardwareNoSoportado("Serial / USB");
-            return;
-        }
-
-        try {
-            const statusEl = document.getElementById("dmmHwStatus");
-            if (statusEl) statusEl.textContent = "Esperando selección de puerto USB/Serie...";
-
-            const port = await navigator.serial.requestPort();
-            await port.open({ baudRate: 9600 });
-            _serialPort = port;
-
-            if (statusEl) statusEl.textContent = "Puerto COM abierto (9600 baud). Recibiendo datos...";
-            if (typeof window.toast === "function") window.toast("Puerto COM abierto", "ok");
-
-            leerFlujoSerial(port);
-        } catch (err) {
-            const statusEl = document.getElementById("dmmHwStatus");
-            if (err && err.name === "NotFoundError") {
-                if (statusEl) statusEl.textContent = "Selección de puerto cancelada.";
-            } else {
-                if (statusEl) statusEl.textContent = "Error al abrir puerto COM.";
-            }
-        }
-    }
-
-    async function leerFlujoSerial(port) {
-        try {
-            _serialAbortController = new AbortController();
-            const textDecoder = new TextDecoderStream();
-            port.readable.pipeTo(textDecoder.writable, { signal: _serialAbortController.signal }).catch(() => {});
-            const reader = textDecoder.readable.getReader();
-            _serialReader = reader;
-
-            let buffer = "";
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                buffer += value;
-                const lines = buffer.split(/[\r\n]+/);
-                buffer = lines.pop(); // Mantener segmento incompleto
-
-                for (const line of lines) {
-                    procesarLineaDmm(line);
-                }
-            }
-        } catch (err) {
-            if (err && err.name !== "AbortError") {
-                console.warn("DMM Serial error:", err);
-            }
-        }
-    }
-
-    function procesarLineaDmm(line) {
-        if (!line || !line.trim()) return;
-        const match = line.match(/([+-]?\d+(?:\.\d+)?)/);
-        if (match) {
-            const val = parseFloat(match[1]);
-            if (!isNaN(val) && isFinite(val)) {
-                _currentInputStr = String(val);
-                actualizarDisplayManual();
-                procesarLecturaManual();
-            }
-        }
-    }
-
-    function alertarHardwareNoSoportado(tipo) {
-        const statusEl = document.getElementById("dmmHwStatus");
-        const msg = `Tu navegador o protocolo actual no dispone de soporte para Web ${tipo}. Usa la Entrada Manual Rápida para multímetros clásicos sin conexión.`;
-        if (statusEl) {
-            statusEl.innerHTML = `<span style="color:var(--warn)">ℹ️ ${msg}</span>`;
-        }
-        if (typeof window.toast === "function") {
-            window.toast("Función disponible para navegadores compatibles", "warn");
-        }
-    }
-
-    function desconectarHardware() {
-        try {
-            if (_serialAbortController) {
-                _serialAbortController.abort();
-                _serialAbortController = null;
-            }
-            if (_serialReader) {
-                _serialReader.cancel().catch(() => {});
-                _serialReader = null;
-            }
-            if (_serialPort) {
-                _serialPort.close().catch(() => {});
-                _serialPort = null;
-            }
-            if (_bleDevice && _bleDevice.gatt && _bleDevice.gatt.connected) {
-                _bleDevice.gatt.disconnect();
-                _bleDevice = null;
-            }
-            const statusEl = document.getElementById("dmmHwStatus");
-            if (statusEl) statusEl.textContent = "Desconectado.";
-            if (typeof window.toast === "function") window.toast("Dispositivo desconectado", "ok");
-        } catch (e) {
-            // Silencioso
         }
     }
 
@@ -735,6 +586,9 @@
     // ─── PRESETS DINÁMICOS ADAPTADOS AL PUNTO ACTIVO ─────────────────────
     function renderizarPresetsDinamicos() {
         const tp = resolverPuntoDePrueba(_activeTpId, true);
+        // El catálogo se carga de forma asíncrona; durante ese intervalo no
+        // se debe desreferenciar un TP inexistente ni romper la pantalla DMM.
+        if (!tp) return;
         const presets = [];
 
         // 1. Preset nominal directo del punto
@@ -756,7 +610,7 @@
             if (tp.nominal !== -15.0 && (tp.nominal < 0 || tp.id.includes("15"))) presets.push({ label: "-15.0V (Simétrico)", val: -15.0 });
             if (tp.nominal !== 24.0) presets.push({ label: "24.0V (Seguridad)", val: 24.0 });
             if (tp.nominal === -150.0 || tp.id === "TP7") presets.push({ label: "-150V (Corte)", val: -150.0 });
-            if (tp.nominal === 400.0 || tp.id === "TP100") presets.push({ label: "400V (Dosis)", val: 400.0 });
+            if (tp.nominal === -320.0 || tp.id === "TP100") presets.push({ label: "-320V (Polarización)", val: -320.0 });
             if (tp.nominal === 800.0 || tp.id === "TP3") presets.push({ label: "800V (RF)", val: 800.0 });
         }
 
@@ -937,7 +791,7 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
         _activeMode = modo;
         pausarTelemetriaVirtual();
 
-        ["manual", "simulation", "hardware"].forEach(m => {
+        ["manual", "simulation"].forEach(m => {
             const tabBtn = document.getElementById(`dmmTab_${m}`);
             const panel = document.getElementById(`dmmPanel_${m}`);
             if (tabBtn) tabBtn.classList.toggle("active", m === modo);
@@ -1019,7 +873,7 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
                 </div>
 
                 <div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.2);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:0.7rem;color:var(--muted);line-height:1.4;">
-                    <strong style="color:var(--accent);">Guía rápida:</strong> Introduce la lectura de tu multímetro de taller con el teclado numérico o presets y pulsa <b style="color:var(--accent);">OK</b> para evaluar tolerancias nominales. Puedes inyectar lecturas con <b style="color:var(--accent);">Inyectar Lectura Simulada</b> o exportar a notas de campo con <b style="color:var(--accent);">Guardar en Mis Apuntes</b>. Para telemetría continua y enlace digital BLE/USB, pulsa <i>Ver Pantalla Completa</i>.
+                    <strong style="color:var(--accent);">Guía rápida:</strong> Introduce la lectura de tu multímetro de taller con el teclado numérico o presets y pulsa <b style="color:var(--accent);">OK</b> para evaluar tolerancias nominales. Puedes inyectar lecturas con <b style="color:var(--accent);">Inyectar Lectura Simulada</b> o exportar a notas de campo con <b style="color:var(--accent);">Guardar en Mis Apuntes</b>.
                 </div>
 
                 <div id="dmmModalKeypadWrap">
@@ -1154,7 +1008,6 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
 
     function onDeactivate() {
         pausarTelemetriaVirtual();
-        desconectarHardware();
         if (_audioContext && typeof _audioContext.suspend === "function") {
             _audioContext.suspend().catch(() => {});
         }
@@ -1301,9 +1154,6 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
         pausarTelemetriaVirtual: pausarTelemetriaVirtual,
         capturarMuestraSimulada: capturarMuestraSimulada,
         cambiarFallaSimulada: cambiarFallaSimulada,
-        conectarBluetooth: conectarBluetooth,
-        conectarSerial: conectarSerial,
-        desconectarHardware: desconectarHardware,
         abrirInspectorModal: abrirInspectorModal,
         cerrarInspectorModal: cerrarInspectorModal,
         abrirPantallaCompleta: abrirPantallaCompleta,

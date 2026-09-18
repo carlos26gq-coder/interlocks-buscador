@@ -15,6 +15,12 @@ from log_parser_service import (
 )
 
 class TestLogParser(unittest.TestCase):
+    def test_frontend_exports_parser_and_uses_real_results_container(self):
+        with open(os.path.join(os.path.dirname(__file__), "../scripts/static/log-parser.js"), encoding="utf-8") as handle:
+            js = handle.read()
+        self.assertIn("window.LogParser = LogParser", js)
+        self.assertIn('getElementById("logResults")', js)
+
     def test_parse_timestamp_iso(self):
         ts = parse_timestamp("2026-09-15 10:55:57.123")
         self.assertGreater(ts, 0)
@@ -259,4 +265,3 @@ class TestLogParser(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-

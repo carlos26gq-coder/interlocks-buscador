@@ -10,6 +10,7 @@ services:
       paths:
         - scripts/**
         - data/**
+        - supabase/**
         - requirements.txt
         - render.yaml
         - manifest.json
@@ -29,3 +30,7 @@ services:
         sync: false          # opcional — para notas persistentes
       - key: SUPABASE_KEY
         sync: false          # opcional
+      - key: RATELIMIT_STORAGE_URI
+        sync: false          # Redis compartido; sin esto Flask-Limiter usa memoria por proceso
+      - key: NOTES_CACHE_REDIS_URL
+        sync: false          # Redis compartido para caché de páginas de apuntes
