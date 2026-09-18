@@ -986,19 +986,14 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
     function crearModalFlotante() {
         const div = document.createElement("div");
         div.id = "dmmFloatingModal";
-        div.style.cssText = "display:none;position:fixed;inset:0;background:rgba(11,15,26,0.85);z-index:2500;align-items:center;justify-content:center;padding:14px;backdrop-filter:blur(6px);";
+        // Convert to a compact HUD overlay, bottom-right or top-right, no full screen backdrop
+        div.style.cssText = "display:none;position:fixed;bottom:20px;right:20px;max-width:calc(100vw - 40px);z-index:2500;align-items:flex-end;justify-content:flex-end;pointer-events:none;";
         
-        // Cerrar al tocar el fondo oscuro exterior
-        div.addEventListener("click", (e) => {
-            if (e.target === div) {
-                cerrarInspectorModal();
-            }
-        });
-
+        // Only the inner modal content will have pointer-events
         const tp = resolverPuntoDePrueba(_activeTpId, true);
 
         div.innerHTML = `
-        <div style="background:var(--surface);border:1px solid var(--border);border-top:4px solid var(--accent);border-radius:12px;width:100%;max-width:520px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 15px 40px rgba(0,0,0,0.7);overflow:hidden;">
+        <div id="dmmModalInner" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:360px;box-shadow:0 10px 40px rgba(0,0,0,0.6);display:flex;flex-direction:column;max-height:85vh;animation:fadeIn 0.2s ease;pointer-events:auto;overflow:hidden;">
             <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.02);">
                 <div style="display:flex;align-items:center;gap:8px;">
                     <span style="font-size:1.1rem;">📟</span>

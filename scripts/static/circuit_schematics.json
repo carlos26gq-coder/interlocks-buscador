@@ -613,8 +613,8 @@
         "role": "Señal emitida por el operador desde consola para iniciar radiación"
       },
       {
-        "id": "PCB_22",
-        "code": "PCB 22",
+        "id": "PCB_PPG",
+        "code": "PCB PPG",
         "name": "Placa Control Modulador",
         "type": "pcb",
         "x": 470,
@@ -830,7 +830,7 @@
       {
         "id": "W202",
         "from": "ITEM_409",
-        "to": "PCB_22",
+        "to": "PCB_PPG",
         "points": [
           [
             420,
@@ -846,7 +846,7 @@
       },
       {
         "id": "W203",
-        "from": "PCB_22",
+        "from": "PCB_PPG",
         "to": "ITEM_474",
         "points": [
           [
@@ -1050,7 +1050,7 @@
       },
       {
         "id": "W215",
-        "from": "PCB_22",
+        "from": "PCB_PPG",
         "to": "CABLE_W20",
         "points": [
           [
@@ -1079,26 +1079,26 @@
     "id": "dosimetry",
     "name": "Dosimetría y Doble Canal Independiente (Dual Channel Dosimetry)",
     "short_name": "Dosimetría Doble Canal",
-    "badge": "400V Bias / D_RATE 1 & 2",
+    "badge": "-320V Bias / D_RATE 1 & 2",
     "icon": "🎯",
-    "description": "Cámara de ionización plana de transmisión segmentada: polarización +400V HV, integración de carga analógica en PCB 17 y PCB 18, señales D_RATE 1/2 y corte redundante por Interlock 66.",
+    "description": "Cámara de ionización plana de transmisión segmentada: polarización -320V HV, integración de carga analógica en PCB 12B y PCB 12S, señales D_RATE 1/2 y corte redundante por Interlock 456 / 506.",
     "manual_references": [
       "dosimetry (Pág 18)",
-      "technical (Pág 104)",
+      "technical (Pág 103)",
       "diagrams (Pág 22)"
     ],
     "viewBox": "0 0 1200 680",
     "nodes": [
       {
-        "id": "HV_BIAS_400V",
-        "code": "+400V BIAS",
+        "id": "HV_BIAS_M320V",
+        "code": "-320V BIAS",
         "name": "Fuente Polarización HV",
         "type": "source",
         "x": 50,
         "y": 140,
         "width": 165,
         "height": 80,
-        "spec": "+400.0V DC polarización constante de cámara",
+        "spec": "-320.0V DC polarización constante de cámara",
         "manual": "dosimetry",
         "page": 12,
         "role": "Generación de campo eléctrico para colección de iones"
@@ -1112,7 +1112,7 @@
         "y": 155,
         "width": 65,
         "height": 42,
-        "spec": "+400V DC ± 2V (Monitor de Polarización)",
+        "spec": "-320V DC ± 2V (Monitor de Polarización)",
         "manual": "dosimetry",
         "page": 13,
         "role": "Verificación de estabilidad de la tensión de polarización"
@@ -1160,8 +1160,8 @@
         "role": "Conversión de carga colectada en tren de impulsos"
       },
       {
-        "id": "PCB_17",
-        "code": "PCB 17",
+        "id": "PCB_12B",
+        "code": "PCB 12B",
         "name": "Tarjeta Dosis Canal 1",
         "type": "pcb",
         "x": 955,
@@ -1202,15 +1202,15 @@
         "role": "Lectura directa en multímetro de la tasa de canal primario"
       },
       {
-        "id": "ITEM_327",
-        "code": "ITEM 327",
+        "id": "ITEM_506",
+        "code": "ITEM 506",
         "name": "Límite Dosis 1 (Preset)",
         "type": "signal",
         "x": 765,
         "y": 250,
         "width": 155,
         "height": 65,
-        "spec": "ITEM 327 / Comparador de dosis prescrita alcanzada",
+        "spec": "ITEM 506 / Comparador de dosis prescrita alcanzada",
         "manual": "catalogue",
         "page": 55,
         "role": "Señal de finalización normal del campo de tratamiento"
@@ -1230,8 +1230,8 @@
         "role": "Pre-amplificación redundante de seguridad"
       },
       {
-        "id": "PCB_18",
-        "code": "PCB 18",
+        "id": "PCB_12S",
+        "code": "PCB 12S",
         "name": "Tarjeta Dosis Canal 2",
         "type": "pcb",
         "x": 955,
@@ -1272,15 +1272,15 @@
         "role": "Punto de prueba para contraste de calibración de canales"
       },
       {
-        "id": "ITEM_332",
-        "code": "ITEM 332",
+        "id": "ITEM_456",
+        "code": "ITEM 456",
         "name": "Corte Backup Canal 2",
         "type": "signal",
         "x": 765,
         "y": 485,
         "width": 155,
         "height": 65,
-        "spec": "ITEM 332 / Disparo por exceso de dosis (+10% MU o +25MU)",
+        "spec": "ITEM 456 / Disparo por exceso de dosis (+10% MU o +25MU)",
         "manual": "catalogue",
         "page": 58,
         "role": "Disparo de seguridad en caso de fallo del canal primario"
@@ -1331,7 +1331,7 @@
     "wires": [
       {
         "id": "W301",
-        "from": "HV_BIAS_400V",
+        "from": "HV_BIAS_M320V",
         "to": "TP100",
         "points": [
           [
@@ -1400,7 +1400,7 @@
       {
         "id": "W305",
         "from": "PREAMP_CH1",
-        "to": "PCB_17",
+        "to": "PCB_12B",
         "points": [
           [
             920,
@@ -1416,7 +1416,7 @@
       },
       {
         "id": "W306",
-        "from": "PCB_17",
+        "from": "PCB_12B",
         "to": "D_RATE_1",
         "points": [
           [
@@ -1450,8 +1450,8 @@
       },
       {
         "id": "W308",
-        "from": "PCB_17",
-        "to": "ITEM_327",
+        "from": "PCB_12B",
+        "to": "ITEM_506",
         "points": [
           [
             955,
@@ -1493,7 +1493,7 @@
       {
         "id": "W310",
         "from": "PREAMP_CH2",
-        "to": "PCB_18",
+        "to": "PCB_12S",
         "points": [
           [
             920,
@@ -1509,7 +1509,7 @@
       },
       {
         "id": "W311",
-        "from": "PCB_18",
+        "from": "PCB_12S",
         "to": "D_RATE_2",
         "points": [
           [
@@ -1543,8 +1543,8 @@
       },
       {
         "id": "W313",
-        "from": "PCB_18",
-        "to": "ITEM_332",
+        "from": "PCB_12S",
+        "to": "ITEM_456",
         "points": [
           [
             955,
@@ -1564,7 +1564,7 @@
       },
       {
         "id": "W314",
-        "from": "PCB_17",
+        "from": "PCB_12B",
         "to": "INTLK_66",
         "points": [
           [
@@ -1585,7 +1585,7 @@
       },
       {
         "id": "W315",
-        "from": "PCB_18",
+        "from": "PCB_12S",
         "to": "INTLK_66",
         "points": [
           [

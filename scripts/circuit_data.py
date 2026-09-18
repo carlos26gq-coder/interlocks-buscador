@@ -258,8 +258,8 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
                 "role": "Señal emitida por el operador desde consola para iniciar radiación"
             },
             {
-                "id": "PCB_22",
-                "code": "PCB 22",
+                "id": "PCB_PPG",
+                "code": "PCB PPG",
                 "name": "Placa Control Modulador",
                 "type": "pcb",
                 "x": 470, "y": 130, "width": 210, "height": 100,
@@ -400,8 +400,8 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
         ],
         "wires": [
             {"id": "W201", "from": "PCB_16N", "to": "ITEM_409", "points": [[230, 180], [270, 180]], "label": "PERM_OK", "type": "safety"},
-            {"id": "W202", "from": "ITEM_409", "to": "PCB_22", "points": [[420, 180], [470, 180]], "label": "RAD_CMD", "type": "signal"},
-            {"id": "W203", "from": "PCB_22", "to": "ITEM_474", "points": [[680, 180], [720, 180]], "label": "TRIG_GEN", "type": "signal"},
+            {"id": "W202", "from": "ITEM_409", "to": "PCB_PPG", "points": [[420, 180], [470, 180]], "label": "RAD_CMD", "type": "signal"},
+            {"id": "W203", "from": "PCB_PPG", "to": "ITEM_474", "points": [[680, 180], [720, 180]], "label": "TRIG_GEN", "type": "signal"},
             {"id": "W204", "from": "ITEM_474", "to": "TP3", "points": [[865, 180], [900, 180]], "label": "GRID_PULSE", "type": "high_voltage"},
             {"id": "W205", "from": "TP3", "to": "THYRATRON_V1", "points": [[960, 180], [995, 180]], "label": "GRID_FIRE", "type": "high_voltage"},
             {"id": "W206", "from": "THYRATRON_V1", "to": "PFN_LINE", "points": [[1075, 225], [1075, 290]], "label": "DISCHARGE", "type": "high_voltage"},
@@ -413,7 +413,7 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
             {"id": "W212", "from": "ITEM_394", "to": "RF_DRIVER_AMP", "points": [[520, 507], [465, 507]], "label": "INHIBIT_ACT", "type": "safety"},
             {"id": "W213", "from": "RF_DRIVER_AMP", "to": "TP_RF", "points": [[300, 507], [255, 507]], "label": "RF_SAMPLE", "type": "rf"},
             {"id": "W214", "from": "TP_RF", "to": "CABLE_W22", "points": [[190, 507], [210, 507]], "label": "W22_COAX", "type": "cable"},
-            {"id": "W215", "from": "PCB_22", "to": "CABLE_W20", "points": [[575, 230], [575, 260], [130, 260], [130, 320]], "label": "W20_HT", "type": "cable"}
+            {"id": "W215", "from": "PCB_PPG", "to": "CABLE_W20", "points": [[575, 230], [575, 260], [130, 260], [130, 320]], "label": "W20_HT", "type": "cable"}
         ]
     },
 
@@ -421,19 +421,19 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
         "id": "dosimetry",
         "name": "Dosimetría y Doble Canal Independiente (Dual Channel Dosimetry)",
         "short_name": "Dosimetría Doble Canal",
-        "badge": "400V Bias / D_RATE 1 & 2",
+        "badge": "-320V Bias / D_RATE 1 & 2",
         "icon": "🎯",
-        "description": "Cámara de ionización plana de transmisión segmentada: polarización +400V HV, integración de carga analógica en PCB 17 y PCB 18, señales D_RATE 1/2 y corte redundante por Interlock 66.",
-        "manual_references": ["dosimetry (Pág 18)", "technical (Pág 104)", "diagrams (Pág 22)"],
+        "description": "Cámara de ionización plana de transmisión segmentada: polarización -320V HV, integración de carga analógica en PCB 12B y PCB 12S, señales D_RATE 1/2 y corte redundante por Interlock 456 / 506.",
+        "manual_references": ["dosimetry (Pág 18)", "technical (Pág 103)", "diagrams (Pág 22)"],
         "viewBox": "0 0 1200 680",
         "nodes": [
             {
-                "id": "HV_BIAS_400V",
-                "code": "+400V BIAS",
+                "id": "HV_BIAS_M320V",
+                "code": "-320V BIAS",
                 "name": "Fuente Polarización HV",
                 "type": "source",
                 "x": 50, "y": 140, "width": 165, "height": 80,
-                "spec": "+400.0V DC polarización constante de cámara",
+                "spec": "-320.0V DC polarización constante de cámara",
                 "manual": "dosimetry", "page": 12,
                 "role": "Generación de campo eléctrico para colección de iones"
             },
@@ -443,7 +443,7 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
                 "name": "Punto de Prueba TP100",
                 "type": "test_point",
                 "x": 245, "y": 155, "width": 65, "height": 42,
-                "spec": "+400V DC ± 2V (Monitor de Polarización)",
+                "spec": "-320V DC ± 2V (Monitor de Polarización)",
                 "manual": "dosimetry", "page": 13,
                 "role": "Verificación de estabilidad de la tensión de polarización"
             },
@@ -478,8 +478,8 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
                 "role": "Conversión de carga colectada en tren de impulsos"
             },
             {
-                "id": "PCB_17",
-                "code": "PCB 17",
+                "id": "PCB_12B",
+                "code": "PCB 12B",
                 "name": "Tarjeta Dosis Canal 1",
                 "type": "pcb",
                 "x": 955, "y": 120, "width": 200, "height": 100,
@@ -508,12 +508,12 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
                 "role": "Lectura directa en multímetro de la tasa de canal primario"
             },
             {
-                "id": "ITEM_327",
-                "code": "ITEM 327",
+                "id": "ITEM_506",
+                "code": "ITEM 506",
                 "name": "Límite Dosis 1 (Preset)",
                 "type": "signal",
                 "x": 765, "y": 250, "width": 155, "height": 65,
-                "spec": "ITEM 327 / Comparador de dosis prescrita alcanzada",
+                "spec": "ITEM 506 / Comparador de dosis prescrita alcanzada",
                 "manual": "catalogue", "page": 55,
                 "role": "Señal de finalización normal del campo de tratamiento"
             },
@@ -528,8 +528,8 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
                 "role": "Pre-amplificación redundante de seguridad"
             },
             {
-                "id": "PCB_18",
-                "code": "PCB 18",
+                "id": "PCB_12S",
+                "code": "PCB 12S",
                 "name": "Tarjeta Dosis Canal 2",
                 "type": "pcb",
                 "x": 955, "y": 360, "width": 200, "height": 100,
@@ -558,12 +558,12 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
                 "role": "Punto de prueba para contraste de calibración de canales"
             },
             {
-                "id": "ITEM_332",
-                "code": "ITEM 332",
+                "id": "ITEM_456",
+                "code": "ITEM 456",
                 "name": "Corte Backup Canal 2",
                 "type": "signal",
                 "x": 765, "y": 485, "width": 155, "height": 65,
-                "spec": "ITEM 332 / Disparo por exceso de dosis (+10% MU o +25MU)",
+                "spec": "ITEM 456 / Disparo por exceso de dosis (+10% MU o +25MU)",
                 "manual": "catalogue", "page": 58,
                 "role": "Disparo de seguridad en caso de fallo del canal primario"
             },
@@ -599,21 +599,21 @@ SUBSYSTEMS: dict[str, dict[str, Any]] = {
             }
         ],
         "wires": [
-            {"id": "W301", "from": "HV_BIAS_400V", "to": "TP100", "points": [[215, 175], [245, 175]], "label": "+400V", "type": "high_voltage"},
+            {"id": "W301", "from": "HV_BIAS_M320V", "to": "TP100", "points": [[215, 175], [245, 175]], "label": "+400V", "type": "high_voltage"},
             {"id": "W302", "from": "TP100", "to": "ION_CHAMBER", "points": [[310, 175], [345, 175]], "label": "BIAS_IN", "type": "high_voltage"},
             {"id": "W303", "from": "ION_CHAMBER", "to": "CABLE_W15", "points": [[550, 175], [585, 175]], "label": "ION_CURRENT", "type": "signal"},
             {"id": "W304", "from": "CABLE_W15", "to": "PREAMP_CH1", "points": [[735, 175], [765, 175]], "label": "CH1_pA", "type": "signal"},
-            {"id": "W305", "from": "PREAMP_CH1", "to": "PCB_17", "points": [[920, 175], [955, 175]], "label": "CH1_FREQ", "type": "signal"},
-            {"id": "W306", "from": "PCB_17", "to": "D_RATE_1", "points": [[1025, 220], [1025, 250]], "label": "ANALOG_VOLT", "type": "signal"},
+            {"id": "W305", "from": "PREAMP_CH1", "to": "PCB_12B", "points": [[920, 175], [955, 175]], "label": "CH1_FREQ", "type": "signal"},
+            {"id": "W306", "from": "PCB_12B", "to": "D_RATE_1", "points": [[1025, 220], [1025, 250]], "label": "ANALOG_VOLT", "type": "signal"},
             {"id": "W307", "from": "D_RATE_1", "to": "TP_DOSE1", "points": [[1095, 280], [1115, 280]], "label": "DOSE_RATE", "type": "signal"},
-            {"id": "W308", "from": "PCB_17", "to": "ITEM_327", "points": [[955, 200], [840, 200], [840, 250]], "label": "PRESET_REACHED", "type": "signal"},
+            {"id": "W308", "from": "PCB_12B", "to": "ITEM_506", "points": [[955, 200], [840, 200], [840, 250]], "label": "PRESET_REACHED", "type": "signal"},
             {"id": "W309", "from": "ION_CHAMBER", "to": "PREAMP_CH2", "points": [[500, 235], [500, 415], [765, 415]], "label": "CH2_pA", "type": "signal"},
-            {"id": "W310", "from": "PREAMP_CH2", "to": "PCB_18", "points": [[920, 415], [955, 415]], "label": "CH2_FREQ", "type": "signal"},
-            {"id": "W311", "from": "PCB_18", "to": "D_RATE_2", "points": [[1025, 460], [1025, 490]], "label": "ANALOG_VOLT", "type": "signal"},
+            {"id": "W310", "from": "PREAMP_CH2", "to": "PCB_12S", "points": [[920, 415], [955, 415]], "label": "CH2_FREQ", "type": "signal"},
+            {"id": "W311", "from": "PCB_12S", "to": "D_RATE_2", "points": [[1025, 460], [1025, 490]], "label": "ANALOG_VOLT", "type": "signal"},
             {"id": "W312", "from": "D_RATE_2", "to": "TP_DOSE2", "points": [[1095, 520], [1115, 520]], "label": "DOSE_RATE", "type": "signal"},
-            {"id": "W313", "from": "PCB_18", "to": "ITEM_332", "points": [[955, 440], [840, 440], [840, 485]], "label": "BACKUP_TRIP", "type": "safety"},
-            {"id": "W314", "from": "PCB_17", "to": "INTLK_66", "points": [[955, 150], [600, 150], [600, 380]], "label": "CH1_COMP", "type": "signal"},
-            {"id": "W315", "from": "PCB_18", "to": "INTLK_66", "points": [[955, 390], [650, 390]], "label": "CH2_COMP", "type": "signal"},
+            {"id": "W313", "from": "PCB_12S", "to": "ITEM_456", "points": [[955, 440], [840, 440], [840, 485]], "label": "BACKUP_TRIP", "type": "safety"},
+            {"id": "W314", "from": "PCB_12B", "to": "INTLK_66", "points": [[955, 150], [600, 150], [600, 380]], "label": "CH1_COMP", "type": "signal"},
+            {"id": "W315", "from": "PCB_12S", "to": "INTLK_66", "points": [[955, 390], [650, 390]], "label": "CH2_COMP", "type": "signal"},
             {"id": "W316", "from": "INTLK_66", "to": "BEAM_TERMINATE", "points": [[480, 415], [430, 415]], "label": "FAULT_TRIGGER", "type": "safety"},
             {"id": "W317", "from": "BEAM_TERMINATE", "to": "CABLE_W16", "points": [[250, 415], [205, 415]], "label": "CUTOFF_CMD", "type": "safety"}
         ]
