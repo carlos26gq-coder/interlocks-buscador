@@ -104,8 +104,8 @@ def security_headers(response):
         "Content-Security-Policy",
         (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
-            "worker-src 'self' blob: https://cdnjs.cloudflare.com; "
+            "script-src 'self' 'unsafe-inline'; "
+            "worker-src 'self' blob:; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com data:; "
             "img-src 'self' data: blob: https://*; "
@@ -679,6 +679,67 @@ def diagnose_ai():
 @app.route("/notes", methods=["GET"])
 def get_notes():
     return jsonify(notes_load()), 200
+
+
+@app.route("/notes/batch", methods=["POST"])
+@limiter.limit("50 per hour")
+def create_notes_batch():
+    if not supabase:
+        return jsonify({"error": "Supabase no está conectado."}), 503
+    data = json_body()
+    notes_raw = data.get("notes", [])
+    if not isinstance(notes_raw, list):
+        raise ValidationError("'notes' debe ser una lista.")
+    if len(notes_raw) > 50:
+        raise ValidationError("No se pueden sincronizar más de 50 apuntes por lote.")
+    
+    valid_notes = []
+    for note in notes_raw:
+        if not isinstance(note, dict):
+            continue
+        valid_notes.append({
+            "id": validated_uuid(note.get("id"), generate=True),
+            "title": bounded_text(note, "title", MAX_NOTE_TITLE, required=True),
+            "text": bounded_text(note, "text", MAX_NOTE_TEXT),
+            "tags": validated_tags(note),
+        })
+    
+    if not valid_notes:
+        return jsonify({"inserted": 0, "notes": []}), 200
+
+    existing_ids = [n["id"] for n in valid_notes]
+    existing_notes = {}
+    try:
+        resp = supabase.table("notes").select("id, title, text, tags").in_("id", existing_ids).execute()
+        if isinstance(resp.data, list):
+            existing_notes = {n["id"]: n for n in resp.data}
+    except Exception as exc:
+        app.logger.warning("No se pudo verificar IDs existentes en lote: %s", _sanitize_error_message(exc))
+
+    to_insert = []
+    for n in valid_notes:
+        if n["id"] in existing_notes:
+            if _same_note_content(existing_notes[n["id"]], n):
+                continue
+            else:
+                return jsonify({
+                    "ok": False,
+                    "error": "note_id_conflict",
+                    "message": "Conflicto de identificadores en el lote."
+                }), 409
+        to_insert.append(n)
+
+    if not to_insert:
+        return jsonify({"inserted": len(valid_notes), "notes": valid_notes}), 201
+
+    try:
+        response = supabase.table("notes").insert(to_insert).execute()
+        invalidate_notes_cache()
+        inserted_data = response.data if isinstance(response.data, list) else to_insert
+        return jsonify({"inserted": len(inserted_data), "notes": inserted_data}), 201
+    except Exception as exc:
+        app.logger.error("Error al guardar lote de apuntes: %s", _sanitize_error_message(exc))
+        return jsonify({"error": "No se pudo guardar el lote de apuntes."}), 502
 
 
 @app.route("/notes", methods=["POST"])

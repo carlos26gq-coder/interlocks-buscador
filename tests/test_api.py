@@ -140,6 +140,46 @@ class APITests(unittest.TestCase):
             content = f.read()
         self.assertIn("--bind 0.0.0.0:$PORT", content)
 
+    @patch("api.supabase")
+    def test_notes_batch_endpoint(self, mock_supabase):
+        # Configurar select para devolver sin conflictos
+        mock_supabase.table.return_value.select.return_value.in_.return_value.execute.return_value.data = []
+        # Configurar insert
+        mock_supabase.table.return_value.insert.return_value.execute.return_value.data = [
+            {"id": "12345678-1234-5678-1234-567812345678", "title": "Batch Note 1", "text": "Content", "tags": []}
+        ]
+        mock_supabase.__bool__.return_value = True
+
+        res = self.client.post("/notes/batch", json={"notes": [
+            {"id": "12345678-1234-5678-1234-567812345678", "title": "Batch Note 1", "text": "Content"}
+        ]})
+        
+        self.assertEqual(res.status_code, 201)
+        data = res.get_json()
+        self.assertEqual(data["inserted"], 1)
+        self.assertEqual(data["notes"][0]["title"], "Batch Note 1")
+
+    @patch("api.supabase")
+    def test_notes_batch_endpoint_conflict(self, mock_supabase):
+        # Configurar select para devolver una nota existente con DIFERENTE contenido
+        mock_supabase.table.return_value.select.return_value.in_.return_value.execute.return_value.data = [
+            {"id": "12345678-1234-5678-1234-567812345678", "title": "Old Title", "text": "Old Content", "tags": []}
+        ]
+        mock_supabase.__bool__.return_value = True
+
+        res = self.client.post("/notes/batch", json={"notes": [
+            {"id": "12345678-1234-5678-1234-567812345678", "title": "New Title", "text": "New Content"}
+        ]})
+        
+        self.assertEqual(res.status_code, 409)
+        self.assertEqual(res.get_json()["error"], "note_id_conflict")
+
+    @patch("api.supabase")
+    def test_notes_batch_endpoint_over_limit(self, mock_supabase):
+        res = self.client.post("/notes/batch", json={"notes": [{"title": "T"}] * 51})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("No se pueden sincronizar más de 50 apuntes por lote", res.get_json()["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

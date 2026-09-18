@@ -13,8 +13,8 @@ const CORE = [
     "/static/icon-192.png",
     "/static/icon-512.png",
     "/data/search/catalog.json",
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"
+    "/static/pdf.min.js",
+    "/static/pdf.worker.min.js"
 ];
 
 async function addResilient(cache, url) {

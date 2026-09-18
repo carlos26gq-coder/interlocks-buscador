@@ -203,28 +203,25 @@ class TestLogParser(unittest.TestCase):
 
     def test_api_logs_parse_endpoint(self):
         # Prueba de integración contra la API Flask /logs/parse
-        try:
-            import api
-            client = api.app.test_client()
-            payload = {
-                "text": "12/25/2026 08:00:00 WARNING Pre-warning\n12/25/2026 08:00:02 ERROR ITEM 112 failed\n12/25/2026 14:00:00 FATAL INTERLOCK 283 tripped\n"
-            }
-            res = client.post("/logs/parse", json=payload)
-            self.assertEqual(res.status_code, 200)
-            data = res.get_json()
-            self.assertTrue(data["ok"])
-            self.assertEqual(len(data["cascades"]), 2)
-            self.assertEqual(len(data["cascades"][0][0]["precursors"]), 1)
-            self.assertIn("Pre-warning", data["cascades"][0][0]["precursors"][0]["raw"])
+        import api
+        client = api.app.test_client()
+        payload = {
+            "text": "12/25/2026 08:00:00 WARNING Pre-warning\n12/25/2026 08:00:02 ERROR ITEM 112 failed\n12/25/2026 14:00:00 FATAL INTERLOCK 283 tripped\n"
+        }
+        res = client.post("/logs/parse", json=payload)
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(len(data["cascades"]), 2)
+        self.assertEqual(len(data["cascades"][0][0]["precursors"]), 1)
+        self.assertIn("Pre-warning", data["cascades"][0][0]["precursors"][0]["raw"])
 
-            # Verificación de validación de texto vacío
-            res_err = client.post("/logs/parse", json={"text": ""})
-            self.assertEqual(res_err.status_code, 400)
-            data_err = res_err.get_json()
-            self.assertFalse(data_err["ok"])
-            self.assertEqual(data_err["error"], "validation_error")
-        except ImportError:
-            self.skipTest("Módulo api no disponible para integración directa")
+        # Verificación de validación de texto vacío
+        res_err = client.post("/logs/parse", json={"text": ""})
+        self.assertEqual(res_err.status_code, 400)
+        data_err = res_err.get_json()
+        self.assertFalse(data_err["ok"])
+        self.assertEqual(data_err["error"], "validation_error")
 
     def test_static_js_parities_and_protections(self):
         js_path = os.path.join(os.path.dirname(__file__), '../scripts/static/log-parser.js')

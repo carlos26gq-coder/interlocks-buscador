@@ -232,10 +232,10 @@ let _pdfJsLoaded = false;
 function cargarPdfJs(cb) {
     if (_pdfJsLoaded) { cb(); return; }
     const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    s.src = "/static/pdf.min.js";
     s.onload = function() {
         pdfjsLib.GlobalWorkerOptions.workerSrc =
-            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+            "/static/pdf.worker.min.js";
         _pdfJsLoaded = true;
         cb();
     };
@@ -322,8 +322,6 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
         disableRange: shouldDisableRange, 
         disableStream: false,
         disableAutoFetch: true,
-        cMapUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/", 
-        cMapPacked: true,
         maxImageSize: 1024 * 1024 * 16
     })
         .promise.then(function(doc) {
@@ -1972,53 +1970,64 @@ async function syncPendientes() {
         const pend = pendLoad();
         if (!pend.length) return;
         let ok = 0;
-        for (const item of pend) {
+        
+        const creates = pend.filter(item => item.op === "create");
+        const deletes = pend.filter(item => item.op === "delete");
+        const others = pend.filter(item => item.op !== "create" && item.op !== "delete");
+        
+        for (const item of others) {
+            pendDel(item.id);
+        }
+        
+        for (let i = 0; i < creates.length; i += 50) {
+            const batch = creates.slice(i, i + 50);
             try {
-                if (item.op === "create") {
-                    const created = await apiRequest("/notes", {
-                        method:"POST",
-                        headers:{"Content-Type":"application/json"},
-                        body:JSON.stringify(item.payload)
-                    });
+                const res = await apiRequest("/notes/batch", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({notes: batch.map(c => c.payload)})
+                });
+                for (const item of batch) {
                     notaBorrar(item.id);
-                    notaSync(created);
                     pendDel(item.id);
                     ok++;
-                } else if (item.op === "delete") {
-                    if (_adminPw) {
-                        await apiRequest("/notes/" + item.id, {
-                            method: "DELETE",
-                            headers: { "X-Admin-Password": _adminPw }
-                        });
-                        pendDel(item.id);
-                        ok++;
-                    } else {
-                        continue;
+                }
+                if (res && res.notes) {
+                    res.notes.forEach(n => notaSync(n));
+                }
+            } catch(error) {
+                const status = error?.status ?? error?.response?.status;
+                if (status === 409) {
+                    for (const item of batch) {
+                        const newId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+                        const oldId = item.id;
+                        item.payload = { ...item.payload, id: newId };
+                        item.id = newId;
+                        pendDel(oldId);
+                        pendAdd(item.payload);
                     }
-                } else {
+                    continue;
+                }
+                console.warn('[sync] Error de red en batch:', error);
+                break;
+            }
+        }
+        
+        for (const item of deletes) {
+            try {
+                if (_adminPw) {
+                    await apiRequest("/notes/" + item.id, {
+                        method: "DELETE",
+                        headers: { "X-Admin-Password": _adminPw }
+                    });
                     pendDel(item.id);
+                    ok++;
                 }
             } catch(error) {
                 const status = error?.status ?? error?.response?.status;
                 if (status === 404 || status === 400) {
                     pendDel(item.id);
-                    continue;
                 }
-                if (status === 409) {
-                    if (item.op === 'create' || item.op === undefined) {
-                        const oldId = item.id;
-                        const newId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
-                        item.payload = { ...item.payload, id: newId };
-                        item.id = newId;
-                        pendDel(oldId);
-                        pendAdd(item.payload);
-                    } else {
-                        pendDel(item.id);
-                    }
-                    continue;
-                }
-                console.warn('[sync] Error de red, reintentando más tarde:', error);
-                break;
             }
         }
         if (ok > 0) toast("☁️ " + ok + " apunte(s) sincronizado(s)");
