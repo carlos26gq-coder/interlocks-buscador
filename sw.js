@@ -1,5 +1,5 @@
 // SOLVI Service Worker v29 — aplicación, índices offline, rutas documentadas, multímetro y manuales PDF.
-const CACHE = "solvi-v29";
+const CACHE = "solvi-v30";
 const CORE = [
     "/",
     "/manifest.json",
@@ -7,13 +7,13 @@ const CORE = [
     "/static/circuit-visualizer.js",
     "/static/multimeter.js",
     "/static/log-parser.js",
-    "/static/multimeter_catalog.json",
     "/static/search-worker.js",
     "/static/linac_graph.json",
     "/static/icon-192.png",
     "/static/icon-512.png",
     "/data/search/catalog.json",
     "/data/verified_signal_paths.json",
+    "/data/verified_measurement_catalog.json",
     "/data/documentary_traceability.json",
     "/static/pdf.min.js",
     "/static/pdf.worker.min.js"

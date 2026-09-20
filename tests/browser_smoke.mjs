@@ -1,6 +1,6 @@
 /*
  * Navegador real (Playwright + Chromium): DOM, Service Worker y flujo de
- * simulación. Ejecutar con SOLVI_BASE_URL y SOLVI_PLAYWRIGHT_ROOT.
+ * registro de medición. Ejecutar con SOLVI_BASE_URL y SOLVI_PLAYWRIGHT_ROOT.
  */
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -59,13 +59,16 @@ try {
     await page.waitForSelector(".cv-evidence-card", { state: "visible" });
     assert.match(await page.locator(".cv-evidence-card").innerText(), /Manual|Página física|dosimetry/i);
 
-    // DOM/navigation real: abrir la pantalla y cambiar al banco simulado.
+    // DOM/navigation real: registrar una lectura sin convertirla en OK/FALLA.
     await page.locator("#navM").click();
-    await page.locator("#dmmTab_simulation").click();
-    await poll(async () => await page.locator("#dmmPanel_simulation").isVisible());
-    await page.getByRole("button", { name: /Normal \(Dentro de rango\)/ }).click();
+    await page.waitForSelector("#dmmMeasurementSelect", { state: "visible" });
+    assert.equal(await page.locator("#dmmMeasurementSelect option").count(), 1);
+    await page.locator("#dmmReadingInput").fill("-320.0");
+    await page.getByRole("button", { name: /Registrar y comparar/ }).click();
     await poll(async () => await page.locator("#dmmResultBox").isVisible());
-    assert.notEqual((await page.locator("#dmmResultBox").innerText()).trim(), "");
+    assert.match(await page.locator("#dmmResultBox").innerText(), /SIN UMBRAL PUBLICADO/);
+    await page.getByRole("button", { name: /Ver ruta documentada/ }).click();
+    await poll(async () => await page.locator(".cv-record.selected").count() === 1);
 
     // Service Worker real: se registra, toma control y mantiene el cache versionado.
     await page.evaluate(() => navigator.serviceWorker.ready);
@@ -79,6 +82,7 @@ try {
     assert.ok(cacheInfo.names.some(name => /^solvi-v\d+$/.test(name)), "cache SOLVI ausente");
     assert.ok(cacheInfo.urls.some(url => url.endsWith("/static/app.js")), "app.js no está en cache");
     assert.ok(cacheInfo.urls.some(url => url.endsWith("/data/verified_signal_paths.json")), "catálogo de rutas documentadas no está en cache");
+    assert.ok(cacheInfo.urls.some(url => url.endsWith("/data/verified_measurement_catalog.json")), "catálogo de mediciones no está en cache");
     assert.ok(!cacheInfo.urls.some(url => /data\/search\/chunk-/.test(url)), "no debe precachear todos los chunks");
 
     // El shell se puede reabrir offline después de haber sido cacheado.
@@ -89,7 +93,7 @@ try {
     await context.setOffline(false);
 
     if (failures.length) throw new Error(`Errores de página: ${failures.join(" | ")}`);
-    console.log(JSON.stringify({ ok: true, baseURL, serviceWorker: true, simulation: true, documentedPath: true, dom: true }));
+    console.log(JSON.stringify({ ok: true, baseURL, serviceWorker: true, documentedMeasurement: true, documentedPath: true, dom: true }));
 } finally {
     await browser.close();
 }

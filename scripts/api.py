@@ -618,7 +618,7 @@ def multimeter_test_points():
 def multimeter_evaluate():
     try:
         data = json_body()
-        tp_raw = data.get("test_point_id", "GEN_VOLT_24")
+        tp_raw = data.get("test_point_id")
         if not isinstance(tp_raw, str):
             raise ValidationError("'test_point_id' debe ser texto.")
         tp_id = tp_raw.strip()[:64]
@@ -634,36 +634,16 @@ def multimeter_evaluate():
         if not math.isfinite(measured_val):
             raise ValidationError("El parámetro 'measured_value' debe ser finito.")
 
-        unit_raw = data.get("unit", "V")
+        unit_raw = data.get("unit", "V DC")
         if not isinstance(unit_raw, str):
             raise ValidationError("'unit' debe ser texto.")
         unit = unit_raw.strip()[:10]
-
-        custom_nom = data.get("custom_nominal")
-        if custom_nom is not None:
-            try:
-                custom_nom = float(custom_nom)
-                if not math.isfinite(custom_nom):
-                    raise ValidationError("El parámetro 'custom_nominal' debe ser finito.")
-            except (TypeError, ValueError) as exc:
-                raise ValidationError("El parámetro 'custom_nominal' debe ser numérico.") from exc
-
-        custom_tol = data.get("custom_tolerance_pct")
-        if custom_tol is not None:
-            try:
-                custom_tol = float(custom_tol)
-                if not math.isfinite(custom_tol) or custom_tol <= 0:
-                    raise ValidationError("El parámetro 'custom_tolerance_pct' debe ser positivo y finito.")
-            except (TypeError, ValueError) as exc:
-                raise ValidationError("El parámetro 'custom_tolerance_pct' debe ser numérico.") from exc
 
         from multimeter_service import evaluate_measurement
         result = evaluate_measurement(
             tp_id=tp_id,
             measured_value=measured_val,
             unit=unit,
-            custom_nominal=custom_nom,
-            custom_tolerance_pct=custom_tol,
         )
         return jsonify({"ok": True, "evaluation": result}), 200
     except (ValidationError, ValueError) as val_err:
@@ -671,30 +651,6 @@ def multimeter_evaluate():
     except Exception as exc:
         app.logger.exception("Error en /multimeter/evaluate")
         return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
-
-
-@app.route("/multimeter/simulate", methods=["POST"])
-@limiter.limit("1200 per hour; 120 per minute")
-def multimeter_simulate():
-    try:
-        data = json_body()
-        tp_raw = data.get("test_point_id", "TP1")
-        fault_raw = data.get("fault_type", "normal")
-        add_noise = data.get("add_noise", True)
-        if not isinstance(tp_raw, str) or not isinstance(fault_raw, str) or not isinstance(add_noise, bool):
-            raise ValidationError("test_point_id y fault_type deben ser texto; add_noise debe ser booleano.")
-        tp_id = tp_raw.strip()[:64]
-        fault = fault_raw.strip()[:32]
-
-        from multimeter_service import simulate_reading
-        result = simulate_reading(tp_id=tp_id, fault_type=fault, add_noise=add_noise)
-        return jsonify({"ok": True, "simulation": result}), 200
-    except (ValidationError, ValueError) as val_err:
-        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
-    except Exception as exc:
-        app.logger.exception("Error en /multimeter/simulate")
-        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
-
 
 
 @app.route("/diagnose/ai", methods=["POST"])
@@ -1010,26 +966,16 @@ def openapi_spec():
             },
             "/multimeter/test-points": {
                 "get": {
-                    "summary": "Catálogo de puntos de prueba TP y especificaciones de tolerancia Linac",
-                    "responses": {"200": {"description": "Puntos de prueba con nominales y tolerancias"}},
+                    "summary": "Registro de mediciones manuales con evidencia documental",
+                    "responses": {"200": {"description": "Solo mediciones publicables, con citas y alcance"}},
                 }
             },
             "/multimeter/evaluate": {
                 "post": {
-                    "summary": "Evaluación de lectura de multímetro contra tolerancias nominales",
+                    "summary": "Registro de lectura frente a una referencia documentada",
                     "responses": {
-                        "200": {"description": "Estado de tolerancia, delta y diagnóstico técnico"},
+                        "200": {"description": "Referencia, delta y aviso de que no existe veredicto OK/FALLA"},
                         "400": {"description": "Error de validación o unidad incompatible", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}},
-                        "500": {"description": "Error interno del servidor", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
-                    },
-                }
-            },
-            "/multimeter/simulate": {
-                "post": {
-                    "summary": "Simulador de banco de pruebas Linac con inyección de fallas y telemetría",
-                    "responses": {
-                        "200": {"description": "Lectura simulada con ruido y evaluación"},
-                        "400": {"description": "Punto de prueba inválido", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}},
                         "500": {"description": "Error interno del servidor", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
                     },
                 }

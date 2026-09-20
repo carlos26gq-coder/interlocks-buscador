@@ -392,7 +392,9 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   <div id="cvInspectorDrawer" class="cv-inspector-drawer" hidden></div>
 </div>
 
-<div id="screenMultimeter" class="screen">
+<div id="screenMultimeter" class="screen"></div>
+<!-- Legado no ejecutado: la interfaz real se construye desde multimeter.js con catálogo verificable. -->
+<template id="screenMultimeterLegacy">
   <div class="cv-header">
     <div class="cv-title-group">
       <h2>📟 Multímetro Digital de Banco Linac</h2>
@@ -427,8 +429,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   </div>
 
   <div style="display:flex;gap:6px;margin-bottom:12px;background:var(--surface);padding:4px;border-radius:10px;border:1px solid var(--border);flex-wrap:wrap;">
-    <button id="dmmTab_manual" class="btn btn-primary btn-sm active" style="flex:1;min-width:110px;" onclick="dmmCambiarModo('manual')">✋ Entrada Manual</button>
-    <button id="dmmTab_simulation" class="btn btn-ghost btn-sm" style="flex:1;min-width:110px;" onclick="dmmCambiarModo('simulation')">🔬 Simulador Banco</button>
+    <button id="dmmTab_manual" class="btn btn-primary btn-sm active" style="flex:1;min-width:110px;">Entrada Manual</button>
+    <button id="dmmTab_simulation" class="btn btn-ghost btn-sm" style="flex:1;min-width:110px;">Banco retirado</button>
   </div>
 
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;">
@@ -441,7 +443,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
         <span style="color:var(--muted);">Tolerancia: <b id="dmmInfoTol" style="color:var(--green);">23.2 a 24.8 V</b></span>
       </div>
     </div>
-    <select id="dmmTpSelect" aria-label="Punto de prueba del multímetro" onchange="dmmSelTp(this.value)" style="padding-left:10px;">
+    <select id="dmmTpSelect" aria-label="Punto de prueba del multímetro" style="padding-left:10px;">
       <optgroup label="Bucle de Seguridad (Safety Loop)">
         <option value="TP1" selected>TP1 · Monitor Entrada de Cadena (+24V DC)</option>
         <option value="TP2">TP2 · Retorno Setas de Emergencia (+24V DC)</option>
@@ -495,13 +497,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:12px;">
       <div style="font-size:0.66rem;font-family:var(--mono);color:var(--muted);margin-bottom:6px;text-transform:uppercase;">Niveles Estándar Elekta Linac:</div>
       <div id="dmmDynamicPresets" style="display:flex;gap:5px;flex-wrap:wrap;">
-        <button type="button" class="btn btn-ghost btn-sm" onclick="dmmPreset(0.0)" style="font-family:var(--mono);padding:4px 8px;">0.0V (Masa)</button>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="dmmPreset(1.8)" style="font-family:var(--mono);padding:4px 8px;">1.8V (Gun)</button>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="dmmPreset(5.0)" style="font-family:var(--mono);padding:4px 8px;">5.0V (TTL)</button>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="dmmPreset(12.0)" style="font-family:var(--mono);padding:4px 8px;">12.0V (Aux)</button>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="dmmPreset(15.0)" style="font-family:var(--mono);padding:4px 8px;">15.0V (OpAmp)</button>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="dmmPreset(24.0)" style="font-family:var(--mono);padding:4px 8px;border-color:rgba(0,212,255,0.4);color:var(--accent);">24.0V (Seguridad)</button>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="dmmPreset(-320.0)" style="font-family:var(--mono);padding:4px 8px;">-320V (Polarización)</button>
+        <span>Contenido histórico retirado al iniciar la interfaz verificable.</span>
       </div>
     </div>
 
@@ -513,24 +509,24 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
         </div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:8px;max-width:340px;margin:0 auto;">
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('7')" style="font-size:1.2rem;font-weight:700;padding:12px 0;">7</button>
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('8')" style="font-size:1.2rem;font-weight:700;padding:12px 0;">8</button>
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('9')" style="font-size:1.2rem;font-weight:700;padding:12px 0;">9</button>
-        <button type="button" class="btn btn-danger" onclick="dmmKeypad('C')" style="font-size:0.85rem;padding:12px 0;">CLR</button>
+        <button type="button" class="btn btn-ghost" style="font-size:1.2rem;font-weight:700;padding:12px 0;">7</button>
+        <button type="button" class="btn btn-ghost" style="font-size:1.2rem;font-weight:700;padding:12px 0;">8</button>
+        <button type="button" class="btn btn-ghost" style="font-size:1.2rem;font-weight:700;padding:12px 0;">9</button>
+        <button type="button" class="btn btn-danger" style="font-size:0.85rem;padding:12px 0;">CLR</button>
 
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('4')" style="font-size:1.2rem;font-weight:700;padding:12px 0;">4</button>
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('5')" style="font-size:1.2rem;font-weight:700;padding:12px 0;">5</button>
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('6')" style="font-size:1.2rem;font-weight:700;padding:12px 0;">6</button>
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('BS')" style="font-size:0.95rem;padding:12px 0;">⌫</button>
+        <button type="button" class="btn btn-ghost" style="font-size:1.2rem;font-weight:700;padding:12px 0;">4</button>
+        <button type="button" class="btn btn-ghost" style="font-size:1.2rem;font-weight:700;padding:12px 0;">5</button>
+        <button type="button" class="btn btn-ghost" style="font-size:1.2rem;font-weight:700;padding:12px 0;">6</button>
+        <button type="button" class="btn btn-ghost" style="font-size:0.95rem;padding:12px 0;">⌫</button>
 
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('1')" style="font-size:1.2rem;font-weight:700;padding:12px 0;">1</button>
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('2')" style="font-size:1.2rem;font-weight:700;padding:12px 0;">2</button>
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('3')" style="font-size:1.2rem;font-weight:700;padding:12px 0;">3</button>
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('±')" style="font-size:1rem;padding:12px 0;">±</button>
+        <button type="button" class="btn btn-ghost" style="font-size:1.2rem;font-weight:700;padding:12px 0;">1</button>
+        <button type="button" class="btn btn-ghost" style="font-size:1.2rem;font-weight:700;padding:12px 0;">2</button>
+        <button type="button" class="btn btn-ghost" style="font-size:1.2rem;font-weight:700;padding:12px 0;">3</button>
+        <button type="button" class="btn btn-ghost" style="font-size:1rem;padding:12px 0;">±</button>
 
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('0')" style="grid-column:span 2;font-size:1.2rem;font-weight:700;padding:12px 0;">0</button>
-        <button type="button" class="btn btn-ghost" onclick="dmmKeypad('.')" style="font-size:1.3rem;font-weight:700;padding:12px 0;">.</button>
-        <button type="button" class="btn btn-primary" onclick="dmmProcesar()" style="font-size:0.9rem;padding:12px 0;box-shadow:0 0 12px rgba(0,212,255,0.3);">EVALUAR</button>
+        <button type="button" class="btn btn-ghost" style="grid-column:span 2;font-size:1.2rem;font-weight:700;padding:12px 0;">0</button>
+        <button type="button" class="btn btn-ghost" style="font-size:1.3rem;font-weight:700;padding:12px 0;">.</button>
+        <button type="button" class="btn btn-primary" style="font-size:0.9rem;padding:12px 0;box-shadow:0 0 12px rgba(0,212,255,0.3);">EVALUAR</button>
       </div>
     </div>
   </div>
@@ -539,19 +535,15 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px;">
       <h3 style="font-size:0.85rem;color:var(--accent);font-family:var(--mono);margin-bottom:8px;">INYECCIÓN DE CONDICIÓN DE FALLA:</h3>
       <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));gap:6px;margin-bottom:12px;">
-        <button type="button" class="btn btn-ghost btn-sm" onclick="dmmSimFalla('normal')">🟢 Normal (Dentro de rango)</button>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="dmmSimFalla('open_circuit')">⚪ Circuito Abierto (0.05V)</button>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="dmmSimFalla('resistive_drop')">🟠 Caída Resistiva (17.8V)</button>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="dmmSimFalla('short_circuit')">🔴 Cortocircuito (0.00V)</button>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="dmmSimFalla('overvoltage')">🟣 Sobretensión (+20%)</button>
+        <p>El simulador histórico fue retirado: sus valores no estaban respaldados por manuales.</p>
       </div>
 
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px;">
-        <button id="dmmBtnSimPlay" class="btn btn-primary btn-sm" onclick="dmmSimPlay()">▶ Iniciar Telemetría Continua</button>
-        <button id="dmmBtnSimPause" class="btn btn-danger btn-sm" onclick="dmmSimPause()" style="display:none;">⏸ Pausar Telemetría</button>
-        <button class="btn btn-ghost btn-sm" onclick="dmmSimMuestra()">⚡ Capturar Muestra Única</button>
+        <button id="dmmBtnSimPlay" class="btn btn-primary btn-sm" disabled>Retirado</button>
+        <button id="dmmBtnSimPause" class="btn btn-danger btn-sm" disabled style="display:none;">Retirado</button>
+        <button class="btn btn-ghost btn-sm" disabled>Retirado</button>
         <label style="display:flex;align-items:center;gap:6px;font-size:0.75rem;color:var(--muted);font-family:var(--mono);margin-left:auto;cursor:pointer;">
-          <input type="checkbox" onchange="dmmToggleBuzzer(this.checked)" style="width:auto;cursor:pointer;"> 🔊 Beeper de Continuidad
+          <input type="checkbox" disabled style="width:auto;cursor:pointer;"> Retirado
         </label>
       </div>
     </div>
@@ -563,13 +555,13 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:14px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
       <h3 style="font-size:0.8rem;color:var(--accent);font-family:var(--mono);">📋 HISTORIAL DE MEDICIONES (SESIÓN ACTUAL):</h3>
-      <button class="btn btn-ghost btn-sm" onclick="dmmLimpiarHist()" style="font-size:0.65rem;padding:2px 8px;">Limpiar</button>
+      <button class="btn btn-ghost btn-sm" disabled style="font-size:0.65rem;padding:2px 8px;">Limpiar</button>
     </div>
     <div id="dmmHistoryList">
       <p style="font-size:0.75rem;color:var(--muted);text-align:center;padding:10px 0;">No hay lecturas registradas en esta sesión.</p>
     </div>
   </div>
-</div>
+</template>
 
 <div id="screenNotes" class="screen">
   <div class="notes-header">
@@ -722,20 +714,6 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 function logTriggerFileInput() { if (window.LogParser) window.LogParser.triggerFileInput(); }
 function logHandlePaste() { if (window.LogParser) window.LogParser.handlePaste(); }
 function logLoadSample() { if (window.LogParser) window.LogParser.loadSample(); }
-
-// Manejadores globales para Multímetro Digital
-function dmmKeypad(c) { if (window.Multimeter) window.Multimeter.keypadPress(c); }
-function dmmPreset(v) { if (window.Multimeter) window.Multimeter.aplicarPreset(v); }
-function dmmProcesar() { if (window.Multimeter) window.Multimeter.procesarLecturaManual(); }
-function dmmCambiarModo(m) { if (window.Multimeter) window.Multimeter.cambiarModo(m); }
-function dmmSimPlay() { if (window.Multimeter) window.Multimeter.iniciarTelemetriaVirtual(); }
-function dmmSimPause() { if (window.Multimeter) window.Multimeter.pausarTelemetriaVirtual(); }
-function dmmSimMuestra() { if (window.Multimeter) window.Multimeter.capturarMuestraSimulada(); }
-function dmmSimFalla(f) { if (window.Multimeter) window.Multimeter.cambiarFallaSimulada(f); }
-function dmmExportar() { if (window.Multimeter) window.Multimeter.exportarAApuntes(); }
-function dmmLimpiarHist() { if (window.Multimeter) window.Multimeter.limpiarHistorial(); }
-function dmmSelTp(id) { if (window.Multimeter) window.Multimeter.seleccionarPuntoDePrueba(id); }
-function dmmToggleBuzzer(en) { if (window.Multimeter) window.Multimeter.toggleBuzzer(en); }
 
 // Navegación entre pantallas y ergonomía de espacio de trabajo
 const _TOOL_META = {

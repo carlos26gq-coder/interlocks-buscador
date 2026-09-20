@@ -95,7 +95,7 @@
                     <strong>${esc(step.label)}</strong>
                     <small>${esc(step.role)}</small>
                     <span>${esc(step.statement)}</span>
-                </button>
+                </button>${step.measurement_id ? `<button type="button" class="btn btn-ghost btn-sm" data-cv-measurement="${esc(step.measurement_id)}">Registrar medición documentada</button>` : ""}
             </li>`).join("")}</ol>
         </section>`;
     }
@@ -225,9 +225,14 @@
         const record = event.target.closest("[data-cv-record]");
         const evidence = event.target.closest("[data-cv-evidence]");
         const openPdf = event.target.closest("[data-cv-open-pdf]");
+        const measurement = event.target.closest("[data-cv-measurement]");
         if (record) selectRecord(record.dataset.cvRecord);
         else if (evidence) openEvidence(evidence.dataset.cvEvidence);
         else if (openPdf) openPdfForEvidence(openPdf.dataset.cvOpenPdf);
+        else if (measurement) {
+            if (typeof window.irA === "function") window.irA("Multimeter");
+            window.setTimeout(() => window.Multimeter && window.Multimeter.seleccionarPuntoDePrueba(measurement.dataset.cvMeasurement), 0);
+        }
         else if (event.target.closest("[data-cv-close]")) closeEvidence();
     });
 

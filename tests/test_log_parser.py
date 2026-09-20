@@ -67,22 +67,16 @@ class TestLogParser(unittest.TestCase):
         self.assertNotEqual(mapIdentifierToTP("ERROR 53"), "TP5")
         self.assertIsNone(mapIdentifierToTP("ERROR 53"))
 
-        # Tokens reales validos deben mapear a sus TPs correspondientes
-        self.assertEqual(mapIdentifierToTP("TP1"), "TP1")
-        self.assertEqual(mapIdentifierToTP("TP3"), "TP3")
-        self.assertEqual(mapIdentifierToTP("THYRATRON"), "TP3")
-        self.assertEqual(mapIdentifierToTP("ITEM 474"), "TP3")
-        self.assertEqual(mapIdentifierToTP("PCB 16N"), "TP5")
-        self.assertEqual(mapIdentifierToTP("INTERLOCK 283"), "TP2")
-        self.assertEqual(mapIdentifierToTP("ITEM 112"), "TP_VAC")
-        self.assertEqual(map_identifier_to_tp("VAC_ION"), "TP_VAC")
-        self.assertEqual(mapIdentifierToTP("TP7"), "TP7")
-        self.assertEqual(mapIdentifierToTP("TP_DOSE1"), "TP_DOSE1")
-        self.assertEqual(mapIdentifierToTP("TP_DOSE2"), "TP_DOSE2")
-        self.assertEqual(mapIdentifierToTP("DOSE 1"), "TP_DOSE1")
-        self.assertEqual(mapIdentifierToTP("GEN_CONT_LOOP"), "GEN_CONT_LOOP")
-        self.assertEqual(mapIdentifierToTP("GEN_VOLT_15"), "GEN_VOLT_15")
-        self.assertEqual(mapIdentifierToTP("GEN_VOLT_5"), "GEN_VOLT_5")
+        # Solo una coincidencia con evidencia de medición puede sugerir el registro.
+        self.assertEqual(mapIdentifierToTP("TP100"), "DOSIMETRY_BIAS_AT_ION_CHAMBER")
+        self.assertEqual(mapIdentifierToTP("ION CHAMBER"), "DOSIMETRY_BIAS_AT_ION_CHAMBER")
+        self.assertIsNone(mapIdentifierToTP("TP1"))
+        self.assertIsNone(map_identifier_to_tp("VAC_ION"))
+        self.assertIsNone(mapIdentifierToTP("TP_DOSE2"))
+        self.assertEqual(mapIdentifierToTP("DOSE 1"), "DOSIMETRY_BIAS_AT_ION_CHAMBER")
+        self.assertIsNone(mapIdentifierToTP("GEN_CONT_LOOP"))
+        self.assertIsNone(mapIdentifierToTP("GEN_VOLT_15"))
+        self.assertIsNone(mapIdentifierToTP("GEN_VOLT_5"))
         self.assertIsNone(mapIdentifierToTP(None))
         self.assertIsNone(mapIdentifierToTP(""))
         self.assertIsNone(mapIdentifierToTP("   "))
@@ -194,18 +188,11 @@ class TestLogParser(unittest.TestCase):
         self.assertEqual(len(res["cascades"][0]), 2)
 
     def test_map_identifier_parity_tokens(self):
-        # Tokens de paridad Linac específicos
-        self.assertEqual(mapIdentifierToTP("MODULATOR"), "TP_HT")
-        self.assertEqual(mapIdentifierToTP("MODULATION FAULT"), "TP_HT")
-        self.assertEqual(mapIdentifierToTP("HT"), "TP_HT")
-        self.assertEqual(mapIdentifierToTP("HT TRIP"), "TP_HT")
-        self.assertEqual(mapIdentifierToTP("VACUUM"), "TP_VAC")
-        self.assertEqual(mapIdentifierToTP("INTERLOCK 2"), "TP2")
-        self.assertEqual(mapIdentifierToTP("PCB 3"), "TP3")
-        self.assertEqual(mapIdentifierToTP("PCB 5"), "TP5")
-        self.assertEqual(mapIdentifierToTP("KLYSTRON"), "TP_RF")
-        self.assertEqual(mapIdentifierToTP("DOSIS"), "TP100")
-        self.assertEqual(mapIdentifierToTP("DOSE"), "TP100")
+        # Sin evidencia específica, los logs no deben inventar una sugerencia de medición.
+        for token in ("MODULATOR", "HT TRIP", "VACUUM", "INTERLOCK 2", "PCB 3", "KLYSTRON"):
+            self.assertIsNone(mapIdentifierToTP(token))
+        self.assertEqual(mapIdentifierToTP("DOSIS"), "DOSIMETRY_BIAS_AT_ION_CHAMBER")
+        self.assertEqual(mapIdentifierToTP("DOSE"), "DOSIMETRY_BIAS_AT_ION_CHAMBER")
 
     def test_api_logs_parse_endpoint(self):
         # Prueba de integración contra la API Flask /logs/parse

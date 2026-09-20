@@ -19,6 +19,16 @@ Esta sección **sustituye** cualquier afirmación histórica de este dossier sob
 - El visor presenta un recorrido de izquierda a derecha, condición/efecto solo cuando está documentado, punto de comprobación y botón de evidencia (manual, página física y extracto). Una consulta sin coincidencia muestra explícitamente que no existe una ruta publicada; no usa un esquema por defecto.
 - Para ampliar el catálogo se exige, por cada afirmación, `citation_id`, manual, página física, extracto, estado `verified_text` y una relación dirigida explícita. Los escenarios de simulación permanecen fuera de alcance hasta que cada propagación de falla tenga evidencia documental.
 
+### Corrección vigente — Registro de mediciones (20 de septiembre de 2026)
+
+Esta sección **sustituye** toda descripción histórica de multímetro virtual, HUD, tolerancias, telemetría, simulador de banco, inyección de fallas y los 20 TP anteriores.
+
+- Se retiraron `scripts/static/multimeter_catalog.json`, su generador, el endpoint `/multimeter/simulate`, el mapeo especulativo de nodos y cualquier evaluación verde/ámbar/roja basada en tolerancias no trazadas.
+- La fuente única publicable es `data/verified_measurement_catalog.json`, consumida por Python, la PWA y el Service Worker. La ficha inicial es la polarización de cámara de ionización: referencia `-320 V DC`, ubicación/RHCA y procedimiento i189, enlazados a seis afirmaciones verificadas de dosimetría pp. 43 y 96.
+- `TP100` es solo un alias de búsqueda: el manual no imprime esa etiqueta en la página que declara los `-320 V DC`. Los límites codificados `-3050/-3300` de i189 no se reinterpretan como una tolerancia universal de multímetro.
+- El usuario registra una lectura manual, ve el delta contra la referencia y siempre obtiene `REGISTRADA · SIN UMBRAL PUBLICADO`. La aplicación no conecta instrumentos, no controla el acelerador, no inyecta tensión/corriente y no autoriza ajustes.
+- Diagramas y el registro se enlazan de forma explícita únicamente en el paso documentado de cámara de ionización. Los logs solo sugieren esa ficha cuando el identificador coincide de forma explícita; ya no inventan TP para interlocks, fuentes, RF, vacío o movimiento.
+
 Este documento está diseñado para ser consumido por un **Arquitecto de Software Senior / Agente de Programación Experto** para continuar el mantenimiento, evolución y aseguramiento de calidad del proyecto.
 
 ### ⚠️ REGLAS NO NEGOCIABLES DEL PROYECTO

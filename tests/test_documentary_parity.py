@@ -48,21 +48,16 @@ class TestDocumentaryParity(unittest.TestCase):
                 self.assertLessEqual(entry["physical_page"], manual_pages[entry["manual"]])
                 self.assertEqual(entry["status"], "verified_text")
                 
-    def test_multimeter_tps_manuals(self):
+    def test_published_measurements_reference_verified_evidence(self):
         sys.path.insert(0, str(ROOT / "scripts"))
-        from multimeter_service import TEST_POINTS_CATALOG
-        
-        catalog_path = ROOT / "data" / "search" / "catalog.json"
-        with open(catalog_path, "r", encoding="utf-8") as f:
-            catalog = json.load(f)
-            
-        manual_pages = {m["name"]: m["pages"] for m in catalog["manuals"]}
-                
-        for tp_id, tp_data in TEST_POINTS_CATALOG.items():
-            manual = tp_data["manual"]
-            self.assertIn(manual, manual_pages, f"El manual {manual} no existe en el catalogo.")
-            self.assertLessEqual(tp_data["page"], manual_pages[manual])
-            self.assertGreaterEqual(tp_data["page"], 1)
+        with open(ROOT / "data" / "verified_measurement_catalog.json", "r", encoding="utf-8") as f:
+            measurements = json.load(f)["catalog"]
+        with open(ROOT / "data" / "documentary_traceability.json", "r", encoding="utf-8") as f:
+            evidence = {entry["id"]: entry for entry in json.load(f)["entries"]}
+        for measurement in measurements:
+            self.assertEqual(measurement["evaluation_policy"], "reference_only")
+            for citation in measurement["citations"]:
+                self.assertEqual(evidence[citation]["status"], "verified_text")
 
 if __name__ == "__main__":
     unittest.main()

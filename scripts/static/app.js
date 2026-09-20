@@ -1156,6 +1156,12 @@ function abrirEnEsquemaSvg(traceData) {
 }
 
 function abrirMultimetroConTp(tpId) {
+    const measurement = window.Multimeter && typeof window.Multimeter.resolveMeasurement === "function"
+        ? window.Multimeter.resolveMeasurement(tpId) : null;
+    if (!measurement) {
+        toast("No existe una medición documentada para esa señal; no se abrirá un punto de prueba inferido.", "warn");
+        return;
+    }
     if (typeof window.irA === "function") {
         window.irA("Multimeter");
     } else if (typeof irA === "function") {
@@ -1389,12 +1395,9 @@ function renderDiagnosticoAi(aiData, symptoms) {
 
     // 3. Puntos de Prueba (TP) y Voltajes (con validación contra catálogo canónico)
     const signalsChips = (aiData.test_points_and_signals || []).map(t => {
-        const tpMatch = String(t || "").match(/\b(TP\w*|GEN_\w+)\b/i);
-        const tpCode = tpMatch ? tpMatch[1].toUpperCase() : "";
-        const isKnownTp = Boolean(tpCode && (
-            (typeof window.Multimeter !== "undefined" && typeof window.Multimeter.resolverPuntoDePrueba === "function" && window.Multimeter.resolverPuntoDePrueba(tpCode, false)) ||
-            (typeof window.Multimeter !== "undefined" && window.Multimeter.OFFLINE_CATALOG && window.Multimeter.OFFLINE_CATALOG[tpCode])
-        ));
+        const tpCode = String(t || "").trim();
+        const isKnownTp = Boolean(tpCode && typeof window.Multimeter !== "undefined" &&
+            typeof window.Multimeter.resolveMeasurement === "function" && window.Multimeter.resolveMeasurement(tpCode));
         if (isKnownTp) {
             return '<button type="button" class="diag-chip" data-action="medir-tp" data-tp="' + esc(tpCode) + '" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047;cursor:pointer">⚡ ' + esc(t) + ' (Medir)</button>';
         }

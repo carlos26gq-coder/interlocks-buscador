@@ -44,7 +44,8 @@
           "label": "Cámara de ionización",
           "role": "Destino y punto de medida",
           "statement": "La tensión se mide en la cámara de ionización.",
-          "citation_id": "DOSIMETRY_BIAS_MEASUREMENT"
+          "citation_id": "DOSIMETRY_BIAS_MEASUREMENT",
+          "measurement_id": "DOSIMETRY_BIAS_AT_ION_CHAMBER"
         }
       ],
       "failure_effects": [

@@ -489,7 +489,7 @@ def generate_local_failover_diagnosis(
     )
 
     action_steps = [
-        f"Paso 1: Medir con multímetro los voltajes en {', '.join(g_tps[:3]) if g_tps else 'los puntos de prueba TP asociados'} y contrastar con valores nominales.",
+        f"Paso 1: Consultar la evidencia de medición disponible para {', '.join(g_tps[:3]) if g_tps else 'las señales asociadas'}; no inferir un punto de prueba ni un umbral si la fuente no lo publica.",
         f"Paso 2: Comprobar continuidad eléctrica en arneses y conectores ({', '.join((g_cables + g_conns)[:3]) if (g_cables + g_conns) else 'cableado de señal'}).",
         "Paso 3: Validar en Service Mode el estado lógico de los interlocks y lazos de retroalimentación.",
         f"Paso 4: Cotejar planos esquemáticos en {', '.join(combined_manuals[:2])}."
@@ -502,7 +502,7 @@ def generate_local_failover_diagnosis(
         "explanation": explanation,
         "associated_boards": g_pcbs[:4] or (["PCB de Control Linac"] if not g_pcbs else []),
         "cables_and_connectors": (g_cables + g_conns)[:5],
-        "test_points_and_signals": g_tps[:4] or (["TP1 (+24V DC)", "TP2"] if "seguridad" in root_cause.lower() else []),
+        "test_points_and_signals": g_tps[:4],
         "manual_references": combined_manuals[:5],
         "action_steps": action_steps,
         "safety_warning": "Verificar desenergización y descarga de condensadores antes de intervenir tarjetas o cadenas de alta tensión.",
