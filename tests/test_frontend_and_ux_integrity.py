@@ -70,10 +70,8 @@ class FrontendAndUxIntegritySuite(unittest.TestCase):
     def test_circuit_visualizer_public_api_methods(self):
         """Verifica que el objeto window.CircuitVisualizer declare todos los métodos de su API pública."""
         required_cv_methods = [
-            "init", "cambiarSubsistema", "inspeccionarNodo", "inspeccionarCable",
-            "cerrarInspector", "trazarEnDiagnostico", "zoomIn", "zoomOut",
-            "resetZoom", "fitToScreen", "exportSvg", "buscarEnEsquema",
-            "limpiarResaltados", "resaltarUnicoNodo", "resaltarRuta",
+            "init", "selectRecord", "buscarEnEsquema", "clearSearch",
+            "openEvidence", "closeEvidence", "openFromTrace",
             "loadAndHighlightFromTrace", "onActivate", "onDeactivate"
         ]
         match_cv = re.search(r"window\.CircuitVisualizer\s*=\s*\{([\s\S]*?)\n\s*\};\s*\n\s*\}\)\(window\);", self.cv_js)
@@ -141,7 +139,8 @@ class FrontendAndUxIntegritySuite(unittest.TestCase):
         core_assets = re.findall(r'["\'](/[^"\']+)["\']', match_core.group(1))
 
         self.assertGreaterEqual(len(core_assets), 8)
-        self.assertIn("/static/circuit_schematics.json", core_assets)
+        self.assertIn("/data/verified_signal_paths.json", core_assets)
+        self.assertIn("/data/documentary_traceability.json", core_assets)
         self.assertIn("/static/circuit-visualizer.js", core_assets)
 
         for asset in core_assets:
@@ -161,22 +160,41 @@ class FrontendAndUxIntegritySuite(unittest.TestCase):
         self.assertIn("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx", self.app_js)
         self.assertIn("id || generarUUID()", self.app_js)
 
-    def test_circuit_schematic_bridge_present_in_causal_diagnostics(self):
-        """Verifica que el diagnóstico causal avanzado tenga el botón de esquema SVG y actualice la traza."""
+    def test_documented_paths_bridge_present_in_causal_diagnostics(self):
+        """El diagnóstico causal abre el catálogo trazable mediante delegación, sin prometer un SVG físico."""
         match_fn = re.search(r"function\s+renderDiagnosticoAi\s*\([\s\S]*?\n\}", self.app_js)
         self.assertIsNotNone(match_fn, "renderDiagnosticoAi no encontrada")
         fn_code = match_fn.group(0)
-        self.assertIn("abrirEnEsquemaSvg()", fn_code)
+        self.assertIn('data-action="esquema-svg"', fn_code)
+        self.assertIn("Abrir rutas documentadas", fn_code)
         self.assertIn("_ultimoResultadoGrafo", fn_code)
 
-    def test_svg_export_and_canvas_namespace_validity(self):
-        """Verifica que el elemento SVG y la exportación declaren el espacio de nombres XML."""
-        self.assertIn('xmlns="http://www.w3.org/2000/svg"', self.cv_js)
-        self.assertIn('setAttribute("version", "1.1")', self.cv_js)
+    def test_document_viewer_does_not_claim_to_export_a_synthetic_svg(self):
+        """La reconstrucción abre evidencia del manual y no exporta un plano inventado."""
+        self.assertIn("openPdfForEvidence", self.cv_js)
+        self.assertIn("EVIDENCIA VERIFICADA", self.cv_js)
+        self.assertNotIn("exportSvg", self.cv_js)
 
     def test_global_irA_navigation_function_exported(self):
         """Verifica que window.irA esté asignada a nivel de script en index.html."""
         self.assertIn("window.irA = irA;", self.html)
+
+    def test_normal_search_requires_explicit_action(self):
+        """Escribir o cambiar el filtro no debe consultar; solo Buscar o Enter lo hacen."""
+        init_match = re.search(
+            r'document\.addEventListener\("DOMContentLoaded", async function\(\) \{([\s\S]*?)// Symptom inputs',
+            self.app_js,
+        )
+        self.assertIsNotNone(init_match, "No se encontró la inicialización del buscador.")
+        init_code = init_match.group(1)
+        self.assertNotIn('q.addEventListener("input"', init_code)
+        self.assertNotIn('m.addEventListener("change", dispararBusqueda)', init_code)
+        self.assertIn('event.key !== "Enter"', init_code)
+
+    def test_transient_provider_error_has_safe_ui_message(self):
+        """La UI debe reconocer 503/saturación sin mostrar detalles del proveedor."""
+        self.assertIn('errType === "service_unavailable"', self.app_js)
+        self.assertIn('errLower.includes("high demand")', self.app_js)
 
 
 if __name__ == "__main__":

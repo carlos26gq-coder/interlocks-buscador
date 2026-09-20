@@ -193,20 +193,21 @@ class ApiEndpointsSuite(unittest.TestCase):
     # ─── 4. ENDPOINTS DEL VISUALIZADOR DE ESQUEMAS SVG ───────────────────────
 
     def test_circuits_subsystems_list(self):
-        """El endpoint /circuits/subsystems devuelve los 5 subsistemas de ingeniería."""
+        """El endpoint expone únicamente las rutas/referencias con evidencia textual."""
         with self.client.get("/circuits/subsystems") as res:
             self.assertEqual(res.status_code, 200)
             data = res.get_json()
             self.assertTrue(data.get("ok"))
-            self.assertEqual(len(data.get("subsystems", [])), 5)
+            self.assertGreaterEqual(len(data.get("subsystems", [])), 1)
+            self.assertTrue(all(item["status"] == "verified_text" for item in data["subsystems"]))
 
     def test_circuit_subsystem_detail_and_404(self):
         """Detalle de subsistema válido devuelve datos; ID inexistente devuelve 404."""
-        with self.client.get("/circuits/safety_loop") as res:
+        with self.client.get("/circuits/dosimetry_bias_320v") as res:
             self.assertEqual(res.status_code, 200)
             data = res.get_json()
             self.assertTrue(data.get("ok"))
-            self.assertEqual(data["subsystem"]["id"], "safety_loop")
+            self.assertEqual(data["subsystem"]["id"], "dosimetry_bias_320v")
 
         with self.client.get("/circuits/subsistema_falso_xyz") as res_404:
             self.assertEqual(res_404.status_code, 404)
@@ -215,12 +216,12 @@ class ApiEndpointsSuite(unittest.TestCase):
 
     def test_circuits_match_endpoint(self):
         """El endpoint /circuits/match procesa componentes y determina el subsistema óptimo."""
-        payload = {"components": ["DOOR_SW_283", "ESTOP_CONSOLE"]}
+        payload = {"components": ["ion chamber", "i189", "-320 V"]}
         with self.client.post("/circuits/match", json=payload) as res:
             self.assertEqual(res.status_code, 200)
             data = res.get_json()
             self.assertTrue(data.get("ok"))
-            self.assertEqual(data.get("subsystem_id"), "safety_loop")
+            self.assertEqual(data.get("subsystem_id"), "dosimetry_bias_320v")
 
     # ─── 5. SEGURIDAD Y CONTROL DE ACCESO ADMINISTRATIVO ─────────────────────
 

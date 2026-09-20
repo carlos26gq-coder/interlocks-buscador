@@ -8,6 +8,17 @@
 
 ## 1. RESUMEN EJECUTIVO Y REGLAS CANÓNICAS
 
+### Corrección vigente — Explorador de diagramas y señales (20 de septiembre de 2026)
+
+Esta sección **sustituye** cualquier afirmación histórica de este dossier sobre cinco esquemas SVG canónicos, simulación interactiva de fallas, cableado automático o enriquecimiento de `linac_graph.json`.
+
+- Se retiraron `scripts/static/circuit_schematics.json`, su generador y las cinco topologías sintéticas. Su contenido no tenía respaldo suficiente por nodo y no tenía evidencia por conexión.
+- La fuente única publicable es `data/verified_signal_paths.json`, enlazada obligatoriamente con `data/documentary_traceability.json`. La primera ruta funcional publicada describe la polarización de cámara de ionización desde RHCA, el cable coaxial y la cámara, con sus extractos de dosimetría p. 43 y el procedimiento i189/límites de p. 96.
+- La hoja de PSU -300 V (diagramas p. 217) y la referencia PPG/HTCA (HT/RF p. 49) se muestran como **referencias documentales**: sus etiquetas no se convierten en cableado, pines, tensiones adicionales, efectos de falla ni códigos de error.
+- `GraphEngine` ya no inyecta relaciones `controlled_by` ni cables desde un catálogo manual. Su salida es una correlación del índice documental, no una certificación de ruta física.
+- El visor presenta un recorrido de izquierda a derecha, condición/efecto solo cuando está documentado, punto de comprobación y botón de evidencia (manual, página física y extracto). Una consulta sin coincidencia muestra explícitamente que no existe una ruta publicada; no usa un esquema por defecto.
+- Para ampliar el catálogo se exige, por cada afirmación, `citation_id`, manual, página física, extracto, estado `verified_text` y una relación dirigida explícita. Los escenarios de simulación permanecen fuera de alcance hasta que cada propagación de falla tenga evidencia documental.
+
 Este documento está diseñado para ser consumido por un **Arquitecto de Software Senior / Agente de Programación Experto** para continuar el mantenimiento, evolución y aseguramiento de calidad del proyecto.
 
 ### ⚠️ REGLAS NO NEGOCIABLES DEL PROYECTO

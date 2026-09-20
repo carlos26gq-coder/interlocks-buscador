@@ -90,9 +90,9 @@ class PerformanceAndStressSuite(unittest.TestCase):
         endpoints = [
             ("POST", "/diagnose/graph", {"symptoms": ["ITEM 409", "ITEM 332"]}),
             ("POST", "/diagnose/graph", {"symptoms": ["interlock 283", "PCB 16N"]}),
-            ("POST", "/circuits/match", {"components": ["DOOR_SW_283", "ESTOP_CONSOLE"]}),
-            ("GET", "/circuits/safety_loop", None),
-            ("GET", "/circuits/radiation_beam", None),
+            ("POST", "/circuits/match", {"components": ["ion chamber", "i189", "-320 V"]}),
+            ("GET", "/circuits/dosimetry_bias_320v", None),
+            ("GET", "/circuits/ht_rf_ppg_reference", None),
             ("GET", "/circuits/subsystems", None),
             ("GET", "/health", None),
         ]
@@ -216,7 +216,7 @@ class PerformanceAndStressSuite(unittest.TestCase):
 
     def test_circuit_matcher_with_heavy_payload(self):
         """match_subsystem_for_trace soporta 300 componentes y símbolos adversariales en < 50ms."""
-        heavy_components = [f"COMP_{i}" for i in range(200)] + ["DOOR_SW_283", "ESTOP_CONSOLE", "ITEM 474"]
+        heavy_components = [f"COMP_{i}" for i in range(200)] + ["ion chamber", "i189", "-320 V"]
         start = time.perf_counter()
         match = match_subsystem_for_trace(heavy_components)
         elapsed_ms = (time.perf_counter() - start) * 1000
@@ -318,11 +318,12 @@ class PerformanceAndStressSuite(unittest.TestCase):
         # 2. Cola de mensajes del Web Worker no acumula peticiones ilimitadas
         self.assertIn("_workerPending.size > 50", app_js)
 
-        # 3. Canvas SVG previene coordenadas NaN o infinitas en transformaciones y cancela RAF en deactivate
-        self.assertIn("!isFinite(_scale)", cv_js)
-        self.assertIn("!isFinite(_panX)", cv_js)
-        self.assertIn("cancelAnimationFrame(_rafId)", cv_js)
-        self.assertIn("setTimeout(() => URL.revokeObjectURL(url), 60000)", cv_js)
+        # 3. El visor documental no crea blobs/SVG ni listeners por registro;
+        # conserva un único estado y cierra su evidencia al desactivarse.
+        self.assertIn("let state =", cv_js)
+        self.assertIn("function onDeactivate()", cv_js)
+        self.assertIn("closeEvidence();", cv_js)
+        self.assertNotIn("URL.createObjectURL", cv_js)
 
         # 4. Search worker previene NaN en maxScore, null crash en componentes y optimiza búsqueda con pageMap
         self.assertIn("const maxScore = (selected.length && selected[0].score > 0) ? selected[0].score : 1.0;", sw_js)
@@ -368,8 +369,8 @@ class PerformanceAndStressSuite(unittest.TestCase):
         # Búsqueda repetitiva para verificar latencia sub-milisegundo
         start = time.perf_counter()
         for _ in range(100):
-            res = engine.resolve_entity("interlock 283")
-            self.assertEqual(res, "INTERLOCK 283")
+            res = engine.resolve_entity("AREA 70")
+            self.assertEqual(res, "AREA 70")
         elapsed_ms = (time.perf_counter() - start) * 1000
         self.assertLess(elapsed_ms, 20.0, f"Resolución de entidades demasiado lenta: {elapsed_ms:.2f}ms")
 

@@ -26,23 +26,27 @@ class TestDocumentaryParity(unittest.TestCase):
             self.assertTrue(entries[claim_id].get("extract"))
             self.assertIn(entries[claim_id]["status"], {"verified_text", "verified_voltage_not_label"})
 
-    def test_circuit_nodes_manuals(self):
-        # Validate that all nodes in circuit_data use valid manuals and pages
-        sys.path.insert(0, str(ROOT / "scripts"))
-        from circuit_data import SUBSYSTEMS
-        
+    def test_documented_signal_paths_reference_valid_manuals_and_claims(self):
+        """El visor publica solo citas que existen en la matriz verificable."""
         catalog_path = ROOT / "data" / "search" / "catalog.json"
         with open(catalog_path, "r", encoding="utf-8") as f:
             catalog = json.load(f)
-            
         manual_pages = {m["name"]: m["pages"] for m in catalog["manuals"]}
-        
-        for sub_id, sub_data in SUBSYSTEMS.items():
-            for node in sub_data["nodes"]:
-                manual = node["manual"]
-                self.assertIn(manual, manual_pages, f"El manual {manual} no existe en el catalogo.")
-                self.assertLessEqual(node["page"], manual_pages[manual], f"La pagina {node['page']} excede el total de {manual}.")
-                self.assertGreaterEqual(node["page"], 1)
+        with open(ROOT / "data" / "documentary_traceability.json", "r", encoding="utf-8") as f:
+            evidence = {entry["id"]: entry for entry in json.load(f)["entries"]}
+        with open(ROOT / "data" / "verified_signal_paths.json", "r", encoding="utf-8") as f:
+            paths = json.load(f)["catalog"]
+
+        for record in paths:
+            refs = [step["citation_id"] for step in record.get("steps", [])]
+            refs += [effect["citation_id"] for effect in record.get("failure_effects", [])]
+            refs += [check["citation_id"] for check in record.get("checks", [])]
+            refs += [fact["citation_id"] for fact in record.get("facts", [])]
+            for ref in refs:
+                entry = evidence[ref]
+                self.assertIn(entry["manual"], manual_pages)
+                self.assertLessEqual(entry["physical_page"], manual_pages[entry["manual"]])
+                self.assertEqual(entry["status"], "verified_text")
                 
     def test_multimeter_tps_manuals(self):
         sys.path.insert(0, str(ROOT / "scripts"))

@@ -22,12 +22,120 @@
       "status": "verified_text"
     },
     {
+      "id": "DOSIMETRY_BIAS_SOURCE",
+      "claim": "El RHCA (Área 12) suministra la tensión de polarización de -320 V DC.",
+      "manual": "dosimetry",
+      "page": 43,
+      "physical_page": 43,
+      "extract": "The RHCA (Area 12) supplies the -320 V DC polarized voltage to the ion chamber through a coaxial cable.",
+      "status": "verified_text"
+    },
+    {
+      "id": "DOSIMETRY_BIAS_ROUTE",
+      "claim": "La polarización de -320 V DC llega a la cámara de ionización mediante cable coaxial.",
+      "manual": "dosimetry",
+      "page": 43,
+      "physical_page": 43,
+      "extract": "The RHCA (Area 12) supplies the -320 V DC polarized voltage to the ion chamber through a coaxial cable.",
+      "status": "verified_text"
+    },
+    {
+      "id": "DOSIMETRY_BIAS_MEASUREMENT",
+      "claim": "La tensión de polarización se mide en la cámara de ionización.",
+      "manual": "dosimetry",
+      "page": 43,
+      "physical_page": 43,
+      "extract": "The voltage is measured at the ion chamber.",
+      "status": "verified_text"
+    },
+    {
+      "id": "DOSIMETRY_BIAS_INHIBIT",
+      "claim": "Si falta la tensión de polarización, un inhibidor impide la operación del acelerador lineal.",
+      "manual": "dosimetry",
+      "page": 43,
+      "physical_page": 43,
+      "extract": "If the voltage is missing, an inhibit prevents the operation of the linear accelerator.",
+      "status": "verified_text"
+    },
+    {
+      "id": "DOSIMETRY_I189_PROCEDURE",
+      "claim": "El procedimiento de calibración del monitor -320 V usa i189 y una conexión BNC-T entre SK12-FF y PL12-FF en el RHCA.",
+      "manual": "dosimetry",
+      "page": 96,
+      "physical_page": 96,
+      "extract": "Software item i189 -320V Mon. Put the BNC-T connector in line with SK12-FF and PL12-FF in the RHCA (Area 12).",
+      "status": "verified_text"
+    },
+    {
+      "id": "DOSIMETRY_I189_LIMITS",
+      "claim": "El procedimiento expresa 320.0 V como -3200 y fija límites alto -3050 y bajo -3300 para el monitor.",
+      "manual": "dosimetry",
+      "page": 96,
+      "physical_page": 96,
+      "extract": "Type the measured value into Cal Value as a negative four-digit value. For example, -3200 for a measured value of 320.0 V. Make sure that the Limit high parameter is set to -3050 and Limit low is set to -3300.",
+      "status": "verified_text"
+    },
+    {
+      "id": "HTRF_PPG_LOCATION",
+      "claim": "El HTCA está en el Área 16 del tambor de gantry y el PPG PCB pertenece a los sistemas HT y RF.",
+      "manual": "ht_rf",
+      "page": 49,
+      "physical_page": 49,
+      "extract": "The HTCA is in Area 16 on the gantry drum. The HT and RF system PCBs are: PPG PCB.",
+      "status": "verified_text"
+    },
+    {
+      "id": "HTRF_PPG_FUNCTION",
+      "claim": "El PPG PCB suministra señales importantes para controlar y ajustar los sistemas HT y RF.",
+      "manual": "ht_rf",
+      "page": 49,
+      "physical_page": 49,
+      "extract": "The PPG PCB supplies important signals to control and adjust the HT and RF systems.",
+      "status": "verified_text"
+    },
+    {
       "id": "ITEM_506",
       "claim": "ITEM 506 DS1 SUPPLY aparece en el esquema de dosimetría.",
       "manual": "diagrams",
       "page": 217,
       "physical_page": 217,
       "extract": "DOSE-A PCB 12B ... PCB 12S ... ITEM 506 DS1 SUPPLY ... ITEM 456 DS2 SUPPLY ...",
+      "status": "verified_text"
+    },
+    {
+      "id": "DIAGRAM_PSU300_ITEM189",
+      "claim": "La hoja PSU system -300 V etiqueta ITEM 189 -300V MONITOR.",
+      "manual": "diagrams",
+      "page": 217,
+      "physical_page": 217,
+      "extract": "PSU system -300 V ... ITEM 189 -300V MONITOR.",
+      "status": "verified_text"
+    },
+    {
+      "id": "DIAGRAM_PSU300_ITEM506",
+      "claim": "La hoja PSU system -300 V etiqueta ITEM 506 DS1 SUPPLY.",
+      "manual": "diagrams",
+      "page": 217,
+      "physical_page": 217,
+      "extract": "PSU system -300 V ... ITEM 506 DS1 SUPPLY.",
+      "status": "verified_text"
+    },
+    {
+      "id": "DIAGRAM_PSU300_ITEM456",
+      "claim": "La hoja PSU system -300 V etiqueta ITEM 456 DS2 SUPPLY.",
+      "manual": "diagrams",
+      "page": 217,
+      "physical_page": 217,
+      "extract": "PSU system -300 V ... ITEM 456 DS2 SUPPLY.",
+      "status": "verified_text"
+    },
+    {
+      "id": "DIAGRAM_PSU300_DOSE_PCBS",
+      "claim": "La hoja PSU system -300 V etiqueta DOSE-A PCB 12B y PCB 12S DOSE-B.",
+      "manual": "diagrams",
+      "page": 217,
+      "physical_page": 217,
+      "extract": "DOSE-A PCB 12B ... PCB 12S DOSE-B (IDENTICAL CIRCUIT TO ABOVE).",
       "status": "verified_text"
     },
     {

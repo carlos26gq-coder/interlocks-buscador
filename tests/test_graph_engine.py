@@ -140,21 +140,17 @@ class GraphEngineSuite(unittest.TestCase):
         # El camino debe ser A -> B -> C (3 pasos) y terminar sin ciclo infinito
         self.assertEqual([step["node"] for step in path], ["NODE_A", "NODE_B", "NODE_C"])
 
-    def test_graph_engine_page_index_consistency_and_enrichment_sync(self):
-        """Verifica que page_to_entities se sincronice completamente al enriquecer circuitos."""
-        engine_unenriched = GraphEngine(enrich_circuits=False)
-        self.assertFalse(engine_unenriched.enriched_circuits)
-        
-        # Enriquecer circuitos posteriormente
-        engine_unenriched._enrich_with_circuit_schematics()
-        self.assertTrue(engine_unenriched.enriched_circuits)
-        
-        # Comparar con una instancia normal (auto-enriquecida)
-        engine_normal = GraphEngine(enrich_circuits=True)
-        self.assertEqual(len(engine_unenriched.entities), len(engine_normal.entities))
+    def test_graph_engine_page_index_never_injects_synthetic_circuits(self):
+        """El índice se construye desde linac_graph, sin añadir cables/controladores no documentados."""
+        engine_without_flag = GraphEngine(enrich_circuits=False)
+        engine_with_legacy_flag = GraphEngine(enrich_circuits=True)
+        self.assertFalse(engine_without_flag.enriched_circuits)
+        self.assertFalse(engine_with_legacy_flag.enriched_circuits)
+        self.assertFalse(hasattr(engine_with_legacy_flag, "_enrich_with_circuit_schematics"))
+        self.assertEqual(len(engine_without_flag.entities), len(engine_with_legacy_flag.entities))
         self.assertEqual(
-            sum(len(v) for v in engine_unenriched.page_to_entities.values()),
-            sum(len(v) for v in engine_normal.page_to_entities.values()),
+            sum(len(v) for v in engine_without_flag.page_to_entities.values()),
+            sum(len(v) for v in engine_with_legacy_flag.page_to_entities.values()),
         )
 
 

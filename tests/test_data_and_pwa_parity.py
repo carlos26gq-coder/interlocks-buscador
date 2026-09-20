@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from search_engine import SearchEngine, MAX_SEARCH_LATENCY_WARMED_MS
 from graph_engine import MAX_GRAPH_PAYLOAD_MB
-from circuit_data import SUBSYSTEMS
+from circuit_data import load_catalog
 
 
 class DataAndPwaParitySuite(unittest.TestCase):
@@ -24,7 +24,7 @@ class DataAndPwaParitySuite(unittest.TestCase):
         cls.catalog_path = ROOT / "data" / "search" / "catalog.json"
         cls.graph_data_path = ROOT / "data" / "linac_graph.json"
         cls.graph_static_path = ROOT / "scripts" / "static" / "linac_graph.json"
-        cls.schematics_path = ROOT / "scripts" / "static" / "circuit_schematics.json"
+        cls.documented_paths_path = ROOT / "data" / "verified_signal_paths.json"
 
         with cls.data_path.open("r", encoding="utf-8") as f:
             cls.master_data = json.load(f)
@@ -112,20 +112,17 @@ class DataAndPwaParitySuite(unittest.TestCase):
         size_mb = len(data1) / (1024 * 1024)
         self.assertLess(size_mb, MAX_GRAPH_PAYLOAD_MB, f"El grafo pesa {size_mb:.2f} MB, debe ser < {MAX_GRAPH_PAYLOAD_MB} MB")
 
-    # ─── 4. PARIDAD DE ESQUEMAS VECTORIALES SVG ──────────────────────────────
+    # ─── 4. CATÁLOGO DE RUTAS DOCUMENTADAS ──────────────────────────────────
 
-    def test_circuit_schematics_json_parity(self):
-        """Verifica que circuit_schematics.json coincida con las definiciones de SUBSYSTEMS en Python."""
-        self.assertTrue(self.schematics_path.exists())
-        with self.schematics_path.open("r", encoding="utf-8") as f:
-            schem_data = json.load(f)
+    def test_documented_paths_catalog_is_the_only_runtime_source(self):
+        """Python y PWA consumen el mismo catálogo, sin copia SVG sintética."""
+        self.assertTrue(self.documented_paths_path.exists())
+        with self.documented_paths_path.open("r", encoding="utf-8") as f:
+            catalog = json.load(f)
 
-        self.assertEqual(set(schem_data.keys()), set(SUBSYSTEMS.keys()))
-        for sub_id, sub_info in schem_data.items():
-            py_sub = SUBSYSTEMS[sub_id]
-            self.assertEqual(sub_info["name"], py_sub["name"])
-            self.assertEqual(len(sub_info["nodes"]), len(py_sub["nodes"]))
-            self.assertEqual(len(sub_info["wires"]), len(py_sub["wires"]))
+        self.assertEqual(catalog, load_catalog())
+        self.assertFalse((ROOT / "scripts" / "static" / "circuit_schematics.json").exists())
+        self.assertTrue(all(item.get("status") == "verified_text" for item in catalog["catalog"]))
 
     # ─── 5. BENCHMARK DE BÚSQUEDA MASIVA ─────────────────────────────────────
 

@@ -268,9 +268,10 @@ class MultimeterIntegrationSuite(unittest.TestCase):
         self.assertIn('function dmmPreset', self.html)
         self.assertIn('function dmmProcesar', self.html)
 
-    def test_circuit_visualizer_and_app_js_multimeter_bridges(self):
-        """Verifica que el visualizador de esquemas y la traza de grafo expongan botón para multímetro."""
-        self.assertIn("medirEnMultimetro", self.cv_js)
+    def test_circuit_visualizer_and_app_js_documentary_bridges(self):
+        """El visualizador abre evidencia verificable y la traza conserva el acceso al multímetro virtual."""
+        self.assertIn("openEvidence", self.cv_js)
+        self.assertIn("openPdfForEvidence", self.cv_js)
         self.assertIn("abrirMultimetroConTp", self.app_js)
 
     def test_get_test_point_schematic_node_mapping(self):
@@ -316,10 +317,11 @@ class MultimeterIntegrationSuite(unittest.TestCase):
         self.assertIn("_lastEvaluation", self.multimeter_js)
         self.assertIn("evaluacionPersonalizada || _lastEvaluation || _history[0]", self.multimeter_js)
 
-    def test_multimeter_js_maps_general_subsystem_in_svg_navigation(self):
-        """Verifica que verEnPlanoSvg mapee el subsistema 'general' a 'safety_loop'."""
-        self.assertIn('subId === "general"', self.multimeter_js)
-        self.assertIn('subId = "safety_loop"', self.multimeter_js)
+    def test_multimeter_js_opens_only_documented_path_matches(self):
+        """Un TP virtual consulta evidencia y no lo proyecta sobre un circuito sintético."""
+        self.assertIn("CircuitVisualizer.openFromTrace", self.multimeter_js)
+        self.assertIn("[tp.id, tp.subsystem || \"\"]", self.multimeter_js)
+        self.assertNotIn('subId = "safety_loop"', self.multimeter_js)
 
     def test_multimeter_js_visibility_and_audio_lifecycle(self):
         """Verifica que multimeter.js controle la visibilidad de pestaña y ciclo de vida de audio."""

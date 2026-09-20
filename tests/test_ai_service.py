@@ -300,6 +300,23 @@ Fin del reporte."""
         self.assertIn("root_cause", res["data"])
         self.assertTrue(res["data"].get("_diagnostic_meta", {}).get("failover"))
 
+    @patch("ai_service.genai.Client")
+    def test_analyze_with_gemini_503_uses_local_failover(self, mock_client_cls):
+        """Una saturación 503 de todos los modelos no debe llegar como error crudo a la UI."""
+        docs = [{"manual": "ht_rf", "page": 22, "text": "ITEM 409 RAD_ON command from console to PCB 22."}]
+        engine = SearchEngine(docs)
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.models.generate_content.side_effect = Exception(
+            "503 UNAVAILABLE: model is currently experiencing high demand"
+        )
+
+        res = analyze_with_gemini(["ITEM 409 saturation test"], engine, api_key="test_key")
+        self.assertTrue(res["ok"])
+        self.assertTrue(res.get("failover"))
+        self.assertEqual(res["data"].get("_diagnostic_meta", {}).get("reason"), "service_unavailable")
+        self.assertNotIn("503", res.get("notice", ""))
+
     def test_zero_visible_ai_in_failover_diagnosis(self):
         """Garantiza la ausencia total de las palabras 'IA', 'AI' o 'Inteligencia Artificial' en failover."""
         docs = [{"manual": "ht_rf", "page": 22, "text": "ITEM 409 RAD_ON command from console to PCB 22."}]
@@ -311,7 +328,7 @@ Fin del reporte."""
         self.assertFalse(bool(re.search(r"\b(?:ia|ai)\b", serialized)))
 
     def test_default_gemini_timeout_is_milliseconds_and_matches_seconds(self):
-        """Verifica que el timeout para types.HttpOptions esté en milisegundos (evitando que 45s se interprete como 45ms)."""
+        """Verifica que el timeout de 90 s use milisegundos en types.HttpOptions."""
         from google.genai import types
         from google.genai._api_client import get_timeout_in_seconds
 

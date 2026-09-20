@@ -1,49 +1,38 @@
-import unittest
-import json
-import re
-from pathlib import Path
+"""Flujos verificables del explorador documental y del multímetro simulado."""
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-STATIC_DIR = BASE_DIR / "scripts" / "static"
-CIRCUIT_VISUALIZER_JS = STATIC_DIR / "circuit-visualizer.js"
-MULTIMETER_JS = STATIC_DIR / "multimeter.js"
-SCHEMATICS_JSON = STATIC_DIR / "circuit_schematics.json"
+import json
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parent.parent
+STATIC_DIR = ROOT / "scripts" / "static"
+
 
 class TechnicalWorkflowSuite(unittest.TestCase):
     def setUp(self):
-        with open(CIRCUIT_VISUALIZER_JS, "r", encoding="utf-8") as f:
-            self.cv_js = f.read()
-        with open(MULTIMETER_JS, "r", encoding="utf-8") as f:
-            self.mm_js = f.read()
-        if SCHEMATICS_JSON.exists():
-            with open(SCHEMATICS_JSON, "r", encoding="utf-8") as f:
-                self.schematics = json.load(f)
-        else:
-            self.schematics = {}
+        self.visualizer = (STATIC_DIR / "circuit-visualizer.js").read_text(encoding="utf-8")
+        self.catalog = json.loads((ROOT / "data" / "verified_signal_paths.json").read_text(encoding="utf-8"))
 
-    def test_workflow_schema_loading(self):
-        """Verificar flujo de carga de esquemas."""
-        self.assertIn("fetch(\"/static/circuit_schematics.json\")", self.cv_js)
-        self.assertTrue(len(self.schematics) > 0, "Debe haber esquemas generados.")
+    def test_documented_catalog_is_loaded_for_offline_first_viewing(self):
+        self.assertIn('const CATALOG_URL = "/data/verified_signal_paths.json"', self.visualizer)
+        self.assertIn('const TRACEABILITY_URL = "/data/documentary_traceability.json"', self.visualizer)
+        self.assertTrue(self.catalog["catalog"])
 
-    def test_workflow_tp_interaction(self):
-        """Verificar interacción con puntos de prueba (TP)."""
-        self.assertIn("inspeccionarNodo", self.cv_js)
-        self.assertIn("medirEnMultimetro", self.cv_js)
-        self.assertIn("exportarAApuntes", self.mm_js)
+    def test_path_explains_direction_failure_and_documented_effect(self):
+        path = next(item for item in self.catalog["catalog"] if item["id"] == "dosimetry_bias_320v")
+        self.assertEqual([step["id"] for step in path["steps"]], ["rhca_area_12", "coaxial_cable", "ion_chamber"])
+        self.assertTrue(path["failure_effects"])
+        self.assertIn("No se mostrará un código inferido", path["error_code_policy"])
 
-    def test_workflow_fault_simulation(self):
-        """Verificar simulación de falla en componentes."""
-        self.assertIn("function toggleNodeState", self.cv_js)
-        self.assertIn("node._simState ===", self.cv_js)
-        self.assertIn("FALLA/ABIERTO", self.cv_js)
+    def test_reference_sheet_is_not_a_fake_simulator(self):
+        self.assertNotIn("toggleNodeState", self.visualizer)
+        self.assertNotIn("simular abrir/cerrar", self.visualizer)
+        self.assertIn("No se infieren señales", self.catalog["catalog"][2]["error_code_policy"])
 
-    def test_workflow_search_and_filter(self):
-        """Verificar búsqueda/filtro de cables y TPs."""
-        self.assertIn("function buscarEnEsquema(texto)", self.cv_js)
-        self.assertIn("_activeSubsystem.wires.forEach", self.cv_js)
-        self.assertIn("_filterQuery.includes(\"POTENCIA\")", self.cv_js)
-        self.assertIn("_filterQuery.includes(\"CONTROL\")", self.cv_js)
+    def test_trace_bridge_preserves_no_evidence_behavior(self):
+        self.assertIn("openFromTrace", self.visualizer)
+        self.assertIn("no se asumió una ruta física", self.visualizer)
+
 
 if __name__ == "__main__":
     unittest.main()

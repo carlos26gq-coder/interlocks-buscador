@@ -518,172 +518,61 @@ async function ensureGraphData() {
     return _graphLoadingPromise;
 }
 
-// ─── CIRCUIT SCHEMATICS OFFLINE MATCHER (LAZY LOADED) ──────────────────────
-let _schematicsData = null;
-let _schematicsLoadingPromise = null;
+// ─── DOCUMENTED SIGNAL PATHS OFFLINE MATCHER (LAZY LOADED) ────────────────
+// Debe conservar la misma regla que circuit_data.py: las etiquetas solamente
+// abren una ruta/referencia publicada, nunca fabrican cableado ni un fallback.
+let _verifiedPathsData = null;
+let _verifiedPathsLoadingPromise = null;
 
-async function ensureSchematicsData() {
-    if (_schematicsData) return _schematicsData;
-    if (_schematicsLoadingPromise) return _schematicsLoadingPromise;
-    _schematicsLoadingPromise = (async () => {
+function normalizeDocumentedPathValue(value) {
+    return String(value || "").toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+async function ensureVerifiedPathsData() {
+    if (_verifiedPathsData) return _verifiedPathsData;
+    if (_verifiedPathsLoadingPromise) return _verifiedPathsLoadingPromise;
+    _verifiedPathsLoadingPromise = (async () => {
         try {
-            const res = await fetch("/static/circuit_schematics.json");
-            if (!res.ok) return null;
-            _schematicsData = await res.json();
-            return _schematicsData;
+            const res = await fetch("/data/verified_signal_paths.json");
+            if (!res.ok) throw new Error("No se pudo cargar el catálogo documental: " + res.status);
+            const data = await res.json();
+            if (!data || !Array.isArray(data.catalog)) throw new Error("Catálogo documental inválido.");
+            _verifiedPathsData = data;
+            return data;
         } catch (e) {
-            _schematicsLoadingPromise = null;
+            _verifiedPathsLoadingPromise = null;
             return null;
         }
     })();
-    return _schematicsLoadingPromise;
-}
-
-const _SUB_KEYWORDS_OFFLINE = {
-    radiation_beam: [/\b(radiaci[oó]n|radiation|modulador|modulator|tiratron|thyratron|magnetron|pfn|rf|klistron|klystron)\b/i],
-    safety_loop: [/\b(seguridad|safety|bucle|loop|e-stop|estop|parada|puerta|door|colisi[oó]n|collision)\b/i],
-    dosimetry: [/\b(dosimetr[ií]a|dosimetry|dosis|dose|c[aá]mara|chamber|d_rate|d-rate|unidades|mu)\b/i],
-    gantry_collimator: [/\b(gantry|colimador|collimator|rotaci[oó]n|rotation|servo|encoder|dinamo|taquim[eé]trica|tacho|brake|freno)\b/i],
-    vacuum_gun: [/\b(vac[ií]o|vacuum|cañ[oó]n|canon|gun|vacion|vac-ion|filamento|filament|c[aá]todo|cathode|emisi[oó]n)\b/i]
-};
-
-const _GENERIC_MATCH_WORDS_OFFLINE = new Set([
-    "interlock", "intlk", "item", "cable", "pcb", "rele", "relay", "punto", "prueba",
-    "test", "point", "linea", "line", "para", "falla", "error", "alarma", "desde",
-    "hacia", "circuito", "bucle", "switch", "sensor", "fuente", "supply", "board"
-]);
-
-function _matchesNameWordsOffline(term, node) {
-    const termWords = String(term).toLowerCase().split(/\W+/).filter(w => w.length >= 4 && !_GENERIC_MATCH_WORDS_OFFLINE.has(w));
-    const nameWords = String(node.name || "").toLowerCase().split(/\W+/).filter(w => w.length >= 4 && !_GENERIC_MATCH_WORDS_OFFLINE.has(w));
-    const codeWords = String(node.code || "").toLowerCase().split(/\W+/).filter(w => w.length >= 4 && !_GENERIC_MATCH_WORDS_OFFLINE.has(w));
-    const allWords = nameWords.concat(codeWords);
-    for (const tw of termWords) {
-        for (const nw of allWords) {
-            if (tw === nw || (tw.length >= 5 && (tw.includes(nw) || nw.includes(tw)))) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-function _getNodePatternsOffline(node) {
-    const pats = new Set();
-    const nid = String(node.id || "").toUpperCase().replace(/[\W_]+/g, "");
-    const code = String(node.code || "").toUpperCase().replace(/[\W_]+/g, "");
-    if (nid) pats.add(nid);
-    if (code) pats.add(code);
-
-    const fullStr = `${node.code || ""} ${node.id || ""} ${node.spec || ""}`;
-    const mItem = fullStr.match(/\bITEM_?(\d+)\b/i);
-    if (mItem) {
-        const num = mItem[1];
-        pats.add("ITEM" + num);
-        pats.add("INTERLOCK" + num);
-        pats.add("INTLK" + num);
-        pats.add(num);
-    }
-    const mIntlk = fullStr.match(/\b(?:INTERLOCK|INTLK)_?(\d+)\b/i);
-    if (mIntlk) {
-        const num = mIntlk[1];
-        pats.add("INTERLOCK" + num);
-        pats.add("INTLK" + num);
-        pats.add("ITEM" + num);
-        pats.add(num);
-    }
-    const mPcb = fullStr.match(/\bPCB_?(\w+)\b/i);
-    if (mPcb) {
-        pats.add("PCB" + mPcb[1].toUpperCase());
-        pats.add(mPcb[1].toUpperCase());
-    }
-    const mRelay = fullStr.match(/\bK\d+\b/i);
-    if (mRelay) {
-        pats.add(mRelay[0].toUpperCase());
-        pats.add("RELAY" + mRelay[0].toUpperCase());
-    }
-    return pats;
+    return _verifiedPathsLoadingPromise;
 }
 
 async function matchSubsystemForTraceOffline(components) {
-    if (!components || !components.length) {
-        return { subsystem_id: "safety_loop", matched_nodes: [] };
-    }
-    const schems = await ensureSchematicsData();
-    if (!schems) {
-        const compStr = components.join(" ").toLowerCase();
-        let sub = "safety_loop";
-        if (/\b(409|474|modulador|radiaci[oó]n|radiation|tiratron|magnetron|rf|pfn|pcb\s*22)\b/i.test(compStr)) sub = "radiation_beam";
-        else if (/\b(dosis|dose|camara|chamber|d_rate|327|332|66|pcb\s*17|pcb\s*18)\b/i.test(compStr)) sub = "dosimetry";
-        else if (/\b(gantry|colimador|collimator|motor|encoder|215|servo|pcb\s*25)\b/i.test(compStr)) sub = "gantry_collimator";
-        else if (/\b(vac[ií]o|vacuum|cañ[oó]n|canon|gun|112|118|vacion|pcb\s*14|pcb\s*12)\b/i.test(compStr)) sub = "vacuum_gun";
-        return { subsystem_id: sub, matched_nodes: [] };
-    }
+    const values = Array.isArray(components) ? components : [];
+    const query = normalizeDocumentedPathValue(values.slice(0, 50).map(value => String(value || "").slice(0, 100)).join(" "));
+    if (!query) return { subsystem_id: null, matched_nodes: [], matches: [] };
 
-    const matchedBySub = {
-        safety_loop: [],
-        radiation_beam: [],
-        dosimetry: [],
-        gantry_collimator: [],
-        vacuum_gun: []
-    };
+    const catalog = await ensureVerifiedPathsData();
+    if (!catalog) return { subsystem_id: null, matched_nodes: [], matches: [] };
 
-    for (const sId in schems) {
-        const sub = schems[sId];
-        const nodes = sub.nodes || [];
-        for (const node of nodes) {
-            const pats = _getNodePatternsOffline(node);
-            for (const c of components) {
-                const cStr = String(c || "").trim();
-                if (!cStr) continue;
-                const normC = String(cStr).toUpperCase().replace(/[\W_]+/g, "");
-                let matched = false;
-                if (pats.has(normC)) {
-                    matched = true;
-                } else {
-                    for (const p of pats) {
-                        const escapedP = String(p).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                        if (p.length >= 3 && (p === normC || new RegExp("\\b" + escapedP + "\\b", "i").test(cStr))) {
-                            matched = true;
-                            break;
-                        }
-                    }
-                }
-                if (!matched && _matchesNameWordsOffline(cStr, node)) {
-                    matched = true;
-                }
-                if (matched && !matchedBySub[sId].includes(node.id)) {
-                    matchedBySub[sId].push(node.id);
-                }
-            }
-        }
-    }
+    const matches = (catalog.catalog || []).map(item => {
+        const tags = (item.tags || []).map(normalizeDocumentedPathValue).filter(Boolean);
+        const score = tags.filter(tag => query.includes(tag) || tag.includes(query)).length;
+        const matched_nodes = (item.steps || []).filter(step => {
+            const label = normalizeDocumentedPathValue(step.label);
+            const role = normalizeDocumentedPathValue(step.role);
+            return (label && query.includes(label)) || (role && query.includes(role));
+        }).map(step => step.id);
+        return { id: item.id, score, matched_nodes };
+    }).filter(match => match.score > 0).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
 
-    const scores = {};
-    for (const sId in schems) {
-        scores[sId] = (matchedBySub[sId] || []).length * 10;
-    }
-    const fullText = components.map(c => String(c).toLowerCase()).join(" ");
-    for (const sId in _SUB_KEYWORDS_OFFLINE) {
-        for (const kw of _SUB_KEYWORDS_OFFLINE[sId]) {
-            if (kw.test(fullText)) {
-                scores[sId] = (scores[sId] || 0) + 5;
-            }
-        }
-    }
-
-    let bestSubsystem = "safety_loop";
-    let maxScore = -1;
-    for (const sId in scores) {
-        if (scores[sId] > maxScore) {
-            maxScore = scores[sId];
-            bestSubsystem = sId;
-        }
-    }
-
+    const best = matches[0] || null;
     return {
-        subsystem_id: bestSubsystem,
-        matched_nodes: matchedBySub[bestSubsystem] || []
+        subsystem_id: best ? best.id : null,
+        matched_nodes: best ? best.matched_nodes : [],
+        matches: matches.map(({ id, score, matched_nodes }) => ({ id, score, matched_steps: matched_nodes }))
     };
 }
 
@@ -699,7 +588,7 @@ async function diagnoseGraphOffline(payload) {
         try {
             res.circuit_schematic = await matchSubsystemForTraceOffline(comps);
         } catch (e) {
-            res.circuit_schematic = { subsystem_id: "safety_loop", matched_nodes: [] };
+            res.circuit_schematic = { subsystem_id: null, matched_nodes: [], matches: [] };
         }
         return res;
     }

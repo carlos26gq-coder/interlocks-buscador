@@ -12,6 +12,7 @@ La consulta de manuales y el diagnóstico no requieren cuenta ni contraseña. La
 - **PDF offline:** no se precargan los 19 manuales completos; cada PDF queda disponible sin conexión únicamente después de una descarga explícita y caché local.
 - **DMM:** el multímetro es virtual/manual y simulado. BLE y Web Serial no forman parte del producto actual.
 - **Trazabilidad:** las afirmaciones técnicas publicables se registran en `data/documentary_traceability.json` con manual, página y extracto.
+- **Rutas documentadas:** `data/verified_signal_paths.json` es el único catálogo del explorador de señales. Una ruta solo se publica cuando cada afirmación enlaza a evidencia verificable; las hojas que solo aportan etiquetas se muestran como referencias, no como cableado, simulación ni códigos de error inferidos.
 - **Apuntes:** Supabase es la fuente compartida. Las notas nuevas creadas sin conexión quedan en una cola local y se eliminan de la cola solamente después de una respuesta exitosa del servidor.
 
 ## Variables de entorno
@@ -49,6 +50,10 @@ La migración reproducible está en `supabase/migrations/001_notes_rls.sql`. Act
 6. Ejecutar pruebas, agregar los cambios a Git y desplegar.
 
 El catálogo y los nombres con hash se generan automáticamente. Al cambiar un solo manual, el navegador descarga el fragmento nuevo de ese manual y conserva el resto.
+
+## Añadir una ruta o referencia documentada
+
+No se deben dibujar conexiones a partir de coocurrencias en el índice. Para publicar una ruta, agregue primero la afirmación a `data/documentary_traceability.json` con manual, página física, extracto y estado verificable. Después agregue el registro a `data/verified_signal_paths.json`; cada paso, comprobación o efecto de falla debe enlazar mediante `citation_id` a esa matriz. Si una hoja únicamente etiqueta elementos, publíquela como `verified_document_reference`, sin pasos dirigidos ni efectos inferidos.
 
 ## Pruebas y validación
 

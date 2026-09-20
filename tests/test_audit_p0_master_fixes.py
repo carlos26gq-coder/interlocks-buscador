@@ -193,36 +193,28 @@ class AuditP0MasterFixesSuite(unittest.TestCase):
         self.assertIn("const isEditable = tag === \"INPUT\" || tag === \"TEXTAREA\" || tag === \"SELECT\" || (e.target && e.target.isContentEditable);", self.multimeter_js)
         self.assertIsNotNone(re.search(r"if\s*\(\s*isEditable\s*\)\s*\{\s*return;", self.multimeter_js))
 
-    # ─── CV-02, CV-03, CV-04: CIRCUIT VISUALIZER REGEX SAFETY ─────────────────
+    # ─── CV-02: VISOR DOCUMENTAL Y SALIDA SEGURA ─────────────────────────────
 
-    def test_cv02_circuit_visualizer_defines_and_uses_escaperegex(self):
-        """circuit-visualizer.js define escapeRegex y sanea patrones dinámicos en RegExp."""
-        self.assertIn("function escapeRegex(s)", self.cv_js)
-        self.assertIn("escapeRegex(p)", self.cv_js)
+    def test_cv02_circuit_visualizer_escapes_documentary_values(self):
+        """El visor inserta evidencia como texto escapado y no compila búsquedas del usuario como regex."""
+        self.assertIn("function esc(value)", self.cv_js)
+        self.assertIn("&quot;", self.cv_js)
+        self.assertNotIn("new RegExp(", self.cv_js)
 
     # ─── GE-01 / GE-02 / GE-03 / GE-04 / LG-03: GRAPH ENGINE ─────────────────
 
-    def test_ge01_enrichment_atomic_rollback_on_failure(self):
-        """Si _enrich_with_circuit_schematics falla, los datos del grafo revierten a su estado inicial sin mutaciones."""
+    def test_ge01_graph_never_enriches_cooccurrences_as_circuits(self):
+        """El grafo conserva su índice base; no importa topologías sintéticas desde circuit_data."""
         engine = GraphEngine(enrich_circuits=False)
-        original_entities_len = len(engine.entities)
-        original_lookup_len = len(engine.lookup)
-        original_adj_len = len(engine.adjacency)
+        self.assertFalse(engine.enriched_circuits)
+        self.assertFalse(hasattr(engine, "_enrich_with_circuit_schematics"))
+        self.assertNotIn("controlled_by", {edge[1] for edges in engine.adjacency.values() for edge in edges})
 
-        with patch.dict("sys.modules", {"circuit_data": None}):
-            engine._enrich_with_circuit_schematics()
-            self.assertFalse(engine.enriched_circuits)
-            self.assertEqual(len(engine.entities), original_entities_len)
-            self.assertEqual(len(engine.lookup), original_lookup_len)
-            self.assertEqual(len(engine.adjacency), original_adj_len)
-
-    def test_ge02_cable_resolution(self):
-        """resolve_entity resuelve cables en formatos 'CABLE W10', 'CABLE_W10', 'W10' y 'cable w10'."""
+    def test_ge02_base_graph_resolution_does_not_depend_on_removed_synthetic_cables(self):
+        """El grafo resuelve entidades realmente indexadas y no fabrica el cable W10 histórico."""
         engine = GraphEngine()
-        for q in ["CABLE W10", "cable w10", "W10"]:
-            resolved = engine.resolve_entity(q)
-            self.assertIsNotNone(resolved, f"Fallo al resolver {q}")
-            self.assertIn("W10", resolved)
+        self.assertEqual(engine.resolve_entity("ITEM 474"), "ITEM 474")
+        self.assertIsNone(engine.resolve_entity("CABLE W10"))
 
     def test_ge03_candidate_type_prioritization(self):
         """En desempates por subcadena, _TYPE_PRIORITY da preferencia a PCB sobre AREA."""
@@ -237,25 +229,23 @@ class AuditP0MasterFixesSuite(unittest.TestCase):
         path = engine.find_shortest_path("ITEM 409", "CATHODE_GUN", max_depth=1)
         self.assertIsNone(path)
 
-    def test_lg03_pure_numeric_input_resolves_to_engineering_prefix(self):
-        """Entradas puramente numéricas como '474' o '283' resuelven a ITEM o INTERLOCK."""
+    def test_lg03_numeric_input_does_not_resolve_removed_synthetic_entities(self):
+        """Un número publicado se resuelve; un interlock no indexado ya no se inventa."""
         engine = GraphEngine()
         res_474 = engine.resolve_entity("474")
         self.assertEqual(res_474, "ITEM 474")
 
-        res_283 = engine.resolve_entity("283")
-        self.assertIn(res_283, ["INTERLOCK 283", "ITEM 283"])
+        self.assertIsNone(engine.resolve_entity("283"))
 
-    # ─── CD-01 & CD-02: CIRCUIT DATA CONCURRENCY & TIE-BREAKING ────────────────
+    # ─── CD-01 & CD-02: CATÁLOGO DOCUMENTAL CONCURRENCIA Y MATCH ────────────
 
-    def test_cd01_subsystem_node_index_thread_safe(self):
-        """_get_subsystem_node_index es hilo-seguro con doble verificación de cerrojo."""
-        circuit_data._SUBSYSTEM_NODE_INDEX = None
+    def test_cd01_documented_catalog_cache_is_thread_safe(self):
+        """La carga cacheada del único catálogo retorna la misma estructura en lecturas paralelas."""
+        circuit_data.load_catalog.cache_clear()
         results = []
 
         def worker():
-            idx = circuit_data._get_subsystem_node_index()
-            results.append(len(idx))
+            results.append(len(circuit_data.get_all_subsystems()))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(worker) for _ in range(10)]
@@ -264,11 +254,11 @@ class AuditP0MasterFixesSuite(unittest.TestCase):
         self.assertEqual(len(results), 10)
         self.assertTrue(all(r == results[0] for r in results))
 
-    def test_cd02_subsystem_matching_tie_breaker(self):
-        """match_subsystem_for_trace desempatará a favor del subsistema con nodos físicos."""
+    def test_cd02_documented_match_never_falls_back_to_an_arbitrary_diagram(self):
+        """Una coincidencia abre la ruta publicada; una consulta ajena no inventa un esquema."""
         res = circuit_data.match_subsystem_for_trace(["TP100", "ION CHAMBER"])
-        self.assertEqual(res["subsystem_id"], "dosimetry")
-        self.assertIn("TP100", res["matched_nodes"])
+        self.assertEqual(res["subsystem_id"], "dosimetry_bias_320v")
+        self.assertIsNone(circuit_data.match_subsystem_for_trace(["DOOR_SW_283"])["subsystem_id"])
 
     # ─── LG-01: SHA-256 PARITY BETWEEN DATA AND STATIC GRAPH ──────────────────
 
@@ -323,25 +313,23 @@ class AuditP0MasterFixesSuite(unittest.TestCase):
         self.assertIn("cableM = String(text).match", self.worker_js)
         self.assertIn(".slice(0, 6)", self.worker_js)
 
-    # ─── CV-01 / DUP-03: PARIDAD EXACTA DE EMBEDDED_SUBSYSTEMS ────────────────
+    # ─── CV-01: CATÁLOGO PUBLICABLE ÚNICO ───────────────────────────────────
 
-    def test_cv01_circuit_schematics_exact_parity_with_python(self):
-        """CV-01 / DUP-03: circuit_schematics.json es 100% idéntico a circuit_data.SUBSYSTEMS."""
+    def test_cv01_verified_signal_paths_is_the_only_published_catalog(self):
+        """No queda un archivo SVG sintético ni una segunda definición Python de las rutas."""
         import json
-        with open("scripts/static/circuit_schematics.json", "r", encoding="utf-8") as f:
-            js_subsystems = json.load(f)
-        self.assertEqual(js_subsystems, circuit_data.SUBSYSTEMS)
+        with open("data/verified_signal_paths.json", "r", encoding="utf-8") as f:
+            paths = json.load(f)
+        self.assertEqual(paths, circuit_data.load_catalog())
+        self.assertFalse((STATIC_DIR / "circuit_schematics.json").exists())
 
-    # ─── X-13 / DUP-05: SINCRONIZACIÓN DE PALABRAS GENÉRICAS ───────────────────
+    # ─── X-13: SIN FALLBACK HEURÍSTICO DE ESQUEMAS ───────────────────────────
 
-    def test_x13_generic_words_synchronization_across_all_modules(self):
-        """X-13: _GENERIC_MATCH_WORDS contiene exactamente las mismas 26 palabras en backend, worker y visualizador."""
-        from circuit_data import _GENERIC_MATCH_WORDS
-        self.assertEqual(len(_GENERIC_MATCH_WORDS), 26)
-
-        for mod_name, mod_text in [("circuit-visualizer.js", self.cv_js), ("search-worker.js", self.worker_js)]:
-            for word in _GENERIC_MATCH_WORDS:
-                self.assertIn(f'"{word}"', mod_text, f"Palabra genérica '{word}' ausente en {mod_name}")
+    def test_x13_documented_matcher_has_no_legacy_subsystem_fallback(self):
+        """Backend y worker usan el catálogo publicado y devuelven null ante falta de evidencia."""
+        self.assertIn('fetch("/data/verified_signal_paths.json")', self.worker_js)
+        self.assertIn('subsystem_id: null', self.worker_js)
+        self.assertNotIn('"safety_loop"', self.worker_js)
 
     # ─── M-03 / M-04: PARIDAD PROFUNDA DE CATÁLOGO Y MAPAS TP ─────────────────
 

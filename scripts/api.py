@@ -540,7 +540,8 @@ def diagnose_graph():
         result = engine.trace_circuit(symptoms, search_engine=search_engine)
         result["r2_url"] = R2_PUBLIC_URL
 
-        # Correlacionar con esquema SVG interactivo
+        # Relacionar etiquetas del índice con rutas/referencias documentadas.
+        # Esto no transforma coocurrencias del grafo en un cableado certificado.
         try:
             from circuit_data import match_subsystem_for_trace
             comps = list(symptoms) + (result.get("pcbs") or []) + (result.get("cables") or []) + (result.get("test_points") or [])
@@ -962,7 +963,7 @@ def openapi_spec():
         "info": {
             "title": "SOLVI API - Linear Accelerator Technical Engineering",
             "version": "2.1.0",
-            "description": "API técnica para búsqueda documental, diagnóstico causal, traza topológica de interlocks y esquemas SVG en aceleradores lineales Elekta.",
+            "description": "API técnica para búsqueda documental, diagnóstico causal y referencias trazables de manuales para aceleradores lineales Elekta. Las correlaciones del índice no certifican cableado físico.",
         },
         "paths": {
             "/search": {
@@ -985,8 +986,8 @@ def openapi_spec():
             },
             "/diagnose/graph": {
                 "post": {
-                    "summary": "Traza determinista de circuito de hardware en grafo",
-                    "responses": {"200": {"description": "Ruta de conexión física, hub PCB y cables"}},
+                    "summary": "Correlación de entidades en el índice documental",
+                    "responses": {"200": {"description": "Coincidencias de índice y referencias documentadas; no certifica una ruta física"}},
                 }
             },
             "/diagnose/ai": {
@@ -997,14 +998,14 @@ def openapi_spec():
             },
             "/circuits/subsystems": {
                 "get": {
-                    "summary": "Listado de subsistemas de esquemas eléctricos SVG",
-                    "responses": {"200": {"description": "Lista de subsistemas"}},
+                    "summary": "Listado de rutas y referencias documentales verificadas",
+                    "responses": {"200": {"description": "Catálogo de rutas funcionales y hojas de referencia"}},
                 }
             },
             "/circuits/{subsystem_id}": {
                 "get": {
-                    "summary": "Detalle y topología esquemática de un subsistema",
-                    "responses": {"200": {"description": "Nodos y cables esquemáticos"}},
+                    "summary": "Detalle de una ruta o referencia documental",
+                    "responses": {"200": {"description": "Pasos, límites y evidencia de manual disponible"}},
                 }
             },
             "/multimeter/test-points": {

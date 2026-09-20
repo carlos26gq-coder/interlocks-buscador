@@ -340,11 +340,11 @@ class AuditFixesVerificationSuite(unittest.TestCase):
         self.assertIsNotNone(ent_sub)
         self.assertEqual(ent_sub, "D RATE 1")
 
-    def test_p4_2_graph_engine_enriched_circuits_flag(self):
-        """GraphEngine expone el flag enriched_circuits tras inicializarse."""
+    def test_p4_2_graph_engine_marks_synthetic_enrichment_as_disabled(self):
+        """GraphEngine conserva el flag para compatibilidad, pero no inventa relaciones de circuito."""
         graph = GraphEngine()
         self.assertTrue(hasattr(graph, "enriched_circuits"))
-        self.assertTrue(graph.enriched_circuits)
+        self.assertFalse(graph.enriched_circuits)
 
     def test_p4_3_graph_engine_find_shortest_path_sink_nodes_and_unknown(self):
         """find_shortest_path maneja nodos sumidero sin excepción y rechaza IDs desconocidos."""
@@ -362,7 +362,10 @@ class AuditFixesVerificationSuite(unittest.TestCase):
     def test_circuit_matcher_high_performance_and_no_truncation(self):
         """Separa el presupuesto de inicialización fría del rendimiento sostenido."""
         from circuit_data import match_subsystem_for_trace
-        heavy_components = [f"DUMMY_COMP_{i}" for i in range(250)] + ["DOOR_SW_283", "ESTOP_CONSOLE", "ITEM 474"]
+        # El endpoint limita la entrada a los primeros 50 componentes: colocar
+        # las etiquetas relevantes dentro de ese contrato, no al final de una
+        # carga que el servidor rechazaría/truncaría.
+        heavy_components = ["ION CHAMBER", "I189", "-320 V"] + [f"DUMMY_COMP_{i}" for i in range(250)]
 
         # La primera llamada puede construir perezosamente el índice de nodos.
         start = time.perf_counter()
@@ -383,9 +386,7 @@ class AuditFixesVerificationSuite(unittest.TestCase):
             30.0,
             f"Mediana caliente {statistics.median(warm_samples_ms):.2f}ms (límite 30ms)",
         )
-        self.assertEqual(match_res["subsystem_id"], "safety_loop")
-        self.assertIn("DOOR_SW_283", match_res["matched_nodes"])
-        self.assertIn("ESTOP_CONSOLE", match_res["matched_nodes"])
+        self.assertEqual(match_res["subsystem_id"], "dosimetry_bias_320v")
 
     def test_search_worker_parity_for_p4_1_and_p4_3(self):
         """search-worker.js implementa coincidencia exacta previa, desempate determinista y soporte de sumideros."""

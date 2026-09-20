@@ -50,7 +50,6 @@ class GraphEngine:
     """Motor de recorrido de grafo para diagnóstico de aceleradores lineales."""
 
     def __init__(self, graph_data: dict[str, Any] | None = None, enrich_circuits: bool | None = None):
-        auto_enrich = (graph_data is None) if enrich_circuits is None else enrich_circuits
         if graph_data is None:
             if not GRAPH_FILE.exists():
                 raise FileNotFoundError(f"Archivo de grafo no encontrado en {GRAPH_FILE}")
@@ -62,12 +61,11 @@ class GraphEngine:
         self.adjacency: dict[str, list] = graph_data.get("adjacency", {})
         self.lookup: dict[str, str] = graph_data.get("lookup", {})
         self.page_to_entities: dict[tuple[str, int], list[str]] = defaultdict(list)
+        # ``enrich_circuits`` se mantiene solo para compatibilidad con llamadas
+        # anteriores. Las topologías SVG sintéticas no se incorporan al grafo:
+        # una coocurrencia visual no es una conexión física verificable.
         self.enriched_circuits: bool = False
-
-        if auto_enrich:
-            self._enrich_with_circuit_schematics()
-        else:
-            self._rebuild_page_index()
+        self._rebuild_page_index()
 
     def _rebuild_page_index(self) -> None:
         """Construye el índice invertido (manual, página) -> lista de entidades para búsquedas O(1)."""
@@ -76,78 +74,6 @@ class GraphEngine:
             for page in ent.get("pages", []):
                 if isinstance(page, (list, tuple)) and len(page) >= 2:
                     self.page_to_entities[(str(page[0]), int(page[1]))].append(ent_id)
-
-    def _enrich_with_circuit_schematics(self) -> None:
-        """Enriquece entidades y topología con los 5 esquemas de circuitos de ingeniería."""
-        saved_entities = {k: v.copy() if isinstance(v, dict) else v for k, v in self.entities.items()}
-        saved_lookup = self.lookup.copy()
-        saved_adjacency = {k: [list(edge) for edge in edges] for k, edges in self.adjacency.items()}
-        saved_page_to_entities = {k: list(v) for k, v in self.page_to_entities.items()}
-        try:
-            from circuit_data import SUBSYSTEMS
-            for sub_id, sub in SUBSYSTEMS.items():
-                man_refs = sub.get("manual_references", [])
-                sub_page = 14
-                sub_man = "diagrams"
-                if man_refs:
-                    m = re.search(r"(\w+)\s*\(P[aá]g\s*(\d+)\)", man_refs[0], re.I)
-                    if m:
-                        sub_man, sub_page = m.group(1), int(m.group(2))
-                sub_pcbs = [n.get("code") or n.get("id") for n in sub.get("nodes", []) if n.get("type") == "pcb"]
-                for n in sub.get("nodes", []):
-                    code = n.get("code") or n.get("id")
-                    nid = n.get("id")
-                    ntype = n.get("type", "circuit_component")
-                    nname = n.get("name", code)
-                    man = n.get("manual", sub_man)
-                    page = int(n.get("page", sub_page))
-                    for key in [code, nid]:
-                        if not key:
-                            continue
-                        k_clean = _clean_key(key)
-                        if k_clean and k_clean not in self.lookup:
-                            self.lookup[k_clean] = key
-                        if key not in self.entities:
-                            self.entities[key] = {
-                                "id": key,
-                                "type": ntype,
-                                "name": nname,
-                                "pages": [[man, page]],
-                            }
-                    if ntype != "pcb" and sub_pcbs and code:
-                        for pcb in sub_pcbs:
-                            edge = [pcb, "controlled_by", 5, man, page]
-                            self.adjacency.setdefault(code, [])
-                            if edge not in self.adjacency[code]:
-                                self.adjacency[code].append(edge)
-                for wire in sub.get("wires", []):
-                    u = wire.get("from")
-                    v = wire.get("to")
-                    for n in sub.get("nodes", []):
-                        if n.get("id") == u:
-                            u = n.get("code") or u
-                        if n.get("id") == v:
-                            v = n.get("code") or v
-                    if u and v:
-                        wtype = wire.get("type", "wire")
-                        edge_uv = [v, wtype, 5, sub_man, sub_page]
-                        edge_vu = [u, wtype, 5, sub_man, sub_page]
-                        self.adjacency.setdefault(u, [])
-                        self.adjacency.setdefault(v, [])
-                        if edge_uv not in self.adjacency[u]:
-                            self.adjacency[u].append(edge_uv)
-                        if edge_vu not in self.adjacency[v]:
-                            self.adjacency[v].append(edge_vu)
-            self.enriched_circuits = True
-            self._rebuild_page_index()
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).warning("Error al enriquecer grafo con esquemas de circuito: %s", exc)
-            self.entities = saved_entities
-            self.lookup = saved_lookup
-            self.adjacency = saved_adjacency
-            self.page_to_entities = defaultdict(list, saved_page_to_entities)
-            self.enriched_circuits = False
 
     def resolve_entity(self, text: str, search_engine: Any = None) -> str | None:
         """Resuelve un texto de síntoma o consulta a un ID canónico del grafo."""

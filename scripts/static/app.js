@@ -1017,11 +1017,11 @@ function renderTrazaGrafo(data, symptoms) {
         container.innerHTML =
             '<div class="diagnostic-card" style="border-left:4px solid var(--warn);background:rgba(245,158,11,0.05);padding:14px 16px;">' +
                 '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
-                    '<span class="graph-badge" style="background:rgba(245,158,11,.15);color:var(--warn);border-color:rgba(245,158,11,.4);font-weight:700;">⚡ TRAZA DE CIRCUITO (HARDWARE)</span>' +
+                    '<span class="graph-badge" style="background:rgba(245,158,11,.15);color:var(--warn);border-color:rgba(245,158,11,.4);font-weight:700;">📚 CORRELACIÓN DEL ÍNDICE DOCUMENTAL</span>' +
                 '</div>' +
-                '<h3 style="color:#f8fafc;font-size:.92rem;margin:6px 0">No se detectó una ruta física directa en el grafo de hardware</h3>' +
+                '<h3 style="color:#f8fafc;font-size:.92rem;margin:6px 0">No se encontró una correlación documental suficiente</h3>' +
                 '<p style="font-size:.76rem;color:var(--muted);line-height:1.5;margin-bottom:12px;">' +
-                    'La traza topológica recorre cables Wxx, conectores SK/PL, relés o números ITEM físicos interconectados. ' +
+                    'El índice relaciona entidades que aparecen en la documentación; no certifica cableado ni una ruta física. ' +
                     'Para descripciones de fallas o síntomas sin código de componente, utiliza la búsqueda cruzada en los 19 manuales técnicos o el Diagnóstico Causal Avanzado.' +
                 '</p>' +
                 '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
@@ -1068,7 +1068,7 @@ function renderTrazaGrafo(data, symptoms) {
 
     const flowDiagram = data.trace_diagram
         ? '<div class="graph-flow-box" style="margin-bottom:12px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.25);border-radius:8px;padding:10px 12px;">' +
-            '<span style="font-size:0.65rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;display:block;margin-bottom:4px;">📐 RUTA ELÉCTRICA PASO A PASO:</span>' +
+            '<span style="font-size:0.65rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;display:block;margin-bottom:4px;">📐 RECORRIDO DEL ÍNDICE (NO ES CABLEADO CERTIFICADO):</span>' +
             '<b style="color:#f8fafc;font-family:var(--mono);font-size:0.8rem;line-height:1.6;">' + esc(data.trace_diagram) + '</b>' +
           '</div>'
         : '';
@@ -1079,55 +1079,52 @@ function renderTrazaGrafo(data, symptoms) {
           '</button>'
         : '';
 
-    const hasCanonicalSchematic = Boolean(data.circuit_schematic && data.circuit_schematic.matched_nodes && data.circuit_schematic.matched_nodes.length > 0);
     const hasDocumentedManuals = Boolean(data.manual_references && data.manual_references.length > 0);
-    const verificationBadge = hasCanonicalSchematic
-        ? '<span style="font-size:.65rem;font-family:var(--mono);color:var(--green)">⬤ CANÓNICO (Esquema verificado)</span>'
-        : hasDocumentedManuals
-            ? '<span style="font-size:.65rem;font-family:var(--mono);color:var(--accent)">⬤ DOCUMENTADO (Manuales)</span>'
-            : '<span style="font-size:.65rem;font-family:var(--mono);color:var(--warn)">⬤ INFERIDO (Topología aproximada)</span>';
+    const verificationBadge = hasDocumentedManuals
+        ? '<span style="font-size:.65rem;font-family:var(--mono);color:var(--accent)">⬤ REFERENCIAS DEL ÍNDICE</span>'
+        : '<span style="font-size:.65rem;font-family:var(--mono);color:var(--warn)">⬤ SIN EVIDENCIA DE RUTA</span>';
 
     container.innerHTML =
         '<div class="graph-card" style="border-left:4px solid var(--accent);background:linear-gradient(180deg, rgba(0,212,255,0.04) 0%, rgba(15,23,42,0.85) 100%);padding:16px;border-radius:12px;border:1px solid var(--border);border-left:4px solid var(--accent);">' +
             '<div class="graph-top" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
-                '<span class="graph-badge" style="background:rgba(0,212,255,.15);color:var(--accent);border-color:rgba(0,212,255,.4);font-weight:700;">⚡ RUTA ELÉCTRICA Y TOPOLOGÍA DE HARDWARE</span>' +
+                '<span class="graph-badge" style="background:rgba(0,212,255,.15);color:var(--accent);border-color:rgba(0,212,255,.4);font-weight:700;">📚 CORRELACIÓN DOCUMENTAL DE ENTIDADES</span>' +
                 verificationBadge +
             '</div>' +
             '<div style="background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.25);border-radius:8px;padding:10px 14px;margin-bottom:12px;">' +
-                '<span style="font-size:0.65rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;display:block;">📍 Componente o Circuito Físico Convergente:</span>' +
+                '<span style="font-size:0.65rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;display:block;">📍 Entidad coincidente en el índice:</span>' +
                 '<div class="graph-hub" style="font-size:1.15rem;color:#f8fafc;font-weight:700;margin-top:2px;">' + esc(data.hub_node || "Componente Central") + '</div>' +
             '</div>' +
             flowDiagram +
             (cablesChips || connsChips ?
                 '<div style="margin-bottom:10px;background:rgba(0,0,0,0.2);padding:8px 10px;border-radius:8px;border:1px solid var(--border);">' +
-                    '<div style="font-size:.64rem;font-family:var(--mono);color:#93c5fd;text-transform:uppercase;margin-bottom:5px;">🔌 Cableado, Arneses y Conectores Físicos:</div>' +
+                    '<div style="font-size:.64rem;font-family:var(--mono);color:#93c5fd;text-transform:uppercase;margin-bottom:5px;">🔌 Etiquetas de cableado y conectores en el índice:</div>' +
                     '<div class="diag-chips" style="gap:6px;">' + (cablesChips + connsChips) + '</div>' +
                 '</div>'
             : '') +
             (pcbsChips || areasChips ?
                 '<div style="margin-bottom:10px;background:rgba(0,0,0,0.2);padding:8px 10px;border-radius:8px;border:1px solid var(--border);">' +
-                    '<div style="font-size:.64rem;font-family:var(--mono);color:#d8b4fe;text-transform:uppercase;margin-bottom:5px;">📍 Tarjetas Electrónicas (PCBs) y Módulos Físicos:</div>' +
+                    '<div style="font-size:.64rem;font-family:var(--mono);color:#d8b4fe;text-transform:uppercase;margin-bottom:5px;">📍 Etiquetas de tarjetas y módulos en el índice:</div>' +
                     '<div class="diag-chips" style="gap:6px;">' + (pcbsChips + areasChips) + '</div>' +
                 '</div>'
             : '') +
             (tpsChips ?
                 '<div style="margin-bottom:10px;background:rgba(0,0,0,0.2);padding:8px 10px;border-radius:8px;border:1px solid var(--border);">' +
-                    '<div style="font-size:.64rem;font-family:var(--mono);color:#fde047;text-transform:uppercase;margin-bottom:5px;">⚡ Puntos de Prueba (TP) e Inspección de Voltajes:</div>' +
+                    '<div style="font-size:.64rem;font-family:var(--mono);color:#fde047;text-transform:uppercase;margin-bottom:5px;">⚡ Etiquetas de puntos de prueba; confirmar en el manual:</div>' +
                     '<div class="diag-chips" style="gap:6px;">' + tpsChips + '</div>' +
                 '</div>'
             : '') +
             (manualsChips ?
                 '<div style="margin-top:10px;border-top:1px solid rgba(0,212,255,.15);padding-top:10px;">' +
-                    '<div style="font-size:.64rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;margin-bottom:6px;">📖 Planos y Esquemas del Circuito (Clic para abrir en PDF):</div>' +
+                    '<div style="font-size:.64rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;margin-bottom:6px;">📖 Referencias del manual (abrir y verificar):</div>' +
                     '<div class="diag-chips" style="gap:8px;">' + manualsChips + '</div>' +
                 '</div>'
             : '') +
             '<div style="margin-top:14px;border-top:1px solid rgba(0,212,255,.2);padding-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
                 '<button type="button" class="btn btn-primary btn-sm" data-action="esquema-svg" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25);">' +
-                    '<span>⚡</span> Ver en Esquema SVG (Visualizador Interactivo)' +
+                    '<span>📖</span> Abrir rutas documentadas' +
                 '</button>' +
                 tpMeasureBtn +
-                '<span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Resalta la ruta eléctrica activa en el plano vectorial</span>' +
+                '<span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Solo las rutas del visor documental declaran conexiones verificadas</span>' +
             '</div>' +
         '</div>';
     container.style.display = "block";
@@ -1138,7 +1135,7 @@ let _ultimoResultadoGrafo = null;
 function abrirEnEsquemaSvg(traceData) {
     const data = traceData || _ultimoResultadoGrafo;
     if (!data) {
-        toast("No hay traza activa para visualizar", "err");
+        toast("No hay una correlación activa para consultar", "err");
         return;
     }
     if (typeof window.irA === "function") {
@@ -1198,7 +1195,7 @@ async function ejecutarTrazaGrafo() {
         container.innerHTML =
             '<div style="text-align:center;padding:16px;font-size:.78rem;color:var(--accent);font-family:var(--mono)">' +
                 '<span class="spinner" style="display:inline-block;width:18px;height:18px;border-width:2px;vertical-align:middle;margin-right:6px"></span>' +
-                'Recorriendo grafo de interconexión y planos de Elekta...' +
+                'Correlacionando entidades del índice documental...' +
             '</div>';
     }
 
@@ -1236,7 +1233,7 @@ async function ejecutarTrazaGrafo() {
         toast("Inconveniente al trazar circuito: " + (err.message || err), "err");
     } finally {
         _isTracingGraph = false;
-        if (btnTrace) { btnTrace.disabled = false; btnTrace.textContent = "⚡ Traza de Circuito (Hardware)"; }
+        if (btnTrace) { btnTrace.disabled = false; btnTrace.textContent = "📚 Correlacionar en el Índice"; }
     }
 }
 
@@ -1466,11 +1463,11 @@ function renderDiagnosticoAi(aiData, symptoms) {
         : '') +
         warningHtml +
         '<div style="margin-top:14px;border-top:1px solid rgba(168,85,247,.25);padding-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
-            '<!-- Invoca abrirEnEsquemaSvg() vía delegación data-action="esquema-svg" -->' +
+            '<!-- Abre el catálogo de rutas/referencias documentadas -->' +
             '<button type="button" class="btn btn-primary btn-sm" data-action="esquema-svg" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25)">' +
-                '<span>⚡</span> Ver en Esquema SVG (Visualizador Interactivo)' +
+                '<span>📚</span> Abrir rutas documentadas' +
             '</button>' +
-            '<span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Resalta componentes identificados en planos vectoriales</span>' +
+            '<span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Solo mostrará relaciones respaldadas por una fuente trazable</span>' +
         '</div>';
 
     if (list) list.appendChild(card);
@@ -1607,6 +1604,18 @@ async function analizarDiagnosticoAi() {
                     '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local instantáneo</button>' +
                     ' <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px" data-action="diagnostico-ai">🔄 Reintentar análisis</button>' +
                 '</div>';
+        } else if (errType === "service_unavailable" || errLower.includes("503") || errLower.includes("unavailable") || errLower.includes("high demand") || errLower.includes("saturad")) {
+            list.innerHTML =
+                '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
+                    '<div class="diag-rank"><span style="color:var(--warn)">⏳ SERVICIO TEMPORALMENTE SATURADO</span></div>' +
+                    '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">El análisis remoto no está disponible en este momento.</h3>' +
+                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">Puedes continuar ahora con el diagnóstico documental local y la traza de circuito. Reintenta más tarde si necesitas el análisis remoto.</p>' +
+                    '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+                        '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local instantáneo</button>' +
+                        '<button type="button" class="btn btn-ghost btn-sm" data-action="traza-offline">🧭 Traza de circuito</button>' +
+                        '<button type="button" class="btn btn-ghost btn-sm" data-action="diagnostico-ai">🔄 Reintentar análisis</button>' +
+                    '</div>' +
+                '</div>';
         } else if (errType === "timeout" || errLower.includes("agotado") || errMsg.includes("AbortError") || errLower.includes("timeout") || errLower.includes("timed out") || errLower.includes("read operation") || errLower.includes("deadline exceeded")) {
             list.innerHTML =
                 '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
@@ -1694,22 +1703,12 @@ async function analizarDiagnostico() {
 // ─── INIT ────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async function() {
     const q = document.getElementById("q");
-    const m = document.getElementById("manual");
     if (q) {
-        let timer;
-        q.addEventListener("input", function() {
-            clearTimeout(timer);
-            timer = setTimeout(dispararBusqueda, 180);
-        });
         q.addEventListener("keydown", function(event) {
             if (event.key !== "Enter") return;
             event.preventDefault();
-            clearTimeout(timer);
             dispararBusqueda();
         });
-    }
-    if (m) {
-        m.addEventListener("change", dispararBusqueda);
     }
     document.getElementById("adminPw")?.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();adminEntrar();} });
     document.getElementById("notaTit")?.addEventListener("keydown", e => { if(e.key==="Enter"){e.preventDefault();guardarNota();} });

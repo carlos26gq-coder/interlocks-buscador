@@ -522,7 +522,7 @@
                     📝 Guardar en Mis Apuntes
                 </button>
                 <button type="button" class="btn btn-ghost btn-sm" data-dmm-action="ver-plano" data-tp-id="${esc(ev.test_point_id)}">
-                    ⚡ Ver en Esquema SVG
+                    📚 Consultar rutas documentadas
                 </button>
                 <button type="button" class="btn btn-ghost btn-sm" data-dmm-action="trazar" data-tp-code="${esc(ev.test_point_code)}">
                     🧭 Trazar en Relacionar
@@ -710,33 +710,21 @@ ${ev.notes || 'Lectura de banco verificada según manual de servicio técnico.'}
             window.irA("Circuits");
         }
 
-        // Si el punto de prueba pertenece a la categoría general, mapear al subsistema donde reside
-        let subId = tp.subsystem;
-        let targetNodeId = tp.id;
-        if (subId === "general" || !subId) {
-            subId = "safety_loop";
-            if (tp.id === "GEN_VOLT_24") targetNodeId = "PSU_24V";
-            else if (tp.id === "GEN_CONT_LOOP") targetNodeId = "ESTOP_CONSOLE";
-            else targetNodeId = "TP1";
-        }
-
-        const cambiarSubsistemaYAislar = () => {
+        // Un TP virtual no certifica por sí solo una topología física. Se envía
+        // como consulta al catálogo de referencias; si no hay evidencia, el
+        // visor lo declara en lugar de redirigir a un esquema arbitrario.
+        const abrirReferenciaDocumentada = () => {
             if (window.CircuitVisualizer) {
-                if (typeof window.CircuitVisualizer.cambiarSubsistema === "function") {
-                    window.CircuitVisualizer.cambiarSubsistema(subId);
+                if (typeof window.CircuitVisualizer.openFromTrace === "function") {
+                    window.CircuitVisualizer.openFromTrace([tp.id, tp.subsystem || ""]);
                 }
-                setTimeout(() => {
-                    if (typeof window.CircuitVisualizer.resaltarUnicoNodo === "function") {
-                        window.CircuitVisualizer.resaltarUnicoNodo(targetNodeId);
-                    }
-                }, 120);
             }
         };
 
         if (window.requestAnimationFrame) {
-            window.requestAnimationFrame(() => setTimeout(cambiarSubsistemaYAislar, 60));
+            window.requestAnimationFrame(() => setTimeout(abrirReferenciaDocumentada, 60));
         } else {
-            setTimeout(cambiarSubsistemaYAislar, 80);
+            setTimeout(abrirReferenciaDocumentada, 80);
         }
     }
 

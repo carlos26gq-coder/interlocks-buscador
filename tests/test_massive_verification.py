@@ -206,7 +206,7 @@ class MassiveSOLVITestSuite(unittest.TestCase):
             (["ITEM 409", "ITEM 332"], True, "alta"),
             (["dose rate mon"], True, None),
             (["check fail ht2"], True, None),
-            (["Interlock 283"], True, None),
+            (["Interlock 283"], False, None),
             (["D_RATE 1", "RAD_ON"], True, None),
             (["ITEM 474"], True, None),
             (["palabra_falsa_99999"], False, None)

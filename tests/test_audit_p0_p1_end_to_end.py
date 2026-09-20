@@ -93,12 +93,12 @@ class AuditEndToEndRegressionSuite(unittest.TestCase):
 
     # ─── 3. P1-1: SEMÁNTICA DE VERIFICACIÓN EN TRAZA DE GRAFO ────────────────
 
-    def test_p1_1_verification_badge_distinguishes_canonical_documented_inferred(self):
-        """Verifica que renderTrazaGrafo no emita '⬤ Verificado en planos' incondicionalmente."""
+    def test_p1_1_verification_badge_does_not_certify_index_correlations(self):
+        """El índice puede mostrar referencias, pero nunca llama canónica a una coocurrencia."""
         self.assertNotIn("'<span style=\"font-size:.65rem;font-family:var(--mono);color:var(--green)\">⬤ Verificado en planos</span>'", self.app_js)
-        self.assertIn("⬤ CANÓNICO (Esquema verificado)", self.app_js)
-        self.assertIn("⬤ DOCUMENTADO (Manuales)", self.app_js)
-        self.assertIn("⬤ INFERIDO (Topología aproximada)", self.app_js)
+        self.assertIn("⬤ REFERENCIAS DEL ÍNDICE", self.app_js)
+        self.assertIn("⬤ SIN EVIDENCIA DE RUTA", self.app_js)
+        self.assertNotIn("CANÓNICO (Esquema verificado)", self.app_js)
 
     # ─── 4. P1-2: CORRELACIÓN VS CAUSA RAÍZ EN DIAGRAMA ──────────────────────
 

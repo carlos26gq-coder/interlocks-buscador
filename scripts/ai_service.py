@@ -123,7 +123,9 @@ _MAX_CACHE_ENTRIES = 300
 _CACHE_LOCK = threading.Lock()
 
 
-DEFAULT_GEMINI_TIMEOUT_SECONDS: float = float(os.environ.get("GEMINI_TIMEOUT_SECONDS", "45.0"))
+# El análisis técnico puede requerir recuperar y estructurar varias citas. La
+# directiva operativa de SOLVI fija 90 s; Gunicorn deja margen para el failover.
+DEFAULT_GEMINI_TIMEOUT_SECONDS: float = float(os.environ.get("GEMINI_TIMEOUT_SECONDS", "90.0"))
 DEFAULT_GEMINI_TIMEOUT_MS: int = int(
     DEFAULT_GEMINI_TIMEOUT_SECONDS if DEFAULT_GEMINI_TIMEOUT_SECONDS >= 1000 else DEFAULT_GEMINI_TIMEOUT_SECONDS * 1000
 )
@@ -475,9 +477,12 @@ def generate_local_failover_diagnosis(
 
     subsystem = g_areas[0] if g_areas else "Bucle de Seguridad e Interconexión Linac"
 
+    interruption_reason = (
+        "saturación temporal" if reason == "service_unavailable" else "tiempo de espera excedido"
+    )
     explanation = (
         "Diagnóstico determinista local generado a partir de la topología física del grafo y "
-        "la correlación en los 19 manuales de Elekta debido a tiempo de espera excedido en el "
+        f"la correlación en los 19 manuales de Elekta debido a {interruption_reason} en el "
         f"servicio externo de análisis. La traza eléctrica identificó convergencia en {hub_node or 'el bucle de interlocks'}, "
         f"con ruta de interconexión: {trace_diagram or 'continuidad de señales nominales'}. "
         "Se recomienda proceder con la inspección física de tarjetas y la medición de voltajes en los puntos de prueba indicados."
@@ -505,7 +510,10 @@ def generate_local_failover_diagnosis(
             "failover": True,
             "reason": reason,
             "degraded_parse": False,
-            "failover_notice": "Diagnóstico determinista local generado a partir de la topología del grafo y los manuales técnicos debido a tiempo de respuesta agotado en el servicio externo.",
+            "failover_notice": (
+                "Diagnóstico determinista local generado a partir de la topología del grafo y los manuales técnicos "
+                f"debido a {interruption_reason} en el servicio externo."
+            ),
         },
     }
 
@@ -577,6 +585,7 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
         last_error = None
         quota_hit = False
         timed_out = False
+        service_unavailable = False
 
         for current_model in models_to_try:
             try:
@@ -683,8 +692,16 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
                     quota_hit = True
                     continue
 
-                # Si es error 404 o 503, intentar siguiente modelo
-                if "404" in err_str or "503" in err_str or "UNAVAILABLE" in err_str or "NOT_FOUND" in err_str:
+                # Un 503 es transitorio. Se conserva la cascada completa y,
+                # si ningún modelo responde, se entrega el análisis documental
+                # local en lugar de exponer el error crudo del proveedor.
+                if "503" in err_str or "UNAVAILABLE" in err_str:
+                    service_unavailable = True
+                    continue
+
+                # Un modelo no encontrado puede ser sustituido por el siguiente
+                # de la cascada sin marcar al servicio como saturado.
+                if "404" in err_str or "NOT_FOUND" in err_str:
                     continue
 
         if timed_out:
@@ -696,6 +713,19 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
                 "symptoms": symptoms,
                 "failover": True,
                 "notice": "Tiempo de espera agotado al consultar el modelo en la nube. Se presenta el diagnóstico determinista local de respaldo.",
+            }
+
+        if service_unavailable:
+            failover_data = generate_local_failover_diagnosis(
+                symptoms, search_engine, reason="service_unavailable"
+            )
+            return {
+                "ok": True,
+                "data": failover_data,
+                "model_used": "Diagnóstico Local y Topológico (respaldo por saturación temporal)",
+                "symptoms": symptoms,
+                "failover": True,
+                "notice": "El servicio externo está temporalmente saturado. Se presenta el diagnóstico determinista local respaldado por manuales y topología.",
             }
 
         if quota_hit:

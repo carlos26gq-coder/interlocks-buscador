@@ -211,12 +211,17 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .cv-tool-right{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
 .cv-btn-icon{background:var(--s2);border:1px solid var(--border);color:var(--text);border-radius:6px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.85rem;font-family:var(--mono);transition:all .15s;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .cv-btn-icon:hover{border-color:var(--accent);color:var(--accent)}
+.cv-status{margin:0 0 10px;padding:9px 11px;border:1px solid var(--border);border-radius:8px;font-size:.78rem;color:var(--muted);background:var(--surface)}
+.cv-status.ok{border-color:rgba(74,222,128,.35);color:#bbf7d0}.cv-status.warn{border-color:rgba(245,158,11,.4);color:#fde68a}.cv-status.err{border-color:rgba(239,68,68,.4);color:#fecaca}
+.cv-catalog{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin:10px 0 12px}.cv-record{text-align:left;border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:11px;cursor:pointer;color:var(--text);font:inherit;display:flex;flex-direction:column;gap:5px}.cv-record:hover,.cv-record.selected{border-color:var(--accent);background:rgba(0,212,255,.07)}.cv-record-type{font-family:var(--mono);font-size:.62rem;letter-spacing:.04em;color:var(--accent);font-weight:700}.cv-record span{font-size:.74rem;color:var(--muted);line-height:1.35}.cv-record small{font-size:.67rem;color:var(--green)}
+.cv-detail{padding:14px;overflow:auto}.cv-detail h2{font-size:1.05rem;margin:5px 0}.cv-detail h3{font-size:.88rem;margin:0 0 7px;color:var(--accent)}.cv-detail-header>p,.cv-help{color:var(--muted);font-size:.77rem;line-height:1.45;margin:4px 0 10px}.cv-section{margin-top:14px;padding-top:13px;border-top:1px solid var(--border)}.cv-signal-path{display:flex;align-items:stretch;gap:8px;list-style:none;padding:0;margin:0;overflow-x:auto}.cv-signal-path li{min-width:180px;position:relative}.cv-signal-path li:not(:last-child)::after{content:'→';position:absolute;right:-14px;top:45%;color:var(--accent);font-size:1.25rem}.cv-path-step{width:100%;height:100%;text-align:left;background:#111827;border:1px solid #334155;border-radius:9px;padding:10px;color:var(--text);cursor:pointer;font:inherit;display:flex;flex-direction:column;gap:4px}.cv-path-step:hover{border-color:var(--accent)}.cv-path-step small{font-family:var(--mono);color:#fde047;font-size:.64rem}.cv-path-step span:last-child{font-size:.72rem;color:var(--muted);line-height:1.35}.cv-step-number{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(0,212,255,.15);color:var(--accent);font:700 .7rem var(--mono)}
+.cv-effect-card,.cv-check-card,.cv-fact-card{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.25);border-radius:8px;padding:10px;margin:7px 0;font-size:.77rem;line-height:1.45}.cv-effect-card p,.cv-check-card p{margin:5px 0;color:#e2e8f0}.cv-fact-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px}.cv-fact-card{background:var(--surface);border-color:var(--border);display:flex;justify-content:space-between;gap:8px;align-items:center}.cv-evidence-btn{background:transparent;border:1px solid rgba(0,212,255,.35);color:var(--accent);border-radius:5px;padding:4px 7px;cursor:pointer;font-size:.68rem;white-space:nowrap}.cv-policy{background:rgba(148,163,184,.06);padding:10px;border-radius:8px}.cv-policy p{font-size:.75rem;color:var(--muted);margin:0}.cv-safety{font-size:.75rem;line-height:1.45;color:#fecaca;border-left:3px solid var(--danger);padding:9px 10px;background:rgba(239,68,68,.07);margin-top:14px}.cv-empty{padding:24px;text-align:center;color:var(--muted);font-size:.8rem;line-height:1.5}.cv-evidence-card{background:var(--surface);border:1px solid var(--accent);border-radius:11px;padding:14px;position:relative}.cv-evidence-card h3{font-size:.92rem;margin:5px 0}.cv-evidence-card blockquote{margin:10px 0;padding:9px;border-left:3px solid var(--accent);background:rgba(0,212,255,.06);font-size:.75rem;line-height:1.5;color:#cbd5e1}.cv-citation{font: .68rem var(--mono);color:var(--accent)}.cv-close{position:absolute;right:8px;top:7px;background:transparent;border:0;color:var(--muted);font-size:1.4rem;cursor:pointer}.cv-evidence-actions{display:flex;gap:7px;flex-wrap:wrap}
 .cv-btn-icon:active{transform:scale(.95);background:rgba(0,212,255,.1)}
 .cv-canvas-wrap{position:relative;width:100%;height:clamp(340px, calc(100dvh - 270px), 780px);min-height:340px;background:#0a0f1d;border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:inset 0 2px 10px rgba(0,0,0,.5);cursor:grab;touch-action:none;overscroll-behavior:contain;-webkit-user-select:none;user-select:none}
 .cv-canvas-wrap:active{cursor:grabbing}
 .cv-zoom-badge{position:absolute;bottom:12px;right:14px;background:rgba(15,23,42,.85);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-family:var(--mono);font-size:.7rem;color:var(--muted);pointer-events:none;z-index:10;backdrop-filter:blur(4px)}
 .cv-trace-banner{display:none;align-items:center;justify-content:space-between;background:linear-gradient(90deg,rgba(0,212,255,.12),rgba(74,222,128,.08));border:1px solid rgba(0,212,255,.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.75rem;font-family:var(--mono);color:var(--accent);animation:fadeIn .3s ease}
-.cv-inspector-drawer{display:none;position:fixed;bottom:calc(66px + env(safe-area-inset-bottom, 0px));left:16px;right:16px;max-width:650px;margin:0 auto;z-index:1500;max-height:55vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.cv-inspector-drawer{display:none;position:fixed;bottom:calc(66px + env(safe-area-inset-bottom, 0px));left:16px;right:16px;max-width:650px;margin:0 auto;z-index:1500;max-height:55vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.cv-inspector-drawer:not([hidden]){display:block}
 #cvViewportGroup{will-change:transform}
 @keyframes wireFlow{from{stroke-dashoffset:24}to{stroke-dashoffset:0}}
 @keyframes nodePulse{0%{filter:drop-shadow(0 0 4px rgba(0,212,255,.4))}50%{filter:drop-shadow(0 0 16px rgba(0,212,255,.9))}100%{filter:drop-shadow(0 0 4px rgba(0,212,255,.4))}}
@@ -324,8 +329,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:8px;">
       <div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.25);border-radius:6px;padding:8px 10px;">
-        <span style="color:var(--accent);font-weight:700;">⚡ Traza de Circuito (Hardware / Topología):</span>
-        <p style="color:var(--muted);margin:3px 0 0;font-size:0.72rem;">Grafo determinista de interconexión física: recorre rutas de cables Wxx, conectores SK/PL, relés y tarjetas PCB para identificar la continuidad eléctrica y el componente causante del disparo.</p>
+        <span style="color:var(--accent);font-weight:700;">📚 Correlación del Índice Documental:</span>
+        <p style="color:var(--muted);margin:3px 0 0;font-size:0.72rem;">Relaciona entidades y páginas del corpus. No certifica cableado ni una ruta física; usa Rutas documentadas para conexiones publicables.</p>
       </div>
       <div style="background:rgba(52,211,153,0.04);border:1px solid rgba(52,211,153,0.25);border-radius:6px;padding:8px 10px;">
         <span style="color:var(--green);font-weight:700;">🔍 Relacionar en Manuales (Búsqueda Cruzada):</span>
@@ -340,11 +345,11 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 
   <div class="diag-actions">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <button id="btnTraceGraph" class="btn btn-primary" onclick="ejecutarTrazaGrafo()" title="Traza física en el Grafo de Conocimiento (cables, conectores, relés y PCBs)">⚡ Traza de Circuito (Hardware)</button>
+      <button id="btnTraceGraph" class="btn btn-primary" onclick="ejecutarTrazaGrafo()" title="Relaciona entidades y páginas del índice documental; no certifica cableado">📚 Correlacionar en el Índice</button>
       <button id="btnDiagnose" class="btn btn-ghost" onclick="analizarDiagnostico()" title="Buscar correlaciones documentadas en los 19 manuales técnicos de Elekta">🔍 Relacionar en Manuales (Documental)</button>
       <button id="btnDiagnoseAi" class="btn btn-ai" onclick="analizarDiagnosticoAi()" title="Razonamiento causal de fallas y análisis de ingeniería">🧠 Diagnóstico Causal Avanzado</button>
     </div>
-    <span id="diagMeta">Modo dual desacoplado: Topología Hardware vs Correlación Documental</span>
+    <span id="diagMeta">Modo documental: correlación en el índice y rutas publicadas con evidencia.</span>
   </div>
   <div id="graphTraceResult" style="display:none;margin-bottom:14px"></div>
   <div id="diagNotice" class="info-box" style="display:none;margin-bottom:10px"></div>
@@ -358,61 +363,33 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 <div id="screenCircuits" class="screen">
   <div class="cv-header">
     <div class="cv-title-group">
-      <h2 id="cvSubsystemTitle">⚡ Esquemas Eléctricos y Planos de Circuitos</h2>
-      <span id="cvSubsystemBadge" class="cv-subsystem-badge">CIRCUIT VISUALIZER</span>
+      <h2 id="cvSubsystemTitle">📖 Rutas y referencias documentadas</h2>
+      <span id="cvSubsystemBadge" class="cv-subsystem-badge">EVIDENCE-FIRST · OFFLINE</span>
       <p id="cvSubsystemDesc" style="font-size:0.78rem;color:var(--muted);margin-top:4px;line-height:1.4">
-        Planos interactivos vectoriales con niveles lógicos, puntos de prueba (TP) y recorrido de señales.
+        Señal → recorrido → efecto, solo cuando el manual permite sustentarlo. Las hojas de esquema se abren en su página original.
       </p>
     </div>
   </div>
 
-  <div id="cvTraceBanner" class="cv-trace-banner">
-    <span id="cvTraceBannerText">⚡ Ruta activa resaltada desde Traza</span>
-    <button class="btn btn-ghost btn-sm" onclick="CircuitVisualizer.limpiarResaltados()" style="padding:2px 8px;font-size:0.68rem">Limpiar resalte</button>
-  </div>
+  <div id="cvStatus" class="cv-status">Cargando catálogo documental verificable…</div>
 
   <div class="cv-toolbar">
     <div class="cv-tool-left">
-      <div class="input-wrap" style="min-width:200px;flex:1.5">
-        <span class="iicon">🗺️</span>
-        <select id="cvSubsystemSelect" aria-label="Seleccionar subsistema" onchange="CircuitVisualizer.cambiarSubsistema(this.value)">
-          <option value="safety_loop">🔒 Bucle de Seguridad (Safety Loop)</option>
-          <option value="radiation_beam">⚡ Radiación y Modulador RF</option>
-          <option value="dosimetry">🎯 Dosimetría Doble Canal</option>
-          <option value="gantry_collimator">🔄 Gantry y Colimador</option>
-          <option value="vacuum_gun">🔬 Vacío y Cañón de Electrones</option>
-        </select>
-      </div>
-      <div class="input-wrap" style="min-width:140px;flex:1">
+      <div class="input-wrap" style="min-width:200px;flex:1">
         <span class="iicon">🔍</span>
-        <input id="cvSearchInput" type="text" aria-label="Filtrar esquema" placeholder="Filtrar TP, PCB, Wxx..." oninput="CircuitVisualizer.buscarEnEsquema(this.value)" autocomplete="off">
+        <input id="cvSearchInput" type="search" aria-label="Buscar rutas documentadas" placeholder="Buscar señal, ITEM, PCB o manual…" oninput="CircuitVisualizer.buscarEnEsquema(this.value)" autocomplete="off">
       </div>
-    </div>
-    <div class="cv-tool-right">
-      <button class="cv-btn-icon" onclick="CircuitVisualizer.zoomIn()" title="Acercar (+)">＋</button>
-      <button class="cv-btn-icon" onclick="CircuitVisualizer.zoomOut()" title="Alejar (-)">－</button>
-      <button class="cv-btn-icon" onclick="CircuitVisualizer.resetZoom()" title="Restablecer (1:1)">⟲</button>
-      <button class="cv-btn-icon" onclick="CircuitVisualizer.fitToScreen()" title="Ajustar a Pantalla">⛶</button>
-      <button class="cv-btn-icon" onclick="CircuitVisualizer.exportSvg()" title="Descargar Esquema SVG" style="color:var(--accent)">💾</button>
     </div>
   </div>
+
+  <div id="cvCatalog" class="cv-catalog" aria-label="Catálogo de rutas y referencias"></div>
 
   <div id="circuitCanvasContainer" class="cv-canvas-wrap">
     <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--accent);font-family:var(--mono);font-size:0.8rem">
-      <div class="spinner" style="margin-right:8px;width:20px;height:20px"></div> Cargando visualizador de esquemas...
+      <div class="spinner" style="margin-right:8px;width:20px;height:20px"></div> Cargando ruta documentada...
     </div>
   </div>
-  <div id="cvZoomPercent" class="cv-zoom-badge">100%</div>
-  
-  <div id="cvLegend" style="background:var(--surface); border:1px solid var(--border); padding:10px; margin-top:10px; border-radius:8px; font-size: 0.8rem; display: flex; gap: 15px; flex-wrap: wrap;">
-    <strong style="color:var(--accent)">Leyenda:</strong>
-    <span><span style="color:#4ade80; font-weight:bold;">█ Verde:</span> Nominal/Energizado</span>
-    <span><span style="color:#ef4444; font-weight:bold;">█ Rojo:</span> Falla/Disparado/Abierto</span>
-    <span><span style="color:#f59e0b; font-weight:bold;">█ Ámbar:</span> Advertencia/Marginal</span>
-    <span style="color:var(--muted)"><em>Haz clic en componentes para simular abrir/cerrar.</em></span>
-  </div>
-
-  <div id="cvInspectorDrawer" class="cv-inspector-drawer"></div>
+  <div id="cvInspectorDrawer" class="cv-inspector-drawer" hidden></div>
 </div>
 
 <div id="screenMultimeter" class="screen">

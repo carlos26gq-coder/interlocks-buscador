@@ -291,8 +291,8 @@ class LogParser {
 
     static actionCircuits(id) {
         irA('Circuits');
-        if (window.CircuitVisualizer && typeof window.CircuitVisualizer.buscarEnEsquema === 'function') {
-            window.CircuitVisualizer.buscarEnEsquema(id || '');
+        if (window.CircuitVisualizer && typeof window.CircuitVisualizer.openFromTrace === 'function') {
+            window.CircuitVisualizer.openFromTrace([id || '']);
         }
     }
 
@@ -348,7 +348,7 @@ class LogParser {
                 
                 html += `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:10px;">
                     <button type="button" class="btn btn-ghost btn-sm" data-log-action="search" data-target="${primaryId}">🔍 Ver en Manuales</button>
-                    <button type="button" class="btn btn-ghost btn-sm" data-log-action="circuits" data-target="${primaryId}">⚡ Ver en Esquema SVG</button>
+                    <button type="button" class="btn btn-ghost btn-sm" data-log-action="circuits" data-target="${primaryId}">📚 Consultar rutas documentadas</button>
                     ${suggestedTp ? `<button type="button" class="btn btn-ghost btn-sm" data-log-action="multimeter" data-target="${suggestedTp}">📟 Medir con Multímetro (${suggestedTp})</button>` : ''}
                     <button type="button" class="btn btn-primary btn-sm" data-log-action="export-notes" data-idx="${idx}">📝 Exportar a Mis Apuntes</button>
                     <button type="button" class="btn btn-ghost btn-sm" data-log-action="diagnose" data-target="${primaryId}">🧭 Ver Traza Topológica</button>
