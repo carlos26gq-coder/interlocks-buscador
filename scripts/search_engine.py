@@ -94,7 +94,9 @@ def _phrase_pattern_cached(val: str) -> re.Pattern | None:
     parts = tokens(val)
     if not parts:
         return None
-    sep = r"(?:[\W_]+|[\W_]+(?:the|a|an|of|in|to|and|or|de|la|el|del|y|en)[\W_]+)"
+    if len(parts) > 32:
+        parts = parts[:32]
+    sep = r"[\W_]+(?:(?:the|a|an|of|in|to|and|or|de|la|el|del|y|en)[\W_]+)?"
     return re.compile(r"\b" + sep.join(re.escape(part) for part in parts) + r"\b")
 
 
@@ -104,7 +106,9 @@ def _phrase_pattern(value: object) -> re.Pattern | None:
     parts = tokens(value)
     if not parts:
         return None
-    sep = r"(?:[\W_]+|[\W_]+(?:the|a|an|of|in|to|and|or|de|la|el|del|y|en)[\W_]+)"
+    if len(parts) > 32:
+        parts = parts[:32]
+    sep = r"[\W_]+(?:(?:the|a|an|of|in|to|and|or|de|la|el|del|y|en)[\W_]+)?"
     return re.compile(r"\b" + sep.join(re.escape(part) for part in parts) + r"\b")
 
 
@@ -163,12 +167,22 @@ INVALID_BOARDS = {
     "PCB AREA", "PCB POSITION", "PCB DESCRIPTION", "PCB TITLE", "PCB DETAILS",
     "PCB NUMBER", "PCB REF", "PCB REFERENCE", "PCB NAME", "PCB REV", "PCB REVISION",
     "PCB CODE", "PCB STATUS", "PCB SYSTEM", "PCB CIRCUIT", "PCB SUB", "PCB PART",
+    "PCB PCB", "PCB P4", "PCB FS17B",
 }
 
 _INVALID_PCB_SUBTITLES = {
     "AREA", "POSITION", "DESCRIPTION", "TITLE", "DETAILS", "NUMBER", "REF",
     "REFERENCE", "NAME", "REV", "REVISION", "CODE", "STATUS", "SYSTEM",
     "CIRCUIT", "SUB", "ASSY", "ASSEMBLY", "MOUNTING", "IDENTIFICATION", "PART",
+    "PROGRAMMING", "PRINTED", "RETRACTILE", "FPGA", "LAYOUT", "DRAWING",
+    "SCHEMATIC", "CONNECTIONS", "FUSE", "RELAY", "SWITCH", "TERMINAL",
+    "CONNECTOR", "ISOLATION", "DETECTOR", "CROWBAR", "PCB",
+    "THROUGH", "IF", "SETS", "SENSES", "IS", "AND", "SUPPLIES", "MONITORS", "AS",
+    "TO", "IN", "FOR", "WITH", "THAT", "WHEN", "WHERE", "BY", "FROM", "ON", "AT",
+    "OR", "AN", "THE", "NOT", "CAN", "MAY", "WILL", "DOES", "HAS", "HAVE", "GIVES",
+    "USES", "SHOWS", "OPERATES", "PREVENTS", "STOP", "STOPS", "CARRIES", "ENABLES",
+    "PROVIDES", "GENERATES", "RECEIVES", "SENDS", "TRANSMITS", "DETECTS", "OUTPUT",
+    "INPUT", "SIGNAL", "SIGNALS", "DIE", "PPG", "PRF",
 }
 
 
@@ -176,37 +190,55 @@ def extract_structured_components(text: str) -> dict[str, list[str] | str]:
     """Extrae componentes estructurados y limpios (tarjetas, cables, señales, puntos de prueba y subsistema)."""
     cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", str(text or "")[:12000])
 
-    # 1. Items y Números de Parte (Elekta 12NC y códigos ITEM)
+    # 1. Items y Números de Parte (Elekta 12NC y códigos ITEM / i<num>)
     items: list[str] = []
     item_matches = re.findall(
-        r"\b(?:ITEM\s*\d+|P\/N\s*[A-Z0-9\-]+|PART\s*NO\.?\s*[A-Z0-9\-]+|45\d{2}[\s\-]?\d{3}[\s\-]?\d{4,5})\b",
+        r"\b(?:ITEM\s*\d+|i\d{1,4}|P\/N\s*[A-Z0-9\-]+|PART\s*NO\.?\s*[A-Z0-9\-]+|45\d{2}[\s\-]?\d{3}[\s\-]?\d{4,5}|1024\d{3})\b",
         cleaned,
         re.IGNORECASE,
     )
     for it in item_matches:
-        it_clean = re.sub(r"\s+", " ", it).strip().upper()
+        m_i = re.match(r"^i(\d{1,4})$", it, re.I)
+        if m_i:
+            it_clean = f"ITEM {m_i.group(1)}"
+        else:
+            it_clean = re.sub(r"\s+", " ", it).strip().upper()
         if it_clean not in items:
             items.append(it_clean)
 
-    # 2. Tarjetas / PCBs / Cards / Unidades (con filtro de títulos no deseados)
+    # 2. Tarjetas / PCBs / Cards / Unidades (con soporte para módulos de potencia y RF)
     boards: list[str] = []
+    functional_named_boards = [
+        "DIE-HTA", "DIE-HTB", "PCB 22", "HT ISOLATION PCB", "HT PSU CONTROL PCB",
+        "HT CROWBAR DETECTOR PCB", "DRIVER PCB", "ROC-HTA", "AO12-HTA",
+        "PPG-HTB", "DIE-RHA", "DIE-RHB", "DIE-ICA", "DIE-ICB", "TS22A",
+    ]
+    for fb in functional_named_boards:
+        if re.search(r"\b" + re.escape(fb) + r"\b", cleaned, re.IGNORECASE):
+            if fb not in boards:
+                boards.append(fb)
+
     board_matches = re.findall(
-        r"\b(?:PCB\s+[A-Z0-9]+|AO\d+|AI\s*\d+[A-Z]?|DO\s*\d+|DI\s*\d+|PWA\s+[A-Z0-9]+|PWB\s+[A-Z0-9]+|DIE-[A-Z0-9]+|SCC-[A-Z0-9]+|CPU-[A-Z0-9]+|MOT-[A-Z0-9]+|DRV-[A-Z0-9]+|TMC\b|RTD\b|MLC\b|XVI\b)\b",
+        r"\b(?:PCB\s+[0-9]{1,3}[A-Z]{0,2}|PCB\s+[A-Z0-9]+|AO\d+|AI\s*\d+[A-Z]?|DO\s*\d+|DI\s*\d+|PWA\s+[A-Z0-9]+|PWB\s+[A-Z0-9]+|DIE-[A-Z0-9]+|ROC-[A-Z0-9]+|PPG-[A-Z0-9]+|SCC-[A-Z0-9]+|CPU-[A-Z0-9]+|MOT-[A-Z0-9]+|DRV-[A-Z0-9]+|TMC\b|RTD\b|MLC\b|XVI\b)\b",
         cleaned,
         re.IGNORECASE,
     )
     for b in board_matches:
         b_clean = re.sub(r"\s+", " ", b).strip().upper()
         parts_b = b_clean.split()
-        if len(parts_b) >= 2 and parts_b[0] == "PCB" and parts_b[1] in _INVALID_PCB_SUBTITLES:
-            continue
+        if len(parts_b) >= 2 and parts_b[0] == "PCB":
+            sub_part = parts_b[1]
+            if sub_part in _INVALID_PCB_SUBTITLES:
+                continue
+            if re.match(r"^(?:P\d+|FS\d+|PL\d+|SK\d+|TB\d+|SW\d+|TS\d+|CB\d+)$", sub_part):
+                continue
         if b_clean not in boards and len(b_clean) >= 3 and b_clean not in INVALID_BOARDS:
             boards.append(b_clean)
 
-    # 3. Cables, Arneses y Conectores
+    # 3. Cables, Arneses, Conectores y Terminales (soporta terminales con pin e.g. PL2-a3 y jumpers LK*)
     cables: list[str] = []
     cable_matches = re.findall(
-        r"\b(?:CABLE\s*[A-Z0-9\-]+|HARNESS\s*[A-Z0-9\-]+|PL\d{1,3}|SK\d{1,3}|TB\d{1,3}|J\d{1,3}|W\d{1,3})\b",
+        r"\b(?:CABLE\s*[A-Z0-9\-]+|HARNESS\s*[A-Z0-9\-]+|PL\d{1,3}(?:-[a-z0-9]+)?|SK\d{1,3}(?:-[a-z0-9]+)?|TB\d{1,3}|J\d{1,3}|W\d{1,3}|LK\d{1,3}|LINK\s*\d+)\b",
         cleaned,
         re.IGNORECASE,
     )
@@ -215,10 +247,10 @@ def extract_structured_components(text: str) -> dict[str, list[str] | str]:
         if c_clean not in cables and len(c_clean) >= 2:
             cables.append(c_clean)
 
-    # 4. Puntos de Prueba (TP), Relés, Fusibles y Voltajes
+    # 4. Puntos de Prueba (TP), Interruptores Térmicos, Relés, Fusibles, Disyuntores y Señales Críticas
     tps: list[str] = []
     tp_matches = re.findall(
-        r"\b(?:TP\d{1,3}|TP_[A-Z0-9]+|RL[AB]?\d{1,3}|FS\d{1,3}|FUSE\s*[A-Z0-9]+|[+\-]?\d+(?:\.\d+)?\s*(?:VDC|VAC|kV))\b",
+        r"\b(?:TP[U]?[0-9]{1,3}(?:-[0-9]{1,3})?|TS[U]?[0-9]{1,3}[A-Z]?(?:-[0-9]{1,3})?|TP_[A-Z0-9]+|SW[1-9]\d?|TS[1-9]\d?[A-Z]?|CB[1-9]\d?|CON-[A-Z]|RL[AB]?[0-9]{1,3}|RLD-1|FS[0-9]{1,3}[A-Z]?|FUSE\s*[A-Z0-9]+|PRI\s+I\s+MON|PRI\s+REF|HT\s+OVERTEMP\s+DETECTOR|RAD_ON|GUN_ON|CROWBAR\s+O\/P|CHARGERATE|[+\-]?\d+(?:\.\d+)?\s*(?:VDC|VAC|kV|mA|A))\b",
         cleaned,
         re.IGNORECASE,
     )
@@ -349,6 +381,34 @@ class SearchEngine:
                     num_str = m_e.group(1)
                     expanded_tokens.add(num_str)
                     expanded_tokens.add(str(int(num_str)))
+
+            norm_doc = normalize(text)
+            # Expansión de acrónimos técnicos y modos operativos clave
+            if "over temp" in norm_doc or "overtemp" in norm_doc or "over-temp" in norm_doc or "ht psu ot" in norm_doc:
+                expanded_tokens.update(["ot", "psu", "ht", "overtemp"])
+            if "vmat" in norm_doc or "volumetric modulated arc" in norm_doc:
+                expanded_tokens.add("vmat")
+            if "die-hta" in norm_doc or "die hta" in norm_doc:
+                expanded_tokens.update(["die-hta", "diehta", "hta"])
+            if "die-htb" in norm_doc or "die htb" in norm_doc:
+                expanded_tokens.update(["die-htb", "diehtb", "htb"])
+            if "die-rha" in norm_doc or "die rha" in norm_doc:
+                expanded_tokens.update(["die-rha", "dierha", "rha"])
+            if "die-rhb" in norm_doc or "die rhb" in norm_doc:
+                expanded_tokens.update(["die-rhb", "dierhb", "rhb"])
+            if "pcb 22" in norm_doc or "pcb22" in norm_doc or "ts22a" in norm_doc or "area 22" in norm_doc:
+                expanded_tokens.update(["pcb22", "ts22a", "ts22"])
+            if "heat exchanger" in norm_doc or "cooling pump" in norm_doc or "chiller" in norm_doc:
+                expanded_tokens.update(["exchanger", "chiller", "cooling"])
+            if "sw1" in norm_doc or "sw2" in norm_doc or "ts1" in norm_doc or "ts2" in norm_doc:
+                expanded_tokens.update(["sw1", "sw2", "ts1", "ts2"])
+            for m_item in re.finditer(r"\b(?:item|i)\s*(\d{1,4})\b", norm_doc):
+                c_code = m_item.group(1)
+                expanded_tokens.add(f"i{c_code}")
+                expanded_tokens.add(f"item{c_code}")
+                expanded_tokens.add(c_code)
+                expanded_tokens.add(str(int(c_code)))
+
             token_set = frozenset(expanded_tokens)
             document_id = len(self.documents)
             self.documents.append(
@@ -557,6 +617,20 @@ class SearchEngine:
                     code_pattern = rf"(?:i|e|item)?\s*{re.escape(code)}"
                     code_regexes.append(re.compile(rf"\b(?:{labels})\b[\W_]{{0,30}}\b{code_pattern}\b"))
                     code_regexes.append(re.compile(rf"\b{code_pattern}\b[\W_]{{0,30}}\b(?:{labels})\b"))
+
+            norm_val = normalize(value)
+            if "ht psu" in norm_val or "psu ot" in norm_val or "over temp" in norm_val or "overtemp" in norm_val:
+                specific_tokens.update(["ot", "psu", "ht", "overtemp"])
+            if "vmat" in norm_val:
+                specific_tokens.add("vmat")
+            if "die-hta" in norm_val or "die hta" in norm_val:
+                specific_tokens.update(["die-hta", "diehta", "hta"])
+            if "die-htb" in norm_val or "die htb" in norm_val:
+                specific_tokens.update(["die-htb", "diehtb", "htb"])
+            if "pcb 22" in norm_val or "pcb22" in norm_val or "area 22" in norm_val:
+                specific_tokens.update(["pcb22", "ts22a", "ts22"])
+            if "ts1" in norm_val or "ts2" in norm_val or "sw1" in norm_val or "sw2" in norm_val:
+                specific_tokens.update(["ts1", "ts2", "sw1", "sw2"])
 
             prepared.append((label, value, normalize(value), value_tokens, specific_tokens, weight, code_regexes))
             all_signal_tokens.update(specific_tokens)

@@ -756,6 +756,133 @@ Fin del reporte."""
         self.assertTrue(any("dosimetry" in r.lower() for r in refs))
         self.assertTrue(any("diagrams" in r.lower() for r in refs))
 
+    def test_generate_local_failover_diagnosis_ht_psu_ot_and_vmat(self):
+        """Verifica la generación causal profunda de HT PSU OT y VMAT con tarjetas, señales, items y procedimientos."""
+        docs = [
+            {"manual": "diagrams", "page": 57, "text": "HT PSU SYSTEM 1024686 Area 17 T4 SW2 SW1 BLA TR1 TR2 FS17A FS17B CB3."},
+            {"manual": "diagrams", "page": 159, "text": "PRF Interlocks 45133307021-WD-14 DIE-HTB PL2-a3 ITEM 251 HT PSU OT RAD_ON."},
+            {"manual": "ht_rf", "page": 92, "text": "DIE-HTB monitors HT OVERTEMP DETECTOR Item 251. SW1 SW2. Item 330 Chargerate PRI I MON PRI REF."},
+            {"manual": "ht_rf", "page": 225, "text": "Charge rate test Item 330 TPU1-8 TPU1-1 0V 2.5V 5.0V. HT PSU OT Inhibit."},
+            {"manual": "item part", "page": 145, "text": "i251 HT PSU OT HT over temperature Drawing 4513 330 7021 SW1 SW2."},
+            {"manual": "movement", "page": 80, "text": "VMAT dose delivery variable dose rate dynamic MLC Item 2200."},
+        ]
+        engine = SearchEngine(docs)
+        failover = generate_local_failover_diagnosis(
+            ["ht psu ot", "error ocurre cuando realizan tratamientos vmat"],
+            engine,
+            reason="timeout",
+        )
+
+        # 1. Subsistema preciso
+        self.assertIn("Alta Tensión y Generación de RF", failover["subsystem"])
+
+        # 2. Causa raíz con lazo térmico, VMAT, DIE-HTB, PL2-a3 e ITEM 251
+        root_cause = failover["root_cause"]
+        self.assertIn("HT OVERTEMP DETECTOR", root_cause)
+        self.assertIn("VMAT", root_cause)
+        self.assertIn("ITEM 251", root_cause)
+        self.assertIn("DIE-HTB", root_cause)
+        self.assertIn("PL2-a3", root_cause)
+
+        # 3. Tarjetas clave
+        boards = failover["associated_boards"]
+        self.assertIn("DIE-HTB", boards)
+        self.assertIn("PCB 22", boards)
+        self.assertIn("HT PSU CONTROL PCB", boards)
+        self.assertIn("HT ISOLATION PCB", boards)
+
+        # 4. Cables y terminales clave
+        cables = failover["cables_and_connectors"]
+        self.assertIn("PL2-a3", cables)
+        self.assertTrue(any(c in cables for c in ["SK17C", "PL16S", "SK16R", "TS22A"]))
+
+        # 5. Señales e ítems clave
+        signals = failover["test_points_and_signals"]
+        self.assertIn("ITEM 251", signals)
+        self.assertIn("ITEM 330", signals)
+        self.assertIn("PRI I MON", signals)
+        self.assertIn("SW1", signals)
+        self.assertIn("SW2", signals)
+        self.assertIn("TS1", signals)
+        self.assertIn("TS2", signals)
+
+        # 6. Explicación profunda y razonada
+        explanation = failover["explanation"]
+        self.assertIn("ITEM 251", explanation)
+        self.assertIn("ITEM 330", explanation)
+        self.assertIn("SW1", explanation)
+        self.assertIn("SW2", explanation)
+        self.assertIn("VMAT", explanation)
+        self.assertIn("DIE-HTB", explanation)
+        self.assertIn("PL2-a3", explanation)
+        self.assertIn("HT OVERTEMP DETECTOR", explanation)
+
+        # 7. Diagnósticos diferenciales técnicos multifacéticos
+        diffs = failover["differential_diagnoses"]
+        self.assertEqual(len(diffs), 4)
+        hypotheses = " ".join(d["hypothesis"] for d in diffs)
+        self.assertIn("SW1", hypotheses)
+        self.assertIn("SW2", hypotheses)
+        self.assertIn("HT ISOLATION PCB", hypotheses)
+        self.assertIn("PRI I MON", hypotheses)
+
+        # 8. Pasos de acción concretos y no preenlatados
+        steps = failover["action_steps"]
+        self.assertEqual(len(steps), 6)
+        step_blob = " ".join(steps)
+        self.assertIn("ITEM 251", step_blob)
+        self.assertIn("ITEM 330", step_blob)
+        self.assertIn("SW1", step_blob)
+        self.assertIn("SW2", step_blob)
+        self.assertIn("PL2-a3", step_blob)
+        self.assertIn("TPU1-8", step_blob)
+        self.assertIn("HT ISOLATION PCB", step_blob)
+        self.assertIn("BLA", step_blob)
+
+        # 9. Referencias documentales a manuales pertinentes
+        refs = failover["manual_references"]
+        self.assertTrue(any("diagrams" in r for r in refs))
+        self.assertTrue(any("ht_rf" in r for r in refs))
+        self.assertTrue(any("power_supplies" in r for r in refs))
+        self.assertTrue(any("corrective" in r for r in refs))
+        self.assertTrue(any("planned" in r for r in refs))
+        self.assertTrue(any("item part" in r for r in refs))
+
+        # 10. Advertencia de seguridad de alta tensión
+        self.assertIn("ALTA TENSIÓN", failover["safety_warning"])
+
+        # 11. Restricción estricta de CERO menciones de IA / AI
+        serialized = str(failover).lower()
+        self.assertNotIn("inteligencia artificial", serialized)
+        import re
+        self.assertFalse(bool(re.search(r"\b(?:ia|ai)\b", serialized)))
+
+    def test_gather_grounding_context_ht_psu_ot_expansions(self):
+        """Verifica que gather_grounding_context aplique expansiones para HT PSU OT y VMAT."""
+        docs = [
+            {"manual": "diagrams", "page": 57, "text": "HT PSU SYSTEM 1024686 Area 17 T4 SW2 SW1 BLA."},
+            {"manual": "diagrams", "page": 159, "text": "PRF Interlocks 4513 330 7021 DIE-HTB PL2-a3 ITEM 251 HT PSU OT."},
+            {"manual": "ht_rf", "page": 92, "text": "DIE-HTB monitors HT OVERTEMP DETECTOR Item 251 SW1 SW2 Item 330 Chargerate."},
+            {"manual": "ht_rf", "page": 225, "text": "HT PSU charge rate test Item 330 TPU1-8 TPU1-1."},
+            {"manual": "power_supplies", "page": 78, "text": "i251 HT PSU OT TS22 TS22A Area 22 Waveguide interlocks."},
+            {"manual": "corrective", "page": 419, "text": "Corrective maintenance drawing 4513 330 7021 HT PSU OT SW1 SW2."},
+            {"manual": "planned", "page": 298, "text": "Planned maintenance heat exchanger loop auxiliary pump TS1 TS2."},
+            {"manual": "item part", "page": 145, "text": "i251 HT PSU OT HT over temperature Drawing 4513 330 7021."},
+        ]
+        engine = SearchEngine(docs)
+        ctx, cmap = gather_grounding_context(
+            engine,
+            ["ht psu ot", "error ocurre cuando realizan tratamientos vmat"],
+            max_pages=16,
+        )
+        manuals_cited = {v["manual"] for v in cmap.values()}
+        self.assertIn("diagrams", manuals_cited)
+        self.assertIn("ht_rf", manuals_cited)
+        self.assertIn("power_supplies", manuals_cited)
+        self.assertIn("corrective", manuals_cited)
+        self.assertIn("planned", manuals_cited)
+        self.assertIn("item part", manuals_cited)
+
 
 if __name__ == "__main__":
     unittest.main()

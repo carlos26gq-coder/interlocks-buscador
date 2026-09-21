@@ -1373,7 +1373,7 @@ async function analizarDiagnosticoAi() {
                     '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local instantáneo</button>' +
                     ' <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px" data-action="diagnostico-ai">🔄 Reintentar análisis</button>' +
                 '</div>';
-        } else if (errType === "service_unavailable" || errLower.includes("503") || errLower.includes("unavailable") || errLower.includes("high demand") || errLower.includes("saturad")) {
+        } else if (errType === "service_unavailable" || errLower.includes("503") || errLower.includes("unavailable") || errLower.includes("high demand") || errLower.includes("saturad") || errLower.includes("500") || errType === "server_error" || errType === "server_exception") {
             list.innerHTML =
                 '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
                     '<div class="diag-rank"><span style="color:var(--warn)">⏳ SERVICIO TEMPORALMENTE SATURADO</span></div>' +

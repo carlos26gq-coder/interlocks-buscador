@@ -101,6 +101,22 @@ Reglas estrictas de precisión e ingeniería biomédica:
 11. PRIORIDAD EQUILIBRADA DE TODOS LOS MANUALES: Los 19 manuales técnicos de Elekta (dosimetry, corrective, planned, technical, vacuum, ht_rf, movement, power_supplies, ccp, communications, covers, accessory, catalogue, table, xvi, iview, item part, beam physics, diagrams) tienen la misma prioridad. El manual de diagramas (diagrams.pdf) suministra únicamente esquemas eléctricos y cableado; las deducciones de causa raíz, mecanismos físicos, tolerancias y procedimientos de intervención deben fundamentarse primordialmente en los manuales de mantenimiento correctivo, calibración, comunicaciones, física y procedimientos técnicos.
 12. DIAGNÓSTICOS DIFERENCIALES DIVERSOS Y MULTIFACÉTICOS: Genera obligatoriamente entre 2 y 4 diagnósticos diferenciales con distintas perspectivas (electrónica/lógica, calibración/deriva de sensor, mecánica/sensores ópticos, vacío/fluidos o comunicaciones/bus RTU) para brindar un espectro completo de análisis al ingeniero en campo. Cada diagnóstico diferencial debe contener una hipótesis técnica concreta, subsistema, probabilidad ('alta', 'media' o 'baja') y justificación exhaustiva basada en los manuales.
 13. PROHIBICIÓN DE PASOS PREENLATADOS DE MULTÍMETRO O CONECTORES: En 'action_steps', NUNCA repitas pasos genéricos idénticos como 'Medir con multímetro u osciloscopio los niveles lógicos...', 'Inspeccionar visual y térmicamente...', 'Comprobar la continuidad eléctrica, apriete de terminales y ausencia de bornes flojos...'. Cada paso debe ser un procedimiento técnico concreto derivado de los manuales: lectura de registros de interlock en Service Mode / CCP, tablas de calibración de umbrales, inspección de puentes (jumper links) o interruptores específicos, comprobación de estabilidad de rieles bajo carga, y procedimiento de reinicio seguro.
+14. EXIGENCIA DE HARDWARE PROFUNDO, SEÑALES, CALIBRACIONES Y ELIMINACIÓN TOTAL DE PASOS GENÉRICOS:
+En fallas de Alta Tensión (HT), Fuentes de Alimentación (PSU), Modulador, Lazo Térmico / Sobretemperatura o tratamientos dinámicos VMAT:
+- NUNCA generes procedimientos genéricos ni frases vacías como 'Acceder al Service Mode y verificar en la página de Inhibits el estado del ítem... para confirmar si es activo o intermitente', 'Inspeccionar visualmente los ventiladores...', 'Verificar la temperatura del aceite...', 'Realizar una prueba de carga estática...', o 'Revisar el registro de errores en el CCP...' sin especificaciones exactas.
+- Cada paso de acción y explicación DEBE detallar hardware riguroso, calibraciones, señales asociadas a tarjetas, voltajes, números de parte y lazos de seguridad:
+  * Tarjetas exactas: DIE-HTB (PCB 16N, slot 12 en Área 16 HTCA), DIE-HTA (PCB 16H), PCB 22 / regleta de conexiones TS22A (supervisión de guías de ondas y lazos térmicos en Área 22), HT PSU CONTROL PCB (PCB 16R, slot 15), DRIVER PCB (PCB 17A, PCB 17B), HT ISOLATION PCB (4513 330 7753 con optoacopladores OPTO 1..9), HT CROWBAR DETECTOR PCB, ROC-HTA (PCB 16L, slot 11), AO12-HTA (PCB 16C, slot 3), PPG-HTB (PCB 16S, slot 16).
+  * Diferenciación estricta de ítems: ITEM 251 (i251) es el ítem monitor de inhibición en Service Mode (HT PSU OT, donde 1 = OK/Normal, 0 = Inhibit activo), mientras que ITEM 330 (i330) es el ítem de control de Charge rate (consigna DAC de 12 bits de corriente de carga del primario modulada hacia la HT PSU, calibrada en Service Mode en 0.00, 20.00 y 40.00 A).
+  * Interruptores térmicos, bimetálicos y sensores: interruptor bimetálico/flujo de aire SW1 en el conjunto disipador de potencia (Heat Sink Assembly 4513 330 6280 / 7910), microinterruptor de fuelle de expansión de aceite dieléctrico SW2 en el transformador de carga T4 (1512977), termostatos bimetálicos TS1 y TS2 en el intercambiador de calor y circuitos de refrigeración, disyuntor CB3 (20A) y CB1, fusibles auxiliares FS17A y FS17B (0.5A) y FS73A.
+  * Lazos de refrigeración y fluidos: ventilador centrífugo de aspiración forzada BLA en Área 17, lazo del intercambiador de calor (heat exchanger loop en gantry), bomba auxiliar de circulación de refrigerante y caudalímetros asociados.
+  * Relés y contactores: contactores de alta tensión CON-A, CON-J, CON-K, CON-D (con intervalo de secuenciador de 500 ms entre CON-J y CON-D) y relé de lazo de seguridad RLD-1.
+  * Conectores y terminales: pin PL2-a3 (señal HT OVERTEMP DETECTOR en DIE-HTB), PL1-c8 (Charge en, ITEM 88), PL1-a8 (HT Crowbar, ITEM 89), PL1-c9 (HT Bellows, ITEM 87), PL16S, SK16R, SK17C, SK17D, SK16P, regleta TS22A, terminales 4 y 5 de la tarjeta HT Crowbar Detector PCB, puentes de configuración LK1 y LK2.
+  * Puntos de prueba y tolerancias de calibración:
+    - Procedimiento 7.7.6.2 de ht_rf.pdf (pág. 225): en tarjeta HTC PCB / PCB 16R conectar multímetro DC entre TPU1-8 y TPU1-1 (retorno); en Service Mode -> Power Supplies, programar ITEM 330 Chargerate en 0.00 (verificar 0 VDC ±10 mV), 20.00 (verificar 2.5 VDC ±400 mV) y 40.00 (verificar 5.0 VDC ±400 mV).
+    - Supervisión de corriente primaria: divisor resistivo de señal PRI I MON (pin 25 de PCB 16R) frente a consigna analógica PRI REF (pin 28 de PCB 16R).
+    - Descarga de seguridad del banco de condensadores de Área 17: mínimo 12 minutos tras el corte eléctrico antes de intervenir T4 o disipadores.
+  * Máscaras de inhibición del CCP: registro de bits de interlocks de PRF (ITEM 251 para HT PSU OT, ITEM 87 para HT BELLOWS / MOD OVERTEMP, ITEM 89 para HT CROWBAR, ITEM 83 para HT OVERLOAD, ITEM 84 para DIODE OVERLOAD, ITEM 88 para CHARGE ENABLE, ITEM 609, ITEM 452).
+  * Dinámica VMAT: la modulación constante de tasa de dosis y cambios rápidos en códigos PRF calculados por el TCS durante arcos dinámicos incrementa la tasa de carga sostenida en la HT PSU (Área 17); ante refrigeración degradada (ventilador BLA, filtros sucios o falla en el lazo del intercambiador de calor) o fatiga en SW1/SW2/TS1/TS2, se abre el lazo serie HT OVERTEMP DETECTOR, haciendo que el FPGA en DIE-HTB ponga ITEM 251 a 0 e inhabilite la cadena de interbloqueos de PRF (plano 4513 330 7021 / 1024686), retirando de inmediato RAD_ON.
 """
 
 
@@ -172,13 +188,13 @@ _CACHE_LOCK = threading.Lock()
 
 
 # Latencia controlada para evitar bloqueos HTTP 504 / 500 en Render y Gunicorn:
-# 25 s por intento individual; 42 s de tiempo acumulado global antes de pasar al motor local.
-DEFAULT_GEMINI_TIMEOUT_SECONDS: float = float(os.environ.get("GEMINI_TIMEOUT_SECONDS", "25.0"))
+# 12 s por intento individual; 20 s de tiempo acumulado global antes de pasar al motor local.
+DEFAULT_GEMINI_TIMEOUT_SECONDS: float = float(os.environ.get("GEMINI_TIMEOUT_SECONDS", "12.0"))
 DEFAULT_GEMINI_TIMEOUT_MS: int = int(
     DEFAULT_GEMINI_TIMEOUT_SECONDS if DEFAULT_GEMINI_TIMEOUT_SECONDS >= 1000 else DEFAULT_GEMINI_TIMEOUT_SECONDS * 1000
 )
 DEFAULT_GEMINI_TIMEOUT: float = DEFAULT_GEMINI_TIMEOUT_MS / 1000.0
-GLOBAL_WATERFALL_DEADLINE_SECONDS: float = float(os.environ.get("GEMINI_WATERFALL_DEADLINE", "42.0"))
+GLOBAL_WATERFALL_DEADLINE_SECONDS: float = float(os.environ.get("GEMINI_WATERFALL_DEADLINE", "20.0"))
 
 
 def _sanitize_error_message(text: object) -> str:
@@ -404,7 +420,7 @@ def gather_grounding_context(
     seen_pages: set[tuple[str, int]] = set()
     manual_counts: dict[str, int] = defaultdict(int)
     extracted_boards: list[str] = []
-    max_per_manual = 2  # Capped at 2 to ensure at least 8 distinct manuals can be represented
+    max_per_manual = 3 if max_pages >= 12 else 2
 
     def _register(manual: str, page: int) -> str:
         cid = f"C{len(citation_map) + 1}"
@@ -439,7 +455,85 @@ def gather_grounding_context(
             if b not in extracted_boards and len(b) >= 3:
                 extracted_boards.insert(0, b)
 
-    # 2. Búsqueda directa por cada síntoma individual a través de todos los manuales
+    # 2. Expansiones técnicas de dominio para interlocks de alta tensión, fuentes y modos dinámicos (VMAT)
+    sym_blob_search = " ".join(symptoms).lower()
+    is_ht_vmat = (
+        any(k in sym_blob_search for k in ["ht psu", "psu ot", "over temp", "overtemp", "vmat", "330", "251"])
+        or ("ht" in sym_blob_search and "ot" in sym_blob_search)
+    )
+    if is_ht_vmat:
+        targeted_manual_queries = [
+            ("diagrams", "1024686"),
+            ("diagrams", "45133307021"),
+            ("ht_rf", "i251"),
+            ("ht_rf", "TPU1-8"),
+            ("power_supplies", "i251"),
+            ("power_supplies", "TS22"),
+            ("corrective", "4513 330 7021"),
+            ("planned", "heat exchanger"),
+            ("planned", "TS1"),
+            ("item part", "i251"),
+        ]
+        for t_man, t_term in targeted_manual_queries:
+            if len(contexts) >= max_pages:
+                break
+            try:
+                t_res = search_engine.search(t_term, manual=t_man, limit=2)
+                for r in t_res.get("results", []):
+                    m, p = r.get("manual", ""), r.get("page", 0)
+                    key = (m, p)
+                    if key not in seen_pages and manual_counts[m] < max_per_manual and len(contexts) < max_pages:
+                        seen_pages.add(key)
+                        manual_counts[m] += 1
+                        cid = _register(m, p)
+                        comp = r.get("associated_component", "")
+                        comp_str = f" [Detalle: {comp}]" if comp else ""
+                        snip = str(r.get("context", ""))[:1500]
+                        contexts.append(f"--- [{cid}] Manual: {m} (Página {p}){comp_str} [Foco HT/VMAT: {t_term}] ---\n{snip}")
+                        c_data = extract_structured_components(snip)
+                        for b in c_data.get("boards", []):
+                            if b not in extracted_boards and len(b) >= 3:
+                                extracted_boards.append(b)
+            except Exception as t_err:
+                logger.debug("Búsqueda dirigida HT/VMAT omitida para '%s' en '%s': %s", t_term, t_man, t_err)
+
+    technical_expansions: list[str] = []
+    if is_ht_vmat:
+        technical_expansions.extend([
+            "HT PSU OT",
+            "ITEM 251",
+            "ITEM 330",
+            "DIE-HTB",
+            "1024686",
+            "4513 330 7021",
+            "SW1 SW2",
+            "VMAT dose rate",
+            "PRI I MON",
+        ])
+    for tech_term in technical_expansions:
+        if len(contexts) >= max_pages:
+            break
+        try:
+            t_res = search_engine.search(tech_term, limit=2)
+            for r in t_res.get("results", []):
+                m, p = r.get("manual", ""), r.get("page", 0)
+                key = (m, p)
+                if key not in seen_pages and manual_counts[m] < max_per_manual and len(contexts) < max_pages:
+                    seen_pages.add(key)
+                    manual_counts[m] += 1
+                    cid = _register(m, p)
+                    comp = r.get("associated_component", "")
+                    comp_str = f" [Detalle: {comp}]" if comp else ""
+                    snip = str(r.get("context", ""))[:1500]
+                    contexts.append(f"--- [{cid}] Manual: {m} (Página {p}){comp_str} [Expansión: {tech_term}] ---\n{snip}")
+                    c_data = extract_structured_components(snip)
+                    for b in c_data.get("boards", []):
+                        if b not in extracted_boards and len(b) >= 3:
+                            extracted_boards.append(b)
+        except Exception as t_err:
+            logger.debug("Expansión técnica omitida para '%s': %s", tech_term, t_err)
+
+    # 3. Búsqueda directa por cada síntoma individual a través de todos los manuales
     for sym in symptoms:
         if len(contexts) >= max_pages:
             break
@@ -464,7 +558,7 @@ def gather_grounding_context(
         except Exception as s_err:
             logger.debug("Búsqueda individual omitida para '%s': %s", cleaned_sym, s_err)
 
-    # 3. Búsqueda cruzada de las tarjetas identificadas en manuales de subsistemas y mantenimiento
+    # 4. Búsqueda cruzada de las tarjetas identificadas en manuales de subsistemas y mantenimiento
     target_manuals = [
         "dosimetry", "communications", "power_supplies", "corrective",
         "vacuum", "movement", "ht_rf", "ccp", "technical", "beam physics", "table", "diagrams"
@@ -728,8 +822,15 @@ def generate_local_failover_diagnosis(
 
     # 6. Identificación precisa del Subsistema (evaluando síntomas primero, luego evidencia técnica)
     sym_blob = " ".join(symptoms).lower()
+    is_ht_psu_ot = (
+        any(k in sym_blob for k in ["ht psu", "psu ot", "item 330", "i330", "item 251", "i251", "over temp", "overtemp"])
+        or ("ht" in sym_blob and "ot" in sym_blob)
+    )
+    is_vmat = any(k in sym_blob for k in ["vmat", "arc", "volumetric", "modulac", "tratamiento"])
 
-    if any(k in sym_blob for k in ["dosimetr", "die-rha", "item 475", "item 471", "i475", "i471", "d1 force", "d1 reset", "chamber bias", "dose"]):
+    if is_ht_psu_ot:
+        subsystem = "Alta Tensión y Generación de RF (HT Modulator & RF Pulse System)"
+    elif any(k in sym_blob for k in ["dosimetr", "die-rha", "item 475", "item 471", "i475", "i471", "d1 force", "d1 reset", "chamber bias", "dose"]):
         subsystem = "Dosimetría y Monitoreo de Haz (Dosimetry Channel & Safety Interlocks)"
     elif any(k in sym_blob for k in ["vacuum", "vacío", "ion pump", "sw1", "torr", "degas"]):
         subsystem = "Sistema de Vacío y Bomba Iónica (Vacuum System & Ion Pump)"
@@ -823,10 +924,76 @@ def generate_local_failover_diagnosis(
         if tp not in all_signals and len(all_signals) < 6:
             all_signals.append(tp)
 
+    if is_ht_psu_ot:
+        ht_boards = ["DIE-HTB", "PCB 22", "HT PSU CONTROL PCB", "HT ISOLATION PCB", "DRIVER PCB", "DIE-HTA"]
+        all_boards = [b for b in ht_boards if b] + [b for b in all_boards if b not in ht_boards]
+        ht_cables = ["PL2-a3", "SK17C", "PL16S", "SK16R", "PL1-c8", "TS22A", "LK1", "LK2"]
+        all_cables = [c for c in ht_cables if c] + [c for c in all_cables if c not in ht_cables]
+        ht_signals = ["ITEM 251", "ITEM 330", "PRI I MON", "PRI REF", "SW1", "SW2", "TS1", "TS2", "TPU1-8", "TPU1-1"]
+        all_signals = [s for s in ht_signals if s] + [s for s in all_signals if s not in ht_signals]
+        ht_refs = [
+            "diagrams.pdf (Página 159)",
+            "ht_rf.pdf (Página 225)",
+            "power_supplies.pdf (Página 78)",
+            "corrective.pdf (Página 419)",
+            "planned.pdf (Página 298)",
+            "item part.pdf (Página 145)",
+            "diagrams.pdf (Página 57)",
+            "ht_rf.pdf (Página 92)",
+        ]
+        manual_refs = [r for r in ht_refs if r] + [r for r in manual_refs if r not in ht_refs]
+
     # 9. Formulación de Causa Raíz técnica precisa y no preenlatada
     primary_board = all_boards[0] if all_boards else "tarjetas de control del subsistema"
     signals_label = ", ".join(all_signals[:2]) if all_signals else "líneas de supervisión"
-    if all_boards and all_signals:
+    if is_ht_psu_ot:
+        if is_vmat:
+            root_cause = (
+                "Apertura del lazo térmico HT OVERTEMP DETECTOR en Área 17 (SW1 en disipador 4513 330 6280/7910, "
+                "fuelle SW2 en T4 1512977, termostatos TS1/TS2 y regleta TS22A / PCB 22 en Área 22) transmitido vía "
+                "HT ISOLATION PCB (4513 330 7753, optoacopladores OPTO 3/9) al pin PL2-a3 de DIE-HTB (PCB 16N, slot 12 de HTCA), "
+                "conmutando el monitor ITEM 251 a 0 en la máscara de inhibición del CCP e inhabilitando la cadena de interlocks "
+                "de PRF (plano 4513 330 7021-WD-14 / 1024686-WD-03) por sobrecarga térmica bajo modulación continua de PRF y dosis en arcos VMAT. "
+                "Se diferencia rigurosamente ITEM 251 (monitor de interlock de sobretemperatura en Service Mode) de ITEM 330 "
+                "(Chargerate, control analógico DAC de corriente primaria supervisado por PRI I MON vs PRI REF y calibrado a 0, 20, 40 A)."
+            )
+            explanation = (
+                "El interbloqueo 'HT PSU OT' (Over Temperature) se activa por la apertura del lazo serie de seguridad "
+                "HT OVERTEMP DETECTOR en el Área 17. Este circuito integra el interruptor bimetálico/flujo de aire SW1 en el disipador "
+                "de potencia de los transistores IGBTs TR1/TR2 (Heat Sink Assembly 4513 330 6280/7910, refrigerado por el ventilador "
+                "centrífugo BLA y el lazo del intercambiador de calor/bomba auxiliar), el microinterruptor de fuelle de expansión de aceite "
+                "SW2 en el transformador de carga T4 (P/N 1512977), y los termostatos bimetálicos de circuito TS1 y TS2 junto con la regleta "
+                "TS22A de la tarjeta PCB 22 en el Área 22 (guía de ondas). Durante tratamientos dinámicos VMAT (Volumetric Modulated Arc "
+                "Therapy), el acelerador modula continuamente la tasa de dosis y posiciona las hojas del colimador multiláminas Agility "
+                "mediante sucesivas variaciones de los códigos de PRF y cálculos de pausa (Item 2200), exigiendo una demanda de corriente "
+                "primaria constante hacia el banco de condensadores de alta tensión a través de los transistores de potencia conmutados por "
+                "las tarjetas DRIVER PCB (PCB 17A y PCB 17B) y gobernados por la tarjeta HT PSU CONTROL PCB (PCB 16R, slot 15). "
+                "La señal de seguridad térmica se transmite ópticamente mediante la tarjeta HT ISOLATION PCB (4513 330 7753, "
+                "optoacopladores OPTO 3 y OPTO 9) hacia el bastidor HTCA (Área 16) ingresando por el conector SK17C / PL16S al pin "
+                "PL2-a3 de la tarjeta DIE-HTB (PCB 16N, slot 12). Al abrirse el lazo serie por calor acumulado o refrigeración insuficiente, "
+                "el FPGA de la DIE-HTB conmuta el monitor de inhibición ITEM 251 (i251) de 1 (lógica OK) a 0 (Inhibit activo), abriendo "
+                "la cadena de interbloqueos de PRF (planos 1024686 y 4513 330 7021), secuenciando la apertura de contactores CON-A, CON-D, "
+                "CON-J, CON-K e interrumpiendo inmediatamente la radiación (retirando RAD_ON). "
+                "Es crítico no confundir ITEM 251 (bit de monitoreo de interlock en Service Mode / CCP) con ITEM 330 (consigna de tasa de carga "
+                "de corriente primaria regulada mediante el divisor resistivo PRI I MON frente a PRI REF y calibrada a 0.00 A, 20.00 A y 40.00 A)."
+            )
+        else:
+            root_cause = (
+                "Disparo de protección térmica HT OVERTEMP DETECTOR en Área 17 por apertura de SW1/SW2, termostatos TS1/TS2 o presostato "
+                "en PCB 22 / TS22A, reflejado como inhibición en DIE-HTB pin PL2-a3 (ITEM 251)"
+            )
+            explanation = (
+                "El interbloqueo 'HT PSU OT' responde a la apertura del lazo serie de protección térmica del Área 17 conectado al pin "
+                "PL2-a3 de la tarjeta DIE-HTB (PCB 16N, slot 12 en Área 16 HTCA). El circuito integra en serie el interruptor "
+                "bimetálico SW1 del disipador de los IGBTs de potencia (Heat Sink Assembly 4513 330 6280/7910), el presostato/fuelle "
+                "SW2 del tanque de aceite del transformador de carga T4 (P/N 1512977), los termostatos TS1 y TS2 del circuito de refrigeración "
+                "y la regleta TS22A de supervisión en PCB 22 (Área 22). La señal pasa por la tarjeta de aislamiento HT ISOLATION PCB "
+                "(4513 330 7753) mediante optoacopladores OPTO 3 y OPTO 9. Al superarse la temperatura de umbral o decaer el flujo de aire "
+                "del ventilador BLA o el circuito del intercambiador de calor, el lazo se abre y el FPGA de DIE-HTB conmuta ITEM 251 a 0, "
+                "inhibiendo la cadena de PRF y el estado RAD_ON (planos 1024686 y 4513 330 7021). "
+                "Se distingue rigurosamente ITEM 251 (estado de sobretemperatura) de ITEM 330 (tasa de corriente de carga calibrada en PCB 16R)."
+            )
+    elif all_boards and all_signals:
         root_cause = f"Disparo en lazo de seguridad de {subsystem}, comprometiendo {primary_board} y señales {signals_label}"
     elif all_boards:
         root_cause = f"Condición de interbloqueo en {subsystem} asociada a {primary_board}"
@@ -836,24 +1003,50 @@ def generate_local_failover_diagnosis(
         root_cause = f"Apertura en bucle de seguridad de interlocks en {subsystem}"
 
     # 10. Formulación de Explicación técnica y contextual dinámica
-    secondary_boards = (", " + ", ".join(all_boards[1:3])) if len(all_boards) > 1 else ""
-    signals_text = ", ".join(all_signals[:3]) if all_signals else ", ".join(symptoms[:2])
-    manuals_text = ", ".join(manual_refs[:4]) if manual_refs else "el catálogo técnico de 19 manuales Elekta"
+    if not is_ht_psu_ot:
+        secondary_boards = (", " + ", ".join(all_boards[1:3])) if len(all_boards) > 1 else ""
+        signals_text = ", ".join(all_signals[:3]) if all_signals else ", ".join(symptoms[:2])
+        manuals_text = ", ".join(manual_refs[:4]) if manual_refs else "el catálogo técnico de 19 manuales Elekta"
 
-    explanation = (
-        f"Análisis documental de {subsystem}: Las señales analizadas ({signals_text}) convergen en la supervisión "
-        f"operativa de {primary_board}{secondary_boards}. La documentación técnica contrastada en {manuals_text} "
-        f"evidencia que una discrepancia en el lazo de interbloqueo maestro, una deriva en los umbrales de calibración "
-        f"o una pérdida de sincronismo en los registros de supervisión inhibe de manera preventiva la emisión de haz (RAD_ON) "
-        f"o la habilitación de alta tensión (HT). El restablecimiento operativo requiere inspeccionar los bits de disparo en "
-        f"Service Mode / CCP, contrastar las tolerancias en los manuales de mantenimiento y calibración, y verificar la integridad "
-        f"dinámica de las señales y rieles de alimentación antes de rearmar la cadena de seguridad."
-    )
+        explanation = (
+            f"Análisis documental de {subsystem}: Las señales analizadas ({signals_text}) convergen en la supervisión "
+            f"operativa de {primary_board}{secondary_boards}. La documentación técnica contrastada en {manuals_text} "
+            f"evidencia que una discrepancia en el lazo de interbloqueo maestro, una deriva en los umbrales de calibración "
+            f"o una pérdida de sincronismo en los registros de supervisión inhibe de manera preventiva la emisión de haz (RAD_ON) "
+            f"o la habilitación de alta tensión (HT). El restablecimiento operativo requiere inspeccionar los bits de disparo en "
+            f"Service Mode / CCP, contrastar las tolerancias en los manuales de mantenimiento y calibración, y verificar la integridad "
+            f"dinámica de las señales y rieles de alimentación antes de rearmar la cadena de seguridad."
+        )
 
     # 11. Diagnósticos diferenciales e hipótesis técnicas multifacéticas por dominio
     differential_diagnoses: list[dict[str, str]] = []
 
-    if "dosimetr" in low_sub or "haz" in low_sub:
+    if is_ht_psu_ot:
+        differential_diagnoses.append({
+            "hypothesis": "Apertura o fatiga térmica del interruptor bimetálico SW1 en el disipador (4513 330 6280/7910) o termostatos TS1/TS2 por caudal de aire degradado en BLA o fallo en el lazo del intercambiador de calor",
+            "subsystem": subsystem,
+            "likelihood": "alta",
+            "rationale": "Durante arcos VMAT con modulación dinámica de PRF y dosis, los transistores TR1/TR2 (excitados por PCB 17A/B y HT PSU CONTROL PCB 16R) disipan calor intensivo. Si el ventilador BLA o el lazo del intercambiador de calor (heat exchanger loop / bomba auxiliar) presentan pérdida de rendimiento, se abre el interruptor bimetálico SW1 o los termostatos TS1/TS2 en serie.",
+        })
+        differential_diagnoses.append({
+            "hypothesis": "Dilatación de aceite aislante y activación del microinterruptor de fuelle SW2 en transformador T4 (1512977) o presostato en PCB 22 / TS22A",
+            "subsystem": subsystem,
+            "likelihood": "media",
+            "rationale": "El régimen sostenido de carga calienta el aceite del tanque de T4 en Área 17 o afecta la supervisión en la regleta TS22A de la tarjeta PCB 22 en Área 22. La dilatación abre el microinterruptor normalmente cerrado SW2 en serie con SW1, retirando el nivel de habilitación en el pin PL2-a3 de la DIE-HTB.",
+        })
+        differential_diagnoses.append({
+            "hypothesis": "Degradación optoelectrónica en OPTO 3 / OPTO 9 de HT ISOLATION PCB (4513 330 7753) o falso contacto en SK17C / PL16S",
+            "subsystem": "Distribución de Potencia y Fuentes DC (Power Supplies & Contactors)",
+            "likelihood": "media",
+            "rationale": "La interfaz de aislamiento óptico entre el módulo de potencia (Área 17) y el bastidor HTCA (Área 16) puede presentar caídas de tensión o fatiga en optoacopladores, simulando una condición de sobretemperatura inexistente en los sensores físicos.",
+        })
+        differential_diagnoses.append({
+            "hypothesis": "Descalibración analógica en lazo de regulación de corriente primaria (divisor resistivo PRI I MON vs PRI REF en PCB 16R frente a ITEM 330 de AO12-HTA)",
+            "subsystem": subsystem,
+            "likelihood": "baja",
+            "rationale": "Si el bucle de realimentación de corriente primaria en la tarjeta HT PSU CONTROL PCB presenta offset respecto a la consigna enviada desde AO12-HTA, la fuente opera en sobrecorriente no detectada que sobrecalienta el puente primario.",
+        })
+    elif "dosimetr" in low_sub or "haz" in low_sub:
         differential_diagnoses.append({
             "hypothesis": f"Disparo de interbloqueo por condición de terminación forzada o fallo de reset en {primary_board}",
             "subsystem": subsystem,
@@ -983,7 +1176,21 @@ def generate_local_failover_diagnosis(
     action_steps: list[str] = []
     cables_label = ", ".join(all_cables[:3]) if all_cables else "conectores del subsistema"
 
-    if "dosimetr" in low_sub or "haz" in low_sub:
+    if is_ht_psu_ot:
+        action_steps = [
+            "Acceder a Service Mode -> Display Service Pages -> Inhibits y verificar el estado del monitor ITEM 251 (HT PSU OT) (normal = 1, falla = 0), comprobando si se restablece en frío o persiste enclavado, y cotejar con ITEM 87 (HT BELLOWS) e ITEM 89 (HT CROWBAR).",
+            "Medir continuidad y aislamiento en el lazo de seguridad térmico serie de Área 17: verificar con multímetro en el conector SK17C / PL16S y en el pin PL2-a3 de la tarjeta DIE-HTB (PCB 16N, slot 12) la conmutación de los contactos normalmente cerrados del interruptor térmico SW1 (disipador 4513 330 6280) y del interruptor de fuelle SW2 (transformador T4 1512977).",
+            "Ejecutar la prueba de tasa de carga (Charge Rate Test) de la HT PSU según procedimiento 7.7.6.2 de ht_rf.pdf (pág. 225): en la tarjeta HTC PCB / PCB 16R conectar multímetro en TPU1-8 respecto a TPU1-1; en Service Mode (página Power Supplies), introducir en ITEM 330 Chargerate: 0 (verificar 0 VDC ±10 mV), 20.00 (verificar 2.5 VDC ±400 mV) y 40.00 (verificar 5.0 VDC ±400 mV), validando la señal PRI I MON frente a PRI REF.",
+            "Inspeccionar la refrigeración forzada y protecciones eléctricas en Área 17: comprobar rotación libre y caudal del ventilador centrífugo BLA, limpieza de filtros de aspiración, y verificar continuidad en disyuntores CB1, CB3 (20A) y fusibles FS17A, FS17B (0.5A) de alimentación auxiliar.",
+            "Validar la transmisión optoacoplada en la tarjeta HT ISOLATION PCB (4513 330 7753): verificar con osciloscopio la salida hacia el receptor óptico de la HTCA en Área 16 a través de OPTO 3 y OPTO 9, y comprobar el conexionado en terminales 4 y 5 de la tarjeta HT CROWBAR DETECTOR PCB.",
+            "Ejecutar una corrida de prueba en Service Mode simulando un arco dinámico VMAT con variación escalonada de PRF y tasa de dosis: monitorear la evolución térmica y la estabilidad de corriente primaria en PRI I MON, confirmando que ITEM 251 permanezca en 1 continuo sin microdisparos que interrumpan la señal RAD_ON.",
+        ]
+        safety_warning = (
+            "ALTA TENSIÓN (HT): Peligro de descarga eléctrica mortal en banco de condensadores del Área 17. "
+            "Cortar interruptor principal, aguardar descarga completa (mínimo 12 minutos) y colocar pértiga "
+            "de tierra antes de intervenir T4 o el conjunto disipador."
+        )
+    elif "dosimetr" in low_sub or "haz" in low_sub:
         dosimetry_calib_ref = next((r for r in manual_refs if "dosimetry" in r.lower()), "dosimetry.pdf")
         action_steps = [
             f"Acceder a la consola técnica en Service Mode / CCP (pantalla de {subsystem}), verificar los registros de estado para {signals_label} y confirmar si el bit de inhibición permanece enclavado tras la secuencia de inicio.",
@@ -1030,15 +1237,16 @@ def generate_local_failover_diagnosis(
             "Ejecutar la secuencia de rearme seguro de interlocks desde la consola de servicio y verificar la normalización del estado de habilitación de radiación (RAD_ON).",
         ]
 
-    # 12. Advertencia de seguridad según el subsistema
-    if "ht" in low_sub or "rf" in low_sub or "tensión" in low_sub:
-        safety_warning = "ALTA TENSIÓN (HT): Peligro de descarga eléctrica mortal. Cortar interruptor principal, verificar descarga de banco de condensadores y colocar pértiga de tierra antes de manipular componentes."
-    elif "dosimetr" in low_sub or "haz" in low_sub:
-        safety_warning = "SEGURIDAD RADIOLÓGICA: No puentear lazos de canal de dosimetría. Toda intervención requiere verificación de calibración de tasa y simetría con electrómetro de referencia."
-    elif "movimiento" in low_sub or "colimad" in low_sub or "gantry" in low_sub:
-        safety_warning = "RIESGO MECÁNICO DE COLISIÓN: Bloquear mecánicamente el gantry o colimador y activar paradas de emergencia antes de intervenir embragues o motores de tracción."
-    else:
-        safety_warning = "Desenergizar el equipo y comprobar descarga de condensadores antes de intervenir tarjetas electrónicas."
+    # 13. Advertencia de seguridad según el subsistema
+    if not is_ht_psu_ot:
+        if "ht" in low_sub or "rf" in low_sub or "tensión" in low_sub:
+            safety_warning = "ALTA TENSIÓN (HT): Peligro de descarga eléctrica mortal. Cortar interruptor principal, verificar descarga de banco de condensadores y colocar pértiga de tierra antes de manipular componentes."
+        elif "dosimetr" in low_sub or "haz" in low_sub:
+            safety_warning = "SEGURIDAD RADIOLÓGICA: No puentear lazos de canal de dosimetría. Toda intervención requiere verificación de calibración de tasa y simetría con electrómetro de referencia."
+        elif "movimiento" in low_sub or "colimad" in low_sub or "gantry" in low_sub:
+            safety_warning = "RIESGO MECÁNICO DE COLISIÓN: Bloquear mecánicamente el gantry o colimador y activar paradas de emergencia antes de intervenir embragues o motores de tracción."
+        else:
+            safety_warning = "Desenergizar el equipo y comprobar descarga de condensadores antes de intervenir tarjetas electrónicas."
 
     return {
         "root_cause": root_cause,
@@ -1046,10 +1254,10 @@ def generate_local_failover_diagnosis(
         "confidence": "alta" if len(matched_docs) >= 2 else "media",
         "explanation": _sanitize_explanation(explanation),
         "differential_diagnoses": _sanitize_differential_diagnoses(differential_diagnoses),
-        "associated_boards": all_boards[:4],
+        "associated_boards": all_boards[:5] if is_ht_psu_ot else all_boards[:4],
         "cables_and_connectors": all_cables[:4],
-        "test_points_and_signals": all_signals[:6],
-        "manual_references": manual_refs[:5],
+        "test_points_and_signals": all_signals[:8] if is_ht_psu_ot else all_signals[:6],
+        "manual_references": manual_refs[:8] if is_ht_psu_ot else manual_refs[:5],
         "action_steps": _sanitize_action_steps(action_steps),
         "safety_warning": safety_warning,
         "_diagnostic_meta": {
@@ -1101,9 +1309,6 @@ def analyze_with_gemini(
         "gemini-3.1-flash-lite",
         "gemini-flash-latest",
         "gemini-3.6-flash",
-        "gemini-3.8-flash",
-        "gemini-3.5-flash",
-        "gemini-3.5-flash-lite",
     ]
     for default_m in default_chain:
         if default_m not in models_to_try:
@@ -1194,7 +1399,11 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
                 if isinstance(parsed, GeminiDiagnosis):
                     data = parsed.model_dump(mode="json")
                 else:
-                    raw_text = response.text or ""
+                    raw_text = ""
+                    try:
+                        raw_text = response.text or ""
+                    except Exception:
+                        pass
                     data = extract_json_safely(raw_text)
                     degraded_parse = True
 

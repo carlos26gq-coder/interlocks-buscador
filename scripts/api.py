@@ -65,6 +65,7 @@ limiter = Limiter(
     app=app,
     default_limits=[],
     storage_uri=os.environ.get("RATELIMIT_STORAGE_URI") or os.environ.get("REDIS_URL", "memory://"),
+    swallow_errors=True,
 )
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "").strip()
@@ -513,6 +514,7 @@ def search():
 
 
 @app.route("/diagnose", methods=["POST"])
+@app.route("/api/diagnose", methods=["POST"])
 @limiter.limit("300 per hour; 30 per minute")
 def diagnose():
     data = json_body()
@@ -535,6 +537,7 @@ def diagnose():
 
 
 @app.route("/diagnose/ai", methods=["POST"])
+@app.route("/api/diagnose/ai", methods=["POST"])
 @limiter.limit("300 per hour; 30 per minute")
 def diagnose_ai():
     try:
@@ -574,11 +577,24 @@ def diagnose_ai():
     except Exception as exc:
         clean_err = _sanitize_error_message(exc)
         app.logger.error("Error en endpoint /diagnose/ai: %s", clean_err)
-        return jsonify({
-            "ok": False,
-            "error": "server_exception",
-            "message": f"Inconveniente temporal en el servidor: {clean_err[:120]}",
-        }), 503
+        try:
+            symptoms_safe = symptoms if "symptoms" in locals() and isinstance(symptoms, list) and symptoms else ["Falla técnica general"]
+            from ai_service import generate_local_failover_diagnosis
+            failover_res = generate_local_failover_diagnosis(symptoms_safe, search_engine, reason="server_failover")
+            return jsonify({
+                "ok": True,
+                "data": failover_res,
+                "model_used": "Análisis Causal Basado en Catálogo Documental (Manuales Elekta)",
+                "symptoms": symptoms_safe,
+                "failover": True,
+                "notice": "Diagnóstico estructurado a partir del corpus documental de los 19 manuales técnicos de Elekta.",
+            }), 200
+        except Exception:
+            return jsonify({
+                "ok": False,
+                "error": "server_exception",
+                "message": f"Inconveniente temporal en el servidor: {clean_err[:120]}",
+            }), 503
 
 
 @app.route("/notes", methods=["GET"])
