@@ -7,11 +7,19 @@ import math
 import os
 import re
 import secrets
+import sys
 import threading
 import time
 import uuid
 from functools import wraps
 from pathlib import Path
+
+try:
+    if "unittest" not in sys.modules:
+        from dotenv import load_dotenv
+        load_dotenv()
+except ImportError:
+    pass
 
 from ai_service import analyze_with_gemini
 from flask import (

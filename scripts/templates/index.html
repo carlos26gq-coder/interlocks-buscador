@@ -189,6 +189,18 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .diag-ai-loading{text-align:center;padding:24px 12px;background:var(--surface);border:1px dashed rgba(168,85,247,.4);border-radius:12px;margin-bottom:12px}
 .diag-ai-loading .spinner{border-top-color:#a855f7;width:28px;height:28px;border-width:2.5px;margin:0 auto 10px}
 .diag-ai-loading p{font-size:.8rem;color:#c084fc;font-family:var(--mono)}
+.diag-diff-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin:8px 0 14px}
+.diag-diff-card{background:rgba(15,23,42,.65);border:1px solid rgba(168,85,247,.25);border-radius:9px;padding:11px 13px;display:flex;flex-direction:column;gap:6px;transition:border-color .15s}
+.diag-diff-card:hover{border-color:rgba(168,85,247,.5);background:rgba(30,27,75,.3)}
+.diag-diff-header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.diag-diff-title{font-size:.84rem;font-weight:700;color:#f1f5f9;line-height:1.35}
+.diag-diff-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:.65rem;font-family:var(--mono)}
+.diag-diff-pill{padding:2px 7px;border-radius:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.diag-diff-pill.alta{background:rgba(74,222,128,.15);color:#4ade80;border:1px solid rgba(74,222,128,.35)}
+.diag-diff-pill.media{background:rgba(245,158,11,.15);color:#fbbf24;border:1px solid rgba(245,158,11,.35)}
+.diag-diff-pill.baja{background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.3)}
+.diag-diff-subsystem{background:rgba(0,212,255,.08);color:var(--accent);border:1px solid rgba(0,212,255,.25);padding:2px 7px;border-radius:10px;font-size:.62rem;font-family:var(--mono)}
+.diag-diff-rationale{font-size:.76rem;line-height:1.48;color:#cbd5e1;margin-top:2px}
 
 
 
@@ -638,9 +650,10 @@ function exportInforme() {
 }
 
 function transferToReport() {
-    const diagOut = document.getElementById('diagnosticoContent');
+    const diagOut = document.getElementById('diagResults') || document.getElementById('diagnosticoContent');
     if (!diagOut) return;
-    document.getElementById('reportDiagnosis').value = diagOut.innerText;
+    const target = document.getElementById('reportDiagnosis');
+    if (target) target.value = (diagOut.innerText || "").trim();
     irA('Reports');
 }
 

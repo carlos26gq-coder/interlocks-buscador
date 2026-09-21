@@ -157,8 +157,23 @@ def _best_line(text: str, signal_tokens: set[str]) -> str:
     return best[:140]
 
 
-def _extract_associated_components(text: str, signal_tokens: set[str] | None = None) -> str:
-    """Extrae tarjetas (PCBs), módulos, áreas, cables, conectores, puntos de prueba e ITEMs técnicos."""
+INVALID_BOARDS = {
+    "PCB", "PWA", "PWB", "PCB IDENTIFICATION", "PCB ASSY", "PCB ASSEMBLY",
+    "PCB LAYOUT", "PCB DRAWING", "PCB SCHEMATIC", "PCB CONNECTIONS", "PCB MOUNTING",
+    "PCB AREA", "PCB POSITION", "PCB DESCRIPTION", "PCB TITLE", "PCB DETAILS",
+    "PCB NUMBER", "PCB REF", "PCB REFERENCE", "PCB NAME", "PCB REV", "PCB REVISION",
+    "PCB CODE", "PCB STATUS", "PCB SYSTEM", "PCB CIRCUIT", "PCB SUB", "PCB PART",
+}
+
+_INVALID_PCB_SUBTITLES = {
+    "AREA", "POSITION", "DESCRIPTION", "TITLE", "DETAILS", "NUMBER", "REF",
+    "REFERENCE", "NAME", "REV", "REVISION", "CODE", "STATUS", "SYSTEM",
+    "CIRCUIT", "SUB", "ASSY", "ASSEMBLY", "MOUNTING", "IDENTIFICATION", "PART",
+}
+
+
+def extract_structured_components(text: str) -> dict[str, list[str] | str]:
+    """Extrae componentes estructurados y limpios (tarjetas, cables, señales, puntos de prueba y subsistema)."""
     cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", str(text or "")[:12000])
 
     # 1. Items y Números de Parte (Elekta 12NC y códigos ITEM)
@@ -173,7 +188,7 @@ def _extract_associated_components(text: str, signal_tokens: set[str] | None = N
         if it_clean not in items:
             items.append(it_clean)
 
-    # 2. Tarjetas / PCBs / Cards / Unidades
+    # 2. Tarjetas / PCBs / Cards / Unidades (con filtro de títulos no deseados)
     boards: list[str] = []
     board_matches = re.findall(
         r"\b(?:PCB\s+[A-Z0-9]+|AO\d+|AI\s*\d+[A-Z]?|DO\s*\d+|DI\s*\d+|PWA\s+[A-Z0-9]+|PWB\s+[A-Z0-9]+|DIE-[A-Z0-9]+|SCC-[A-Z0-9]+|CPU-[A-Z0-9]+|MOT-[A-Z0-9]+|DRV-[A-Z0-9]+|TMC\b|RTD\b|MLC\b|XVI\b)\b",
@@ -182,7 +197,10 @@ def _extract_associated_components(text: str, signal_tokens: set[str] | None = N
     )
     for b in board_matches:
         b_clean = re.sub(r"\s+", " ", b).strip().upper()
-        if b_clean not in boards and len(b_clean) >= 3 and b_clean not in {"PCB", "PWA", "PWB"}:
+        parts_b = b_clean.split()
+        if len(parts_b) >= 2 and parts_b[0] == "PCB" and parts_b[1] in _INVALID_PCB_SUBTITLES:
+            continue
+        if b_clean not in boards and len(b_clean) >= 3 and b_clean not in INVALID_BOARDS:
             boards.append(b_clean)
 
     # 3. Cables, Arneses y Conectores
@@ -233,6 +251,26 @@ def _extract_associated_components(text: str, signal_tokens: set[str] | None = N
         if 5 <= len(sub) <= 70:
             subsystem = sub
 
+    return {
+        "boards": boards,
+        "items": items,
+        "cables": cables,
+        "tps": tps,
+        "areas": areas,
+        "subsystem": subsystem,
+    }
+
+
+def _extract_associated_components(text: str, signal_tokens: set[str] | None = None) -> str:
+    """Extrae tarjetas (PCBs), módulos, áreas, cables, conectores, puntos de prueba e ITEMs técnicos."""
+    comp = extract_structured_components(text)
+    boards = comp["boards"]
+    items = comp["items"]
+    cables = comp["cables"]
+    tps = comp["tps"]
+    areas = comp["areas"]
+    subsystem = comp["subsystem"]
+
     parts: list[str] = []
     if boards:
         parts.append("Tarjeta: " + ", ".join(boards[:3]))
@@ -261,6 +299,8 @@ def _is_noise_page(document_normalized: str) -> bool:
 
 def _token_specificity(token: str, postings: dict, total_docs: int) -> float:
     """Calcula qué tan específico es un token: 1.0 = muy específico, 0.0 = muy común."""
+    if total_docs < 10 or token.isdigit() or re.match(r"^[ie]\d+$", token):
+        return 1.0
     doc_freq = len(postings.get(token, set()))
     if doc_freq == 0:
         return 1.0
@@ -296,7 +336,20 @@ class SearchEngine:
                 page = int(record.get("page", 0))
             except (TypeError, ValueError):
                 continue
-            token_set = frozenset(tokens(text))
+            base_tokens = set(tokens(text))
+            expanded_tokens = set(base_tokens)
+            for tok in base_tokens:
+                m_i = re.match(r"^i(\d{1,4})$", tok)
+                if m_i:
+                    num_str = m_i.group(1)
+                    expanded_tokens.add(num_str)
+                    expanded_tokens.add(str(int(num_str)))
+                m_e = re.match(r"^e(\d{1,4})$", tok)
+                if m_e:
+                    num_str = m_e.group(1)
+                    expanded_tokens.add(num_str)
+                    expanded_tokens.add(str(int(num_str)))
+            token_set = frozenset(expanded_tokens)
             document_id = len(self.documents)
             self.documents.append(
                 IndexedDocument(manual, page, text, normalize(text), token_set)
@@ -310,6 +363,18 @@ class SearchEngine:
         self._search_cache_lock = threading.Lock()
 
     def _candidate_ids(self, query: str, manual: str = "") -> set[int]:
+        m_code = re.match(r"^(?:item|interlock|codigo|code|i)?\s*(\d+)$", str(query or "").strip().lower())
+        if m_code:
+            code_num = str(int(m_code.group(1)))
+            candidates = set()
+            for tok in [code_num, f"i{code_num}", f"i{int(code_num):03d}", f"{int(code_num):03d}"]:
+                if tok in self.postings:
+                    candidates.update(self.postings[tok])
+            manual = normalize(manual).strip()
+            if manual:
+                candidates.intersection_update(self.manuals.get(manual, []))
+            return candidates
+
         query_terms = _query_tokens(query)
         if not query_terms:
             query_terms = tokens(query)
@@ -317,15 +382,46 @@ class SearchEngine:
             candidates = set(range(len(self.documents)))
         else:
             term_postings = []
+            numeric_codes = [t for t in query_terms if t.isdigit()]
             for t in query_terms:
+                matching_docs = set()
                 if t in self.postings:
-                    term_postings.append(self.postings[t])
+                    matching_docs.update(self.postings[t])
+                # Expansión para prefijos i\d+ (ej: 475 busca 475 e i475)
+                if t.isdigit() and len(t) <= 4:
+                    i_tok = f"i{t}"
+                    if i_tok in self.postings:
+                        matching_docs.update(self.postings[i_tok])
+                    i_tok_pad = f"i{int(t):03d}"
+                    if i_tok_pad in self.postings:
+                        matching_docs.update(self.postings[i_tok_pad])
+                # Expansión inversa (ej: i475 busca i475 y 475)
+                m_i = re.match(r"^i(\d{1,4})$", t)
+                if m_i:
+                    num_tok = m_i.group(1)
+                    if num_tok in self.postings:
+                        matching_docs.update(self.postings[num_tok])
+                    clean_num = str(int(num_tok))
+                    if clean_num in self.postings:
+                        matching_docs.update(self.postings[clean_num])
+                # Expansión para prefijos como 'item', 'interlock', 'codigo', 'code'
+                # cuando la consulta acompaña un código numérico (ej: 'item 475')
+                if t in {"item", "interlock", "codigo", "code"} and numeric_codes:
+                    for num in numeric_codes:
+                        for prefix in ["i", "e"]:
+                            p_tok = f"{prefix}{num}"
+                            if p_tok in self.postings:
+                                matching_docs.update(self.postings[p_tok])
+                            p_tok_pad = f"{prefix}{int(num):03d}"
+                            if p_tok_pad in self.postings:
+                                matching_docs.update(self.postings[p_tok_pad])
+
+                if matching_docs:
+                    term_postings.append(matching_docs)
                 else:
-                    # Cada palabra exacta debe existir en el vocabulario de manuales
                     return set()
 
             term_postings.sort(key=len)
-            # Intersección estricta: todos los términos de la consulta deben coincidir
             candidates = set.intersection(*term_postings)
 
         manual = normalize(manual).strip()
@@ -354,20 +450,35 @@ class SearchEngine:
                 }
 
         phrase_pattern = _phrase_pattern(query)
-        if not phrase_pattern:
+        m_code = re.match(r"^(?:item|interlock|codigo|code|i)?\s*(\d+)$", query.strip().lower())
+        if m_code:
+            code_num = str(int(m_code.group(1)))
+            code_pattern = re.compile(
+                rf"\b(?:(?:item\s*|i0*|interlock\s*|code\s*)?{re.escape(code_num)}|i0*{re.escape(code_num)})\b",
+                re.IGNORECASE,
+            )
+        else:
+            code_pattern = None
+
+        if not phrase_pattern and not code_pattern:
             return {"results": [], "total": 0, "offset": offset, "limit": limit, "has_more": False}
 
         ranked = []
         for document_id in self._candidate_ids(query, manual):
             document = self.documents[document_id]
 
-            # Buscar la primera coincidencia exacta con límites de palabra (\b)
-            first_match = phrase_pattern.search(document.normalized)
+            first_match = None
+            if code_pattern:
+                first_match = code_pattern.search(document.normalized)
+            if not first_match and phrase_pattern:
+                first_match = phrase_pattern.search(document.normalized)
+
             if not first_match:
                 continue
 
             first_position = first_match.start()
-            occurrences = len(phrase_pattern.findall(document.normalized))
+            active_pat = code_pattern if (code_pattern and code_pattern.search(document.normalized)) else phrase_pattern
+            occurrences = len(active_pat.findall(document.normalized)) if active_pat else 1
             score = occurrences * 50.0 + max(0.0, 10.0 - (first_position / 500.0))
 
             ranked.append((score, document))
@@ -407,13 +518,13 @@ class SearchEngine:
 
     def diagnose_symptoms(self, symptoms: list[str], limit: int = 3) -> dict:
         """Diagnóstico relacional: busca dónde se conectan y convergen los síntomas ingresados."""
-        weights_by_position = [1.4, 1.3, 1.2, 1.1]
+        weights_by_position = [1.4, 1.3, 1.2, 1.1, 1.0, 1.0]
         prepared = []
         all_signal_tokens: set[str] = set()
         candidate_ids: set[int] = set()
         total_docs = len(self.documents)
 
-        for i, raw_value in enumerate(symptoms[:4]):
+        for i, raw_value in enumerate(symptoms[:6]):
             value = str(raw_value or "").strip()
             if not value:
                 continue
@@ -424,7 +535,7 @@ class SearchEngine:
             # Priorizar tokens específicos (no stopwords ni palabras ultracomunes)
             specific_tokens = {
                 t for t in value_tokens
-                if _token_specificity(t, self.postings, total_docs) > 0.0
+                if _token_specificity(t, self.postings, total_docs) > 0.0 or t.isdigit()
             }
             if not specific_tokens:
                 specific_tokens = value_tokens
@@ -432,12 +543,17 @@ class SearchEngine:
             weight = weights_by_position[i] if i < len(weights_by_position) else 1.0
             label = f"symptom_{i + 1}"
             
-            # Precompilar expresiones regulares para códigos numéricos
-            numeric_codes = [t for t in specific_tokens if t.isdigit()]
+            # Precompilar expresiones regulares y expandir códigos numéricos
+            numeric_codes = [t for t in value_tokens if t.isdigit()]
             code_regexes = []
             if numeric_codes:
                 labels = r"interlock|inhibit|error|fault|alarm|code|item|i\d{1,4}|e\d{1,4}"
                 for code in numeric_codes:
+                    clean_c = str(int(code))
+                    specific_tokens.add(f"i{clean_c}")
+                    specific_tokens.add(f"i{int(clean_c):03d}")
+                    specific_tokens.add(clean_c)
+                    code_regexes.append(re.compile(rf"\b(?:i0*|item\s*|interlock\s*|code\s*|e0*){re.escape(clean_c)}\b"))
                     code_pattern = rf"(?:i|e|item)?\s*{re.escape(code)}"
                     code_regexes.append(re.compile(rf"\b(?:{labels})\b[\W_]{{0,30}}\b{code_pattern}\b"))
                     code_regexes.append(re.compile(rf"\b{code_pattern}\b[\W_]{{0,30}}\b(?:{labels})\b"))
@@ -475,6 +591,8 @@ class SearchEngine:
                 coverage = len(hits) / max(len(specific_tokens), 1)
                 exact_phrase = normalized_value in document.normalized
                 code_match = any(rgx.search(document.normalized) for rgx in code_regexes) if code_regexes else False
+                if code_match and not exact_phrase:
+                    exact_phrase = True
 
                 signal_score = len(hits) * 6 + coverage * 16
                 if exact_phrase:
@@ -506,18 +624,35 @@ class SearchEngine:
 
         ranked.sort(key=lambda item: (-item[0], -len(item[2]), item[1].manual, item[1].page))
 
-        # Seleccionar los mejores sin duplicar páginas idénticas
+        # Seleccionar los mejores garantizando diversidad equitativa entre todos los 19 manuales
         selected = []
+        deferred = []
         seen: set[tuple] = set()
+        manual_counts: dict[str, int] = defaultdict(int)
+        max_per_manual = max(1, limit // 4)
+
         for score, document, matched_signals, matched_tokens in ranked:
-            title = _best_line(document.text, all_signal_tokens)
             dedupe_key = (document.manual, document.page)
             if dedupe_key in seen:
                 continue
             seen.add(dedupe_key)
-            selected.append((score, document, matched_signals, matched_tokens, title))
-            if len(selected) >= limit:
-                break
+            title = _best_line(document.text, all_signal_tokens)
+            item = (score, document, matched_signals, matched_tokens, title)
+
+            if manual_counts[document.manual] < max_per_manual:
+                manual_counts[document.manual] += 1
+                selected.append(item)
+                if len(selected) >= limit:
+                    break
+            else:
+                deferred.append(item)
+
+        # Si aún quedan cupos para alcanzar el límite, incorporar los elementos diferidos
+        if len(selected) < limit:
+            for item in deferred:
+                selected.append(item)
+                if len(selected) >= limit:
+                    break
 
         if not selected:
             return {

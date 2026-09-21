@@ -141,7 +141,7 @@ function workerRequest(type, payload) {
 }
 
 async function apiRequest(url, options = {}) {
-    const timeoutMs = options.timeout || (url.includes("/ai") ? 90000 : 15000);
+    const timeoutMs = options.timeout || (url.includes("/ai") ? 50000 : 15000);
     const controller = new AbortController();
     const timer = setTimeout(() => {
         try { controller.abort(new DOMException("Timeout", "TimeoutError")); } catch (_e) { controller.abort(); }
@@ -1127,12 +1127,24 @@ function renderDiagnosticoAi(aiData, symptoms) {
     if (meta) meta.textContent = "";
     if (notice) notice.style.display = "none";
 
-    const confMap = {
-        alta: { color: "var(--green)", label: "⬤ Alta probabilidad" },
-        media: { color: "var(--warn)", label: "⬤ Probabilidad media" },
-        baja: { color: "var(--muted)", label: "⬤ Probabilidad baja" }
+    const sanitizeUiExplanation = (text) => {
+        if (!text) return "";
+        let s = String(text).trim();
+        s = s.replace(/^Contexto\s+Operativo:\s*En\s+la\s+arquitectura\s+del\s+acelerador\s+lineal\s+Elekta[^\.\n]*[\.\n]\s*/i, "");
+        s = s.replace(/Contexto\s+Operativo:\s*En\s+la\s+arquitectura\s+del\s+acelerador\s+lineal\s+Elekta,\s*las\s+se[ñn]ales\s+analizadas\s+forman\s+parte\s+integral\s+del\s+Sistema\s+General\s+de\s+Interbloqueos\s+y\s+Seguridad\s*\(Elekta\s+LINAC\)\.?\s*/i, "");
+        s = s.replace(/^En\s+la\s+arquitectura\s+del\s+acelerador\s+lineal\s+Elekta,\s*las\s+se[ñn]ales\s+analizadas\s+forman\s+parte\s+integral\s+del\s+Sistema\s+General\s+de\s+Interbloqueos\s+y\s+Seguridad\s*\(Elekta\s+LINAC\)\.?\s*/i, "");
+        s = s.replace(/^Contexto\s+Operativo:\s*/i, "");
+        return s.trim();
     };
-    const conf = confMap[aiData.confidence] || confMap.alta;
+
+    const sanitizeUiStep = (step) => {
+        if (!step) return "";
+        let s = String(step).trim();
+        s = s.replace(/^(?:Paso\s*\d+\s*)?\((?:Probabilidad|Prioridad)\s*\d+[^)]*\):\s*/i, "");
+        s = s.replace(/^(?:Probabilidad|Prioridad)\s*\d+[:\-]\s*/i, "");
+        s = s.replace(/^Paso\s*\d+[:\-]\s*/i, "");
+        return s.trim();
+    };
 
     const card = document.createElement("article");
     card.className = "diag-ai-card";
@@ -1166,9 +1178,11 @@ function renderDiagnosticoAi(aiData, symptoms) {
         return '<span class="diag-chip" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent)">📚 ' + esc(mStr) + "</span>";
     }).join("");
 
-    const stepsHtml = (aiData.action_steps || []).map((step, idx) =>
+    const stepsHtml = (aiData.action_steps || []).map(sanitizeUiStep).filter(Boolean).map((step, idx) =>
         '<li data-step="' + (idx + 1) + '">' + esc(step) + "</li>"
     ).join("");
+
+    const cleanExplanation = sanitizeUiExplanation(aiData.explanation || "");
 
     const warningHtml = aiData.safety_warning
         ? '<div class="diag-ai-warning"><strong>⚠️ PRECAUCIÓN DE SEGURIDAD:</strong> ' + esc(aiData.safety_warning) + '</div>'
@@ -1177,7 +1191,7 @@ function renderDiagnosticoAi(aiData, symptoms) {
     let metaNoticeHtml = "";
     if (aiData._diagnostic_meta) {
         if (aiData._diagnostic_meta.failover) {
-            metaNoticeHtml += '<div style="font-size:0.75rem;font-family:var(--mono);color:var(--accent);background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.3);padding:8px 12px;border-radius:6px;margin-bottom:10px;">⚡ <strong>Diagnóstico Causal Local por Contingencia:</strong> ' + esc(aiData._diagnostic_meta.failover_notice || "Generado mediante traza topológica y catálogo local de manuales ante indisponibilidad del servicio externo.") + '</div>';
+            metaNoticeHtml += '<div style="font-size:0.75rem;font-family:var(--mono);color:var(--accent);background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.3);padding:8px 12px;border-radius:6px;margin-bottom:10px;">📑 <strong>Modo Documental Autónomo:</strong> ' + esc(aiData._diagnostic_meta.failover_notice || "Conclusiones obtenidas a partir del catálogo técnico de 19 manuales Elekta.") + '</div>';
         }
         if (aiData._diagnostic_meta.truncated) {
             metaNoticeHtml += '<div style="font-size:0.72rem;font-family:var(--mono);color:var(--warn);background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);padding:6px 10px;border-radius:6px;margin-bottom:10px;">⚠️ Aviso: Diagnóstico ajustado por límite de longitud. Verifique los puntos de prueba clave indicados.</div>';
@@ -1187,20 +1201,54 @@ function renderDiagnosticoAi(aiData, symptoms) {
         }
     }
 
+    // Diagnósticos diferenciales
+    const diffDiagnoses = Array.isArray(aiData.differential_diagnoses) ? aiData.differential_diagnoses : [];
+    let diffHtml = "";
+    if (diffDiagnoses.length > 0) {
+        const diffCards = diffDiagnoses.map(d => {
+            const isObj = d && typeof d === "object";
+            const hypoText = isObj ? (d.hypothesis || d.title || "") : String(d || "");
+            const hypo = esc(hypoText || "Hipótesis alternativa");
+            const like = (isObj && d.likelihood ? String(d.likelihood) : "media").toLowerCase();
+            const likeLabel = like === "alta" ? "Probabilidad Alta" : (like === "baja" ? "Probabilidad Baja" : "Probabilidad Media");
+            const pillClass = like === "alta" ? "alta" : (like === "baja" ? "baja" : "media");
+            const sub = (isObj && d.subsystem) ? '<span class="diag-diff-subsystem">' + esc(d.subsystem) + '</span>' : '';
+            const rat = (isObj && d.rationale) ? '<div class="diag-diff-rationale">' + esc(d.rationale) + '</div>' : '';
+            return '<div class="diag-diff-card">' +
+                '<div class="diag-diff-header">' +
+                    '<div class="diag-diff-title">' + hypo + '</div>' +
+                    '<span class="diag-diff-pill ' + pillClass + '">' + likeLabel + '</span>' +
+                '</div>' +
+                (sub ? '<div class="diag-diff-meta">' + sub + '</div>' : '') +
+                rat +
+            '</div>';
+        }).join("");
+        diffHtml =
+            '<div class="diag-ai-section">' +
+                '<div class="diag-ai-sectit">🧭 Diagnósticos Diferenciales e Hipótesis Evaluadas</div>' +
+                '<div class="diag-diff-grid">' + diffCards + '</div>' +
+            '</div>';
+    }
+
+    const subsystemHtml = aiData.subsystem
+        ? '<div style="font-size:0.78rem;font-family:var(--mono);color:#94a3b8;margin-bottom:6px">Subsistema: <strong style="color:#e2e8f0">' + esc(aiData.subsystem) + '</strong></div>'
+        : "";
+
     card.innerHTML =
         '<div class="diag-ai-top">' +
             '<span class="diag-ai-badge">INFORME DE CAUSA RAÍZ TÉCNICO</span>' +
-            '<span style="font-size:.65rem;font-family:var(--mono);color:' + conf.color + '">' + conf.label + '</span>' +
         '</div>' +
         metaNoticeHtml +
+        subsystemHtml +
         '<div class="diag-ai-root">' + esc(aiData.root_cause || "Causa no identificada") + '</div>' +
         (boardsChips ? '<div class="diag-chips" style="margin-bottom:8px">' + boardsChips + '</div>' : '') +
         (cablesChips ? '<div class="diag-chips" style="margin-bottom:8px">' + cablesChips + '</div>' : '') +
         (signalsChips ? '<div class="diag-chips" style="margin-bottom:12px">' + signalsChips + '</div>' : '') +
         '<div class="diag-ai-section">' +
-            '<div class="diag-ai-sectit">🧠 Análisis y deducción causal basada en manuales</div>' +
-            '<div class="diag-ai-body">' + esc(aiData.explanation || "") + '</div>' +
+            '<div class="diag-ai-sectit">🔬 Análisis y Deducción Causal Fundamentada</div>' +
+            '<div class="diag-ai-body">' + esc(cleanExplanation) + '</div>' +
         '</div>' +
+        diffHtml +
         (stepsHtml ?
             '<div class="diag-ai-section">' +
                 '<div class="diag-ai-sectit">🔧 Procedimiento de Servicio e Inspección Paso a Paso</div>' +

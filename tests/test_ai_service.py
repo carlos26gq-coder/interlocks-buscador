@@ -22,6 +22,10 @@ from ai_service import (
     analyze_with_gemini,
     generate_local_failover_diagnosis,
     _sanitize_error_message,
+    _sanitize_explanation,
+    _sanitize_action_steps,
+    _sanitize_differential_diagnoses,
+    DifferentialDiagnosis,
     GeminiDiagnosis,
     Confidence,
     DEFAULT_GEMINI_TIMEOUT_MS,
@@ -363,6 +367,394 @@ Fin del reporte."""
             sanitized = _sanitize_error_message(v)
             self.assertNotIn("timed out", sanitized.lower())
             self.assertIn("Tiempo de respuesta agotado", sanitized)
+
+    def test_failover_diagnosis_item475_item471_clean_entities_and_4_steps(self):
+        """Verifica que el diagnóstico local de ITEM 475 e ITEM 471 genere entidades limpias, pasos dinámicos y sin plantillas rígidas."""
+        docs = [
+            {
+                "manual": "diagrams",
+                "page": 211,
+                "text": "PCB IDENTIFICATION PCB ASSY DIE-RHA PCB 12D PCB 12F ITEM 475 D1 FORCE TERM ITEM 471 D1 RESET DOSE PL1 PL2 SK12 TP12",
+            }
+        ]
+        engine = SearchEngine(docs)
+        failover = generate_local_failover_diagnosis(["ITEM 475", "ITEM 471"], engine, reason="timeout")
+
+        # 1. Tarjetas limpias (sin títulos de plano ni prefijo "Tarjeta:")
+        self.assertIn("associated_boards", failover)
+        boards = failover["associated_boards"]
+        for b in boards:
+            self.assertFalse(b.startswith("Tarjeta:"))
+            self.assertNotIn("PCB IDENTIFICATION", b)
+            self.assertNotIn("PCB ASSY", b)
+        self.assertTrue(any("DIE-RHA" in b or "PCB 12D" in b for b in boards))
+
+        # 2. Conectores limpios (sin prefijo "Conector:")
+        self.assertIn("cables_and_connectors", failover)
+        connectors = failover["cables_and_connectors"]
+        for c in connectors:
+            self.assertFalse(c.startswith("Conector:"))
+        self.assertTrue(any("PL1" in c or "SK12" in c for c in connectors))
+
+        # 3. Señales priorizan los síntomas consultados
+        self.assertIn("test_points_and_signals", failover)
+        signals = failover["test_points_and_signals"]
+        self.assertIn("ITEM 475", signals[:2])
+        self.assertIn("ITEM 471", signals[:2])
+
+        # 4. Pasos de acción generados dinámicamente según componentes (sin plantillas rígidas preenlatadas)
+        steps = failover.get("action_steps", [])
+        self.assertTrue(len(steps) >= 3)
+        self.assertFalse(any("Probabilidad 1" in s for s in steps))
+        self.assertFalse(any("Probabilidad 2" in s for s in steps))
+        self.assertTrue(any("ITEM 475" in s or "ITEM 471" in s for s in steps))
+        self.assertTrue(any("DIE-RHA" in s or "PCB 12D" in s or "tarjetas" in s for s in steps))
+
+        # 5. Explicación fundamentada sin texto genérico repetitivo ni plantillas fijas
+        explanation = failover.get("explanation", "")
+        self.assertNotIn("Contexto Operativo: En la arquitectura del acelerador lineal Elekta, las señales analizadas forman parte integral del Sistema General de Interbloqueos", explanation)
+        self.assertIn("diagrams.pdf", explanation)
+        self.assertTrue(any(sig in explanation for sig in ["ITEM 475", "ITEM 471"]))
+
+        # 6. Ausencia total de cadenas prohibidas o evasivas
+        serialized = str(failover).lower()
+        self.assertNotIn("contingencia", serialized)
+        self.assertNotIn("saturación temporal", serialized)
+        self.assertNotIn("no establece una causa raíz", serialized)
+        self.assertNotIn("no cuenta con suficiente data", serialized)
+        self.assertNotIn("inteligencia artificial", serialized)
+        import re
+        self.assertFalse(bool(re.search(r"\b(?:ia|ai)\b", serialized)))
+
+    def test_sanitize_explanation_removes_generic_boilerplate(self):
+        """Verifica que _sanitize_explanation elimine texto introductorio genérico."""
+        bad_texts = [
+            "Contexto Operativo: En la arquitectura del acelerador lineal Elekta, las señales analizadas forman parte integral del Sistema General de Interbloqueos y Seguridad (Elekta LINAC). La señal ITEM 409 supervisa...",
+            "Contexto Operativo: En la arquitectura del acelerador lineal Elekta las señales analizadas forman parte integral del sistema. Se detecta falla...",
+            "En la arquitectura del acelerador lineal Elekta, las señales analizadas forman parte integral del Sistema General de Interbloqueos y Seguridad (Elekta LINAC). Fallo en tarjeta...",
+        ]
+        for bt in bad_texts:
+            cleaned = _sanitize_explanation(bt)
+            self.assertNotIn("Contexto Operativo", cleaned)
+            self.assertNotIn("forman parte integral del Sistema General de Interbloqueos", cleaned)
+            self.assertTrue(len(cleaned) > 0)
+
+    def test_sanitize_action_steps_removes_rigid_probability_templates(self):
+        """Verifica que _sanitize_action_steps limpie prefijos rígidos de probabilidades."""
+        bad_steps = [
+            "Paso 1 (Probabilidad 1 - Alimentación y Protecciones Básicas): Medir voltajes de 24VDC en PCB 12D.",
+            "Paso 2 (Probabilidad 2 - Puntos de Prueba y Niveles Lógicos): Verificar TP12 con osciloscopio.",
+            "Probabilidad 3: Revisar continuidad del arnés PL1.",
+            "Prioridad 4: Calibrar umbrales en Service Mode.",
+            "Paso 5: Ajustar potenciómetro R12.",
+        ]
+        cleaned = _sanitize_action_steps(bad_steps)
+        self.assertEqual(len(cleaned), 5)
+        for s in cleaned:
+            self.assertFalse(s.startswith("Paso 1"))
+            self.assertFalse("Probabilidad" in s)
+            self.assertFalse("Prioridad" in s)
+        self.assertEqual(cleaned[0], "Medir voltajes de 24VDC en PCB 12D.")
+        self.assertEqual(cleaned[1], "Verificar TP12 con osciloscopio.")
+        self.assertEqual(cleaned[2], "Revisar continuidad del arnés PL1.")
+
+    @patch("ai_service.genai.Client")
+    def test_analyze_with_gemini_sanitizes_explanation_and_action_steps(self, mock_client_cls):
+        """Verifica que analyze_with_gemini aplique sanitización al resultado generado por Gemini."""
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_candidate = MagicMock()
+        mock_candidate.finish_reason = "STOP"
+        mock_response.candidates = [mock_candidate]
+        mock_response.parsed = GeminiDiagnosis(
+            root_cause="Fallo en lazo de disparo",
+            subsystem="Dosimetría",
+            confidence=Confidence.ALTA,
+            explanation="Contexto Operativo: En la arquitectura del acelerador lineal Elekta, las señales analizadas forman parte integral del Sistema General de Interbloqueos y Seguridad (Elekta LINAC). La señal ITEM 409 disparó.",
+            associated_boards=["PCB 12D"],
+            cables_and_connectors=["PL1"],
+            test_points_and_signals=["ITEM 409"],
+            citation_ids=["C1"],
+            action_steps=[
+                "Paso 1 (Probabilidad 1 - Alimentación y Protecciones Básicas): Medir tensión de alimentación.",
+                "Paso 2 (Probabilidad 2 - Puntos de Prueba y Niveles Lógicos): Medir punto de prueba TP1.",
+            ],
+            safety_warning="Peligro HT",
+        )
+
+        mock_client.models.generate_content.return_value = mock_response
+
+        docs = [{"manual": "diagrams", "page": 100, "text": "ITEM 409 trigger on PCB 12D with PL1."}]
+        engine = SearchEngine(docs)
+
+        result = analyze_with_gemini(["ITEM 409"], engine, api_key="dummy_valid_key")
+        self.assertTrue(result["ok"])
+        data = result["data"]
+
+        # Explanation sanitizada
+        self.assertNotIn("Contexto Operativo", data["explanation"])
+        self.assertIn("La señal ITEM 409 disparó.", data["explanation"])
+
+        # Action steps sanitizados
+        for step in data["action_steps"]:
+            self.assertNotIn("Probabilidad 1", step)
+            self.assertNotIn("Probabilidad 2", step)
+        self.assertEqual(data["action_steps"][0], "Medir tensión de alimentación.")
+        self.assertEqual(data["action_steps"][1], "Medir punto de prueba TP1.")
+
+    # ─── 7. DIAGNÓSTICOS DIFERENCIALES Y RAZONAMIENTO MULTIMODAL ────────────
+
+    def test_differential_diagnosis_pydantic_schema_and_serialization(self):
+        """Verifica el esquema Pydantic de DifferentialDiagnosis y su serialización en GeminiDiagnosis."""
+        diff = DifferentialDiagnosis(
+            hypothesis="Deriva térmica en comparadores de ventana analógicos",
+            subsystem="Dosimetría",
+            likelihood="alta",
+            rationale="Discrepancia en canal D1 sin variación en canal D2.",
+        )
+        self.assertEqual(diff.hypothesis, "Deriva térmica en comparadores de ventana analógicos")
+        self.assertEqual(diff.subsystem, "Dosimetría")
+        self.assertEqual(diff.likelihood, "alta")
+        self.assertEqual(diff.rationale, "Discrepancia en canal D1 sin variación en canal D2.")
+
+        # Por defecto GeminiDiagnosis tiene differential_diagnoses vacío
+        diag_default = GeminiDiagnosis(
+            root_cause="Causa",
+            subsystem="Sub",
+            confidence=Confidence.ALTA,
+            explanation="Exp",
+        )
+        self.assertEqual(diag_default.differential_diagnoses, [])
+
+        # GeminiDiagnosis con lista de diagnósticos diferenciales
+        diag_with_diffs = GeminiDiagnosis(
+            root_cause="Causa",
+            subsystem="Sub",
+            confidence=Confidence.ALTA,
+            explanation="Exp",
+            differential_diagnoses=[diff],
+        )
+        dumped = diag_with_diffs.model_dump(mode="json")
+        self.assertEqual(len(dumped["differential_diagnoses"]), 1)
+        self.assertEqual(dumped["differential_diagnoses"][0]["likelihood"], "alta")
+
+    def test_sanitize_differential_diagnoses_normalization(self):
+        """Verifica que _sanitize_differential_diagnoses normalice campos, probabilidades y tipos anómalos."""
+        raw_diffs = [
+            {
+                "hypothesis": "  Microfuga en fuelle de vacío de cañón de electrones  ",
+                "subsystem": "Sistema de Vacío",
+                "likelihood": "ALTA",
+                "rationale": "Incremento de corriente en bomba iónica.",
+            },
+            {
+                "hypothesis": "Fallo en optoacoplador de bus de seguridad",
+                "subsystem": "Comunicaciones",
+                "likelihood": "desconocida",  # Debe normalizarse a 'media'
+                "rationale": "Latencia intermitente en trama ARCNET.",
+            },
+            "Hipótesis en formato de cadena simple",
+            None,
+            12345,
+            {"hypothesis": ""},  # Hipótesis vacía debe descartarse
+        ]
+        sanitized = _sanitize_differential_diagnoses(raw_diffs)
+        self.assertEqual(len(sanitized), 3)
+        self.assertEqual(sanitized[0]["hypothesis"], "Microfuga en fuelle de vacío de cañón de electrones")
+        self.assertEqual(sanitized[0]["likelihood"], "alta")
+        self.assertEqual(sanitized[1]["likelihood"], "media")
+        self.assertEqual(sanitized[2]["hypothesis"], "Hipótesis en formato de cadena simple")
+        self.assertEqual(sanitized[2]["likelihood"], "media")
+
+        # Entrada no iterable o None devuelve lista vacía
+        self.assertEqual(_sanitize_differential_diagnoses(None), [])
+        self.assertEqual(_sanitize_differential_diagnoses("no una lista"), [])
+
+    def test_failover_diagnosis_generates_differential_diagnoses_and_procedural_steps(self):
+        """Verifica que generate_local_failover_diagnosis produzca diagnósticos diferenciales y pasos procedimentales profundos."""
+        docs = [
+            {
+                "manual": "dosimetry",
+                "page": 69,
+                "text": "Table 4.18: Conditions that cause an HT relay interlock: Watchdogs, 3.3V/5V rail failures, chamber bias voltage out of limits, DIE-RHA watchdog trip.",
+            },
+            {
+                "manual": "diagrams",
+                "page": 211,
+                "text": "PCB ASSY DIE-RHA PCB 12D ITEM 475 D1 FORCE TERM ITEM 471 D1 RESET DOSE PL1 PL2 SK12 TP12",
+            },
+            {
+                "manual": "communications",
+                "page": 95,
+                "text": "DIE-RHA board communications bus jumper links LK1, LK2 and termination resistors on ARCNET interface.",
+            },
+        ]
+        engine = SearchEngine(docs)
+        failover = generate_local_failover_diagnosis(["ITEM 475", "ITEM 471", "DIE-RHA"], engine, reason="timeout")
+
+        # 1. Diagnósticos diferenciales estructurados (3-4 hipótesis)
+        diffs = failover.get("differential_diagnoses", [])
+        self.assertTrue(len(diffs) >= 3, f"Se esperaban >= 3 diagnósticos diferenciales, se obtuvieron: {len(diffs)}")
+        for d in diffs:
+            self.assertTrue(bool(d.get("hypothesis")))
+            self.assertIn(d.get("likelihood"), {"alta", "media", "baja"})
+            self.assertTrue(bool(d.get("rationale")))
+            self.assertTrue(bool(d.get("subsystem")))
+
+        # 2. Pasos de acción variados y procedimentales (cubren verificación de software, hardware, mediciones, calibración)
+        steps = failover.get("action_steps", [])
+        self.assertTrue(len(steps) >= 4, f"Se esperaban >= 4 pasos, se obtuvieron: {len(steps)}")
+        step_text = " ".join(steps).lower()
+        self.assertTrue(any(w in step_text for w in ["ccp", "service mode", "consola", "pantalla"]))
+        self.assertTrue(any(w in step_text for w in ["calibración", "tolerancia", "umbral", "tensión", "voltaje"]))
+        self.assertTrue(any(w in step_text for w in ["relé", "lazo", "arnés", "conector", "continuidad"]))
+
+        # 3. Explicación fundamentada con citas a múltiples manuales
+        exp = failover.get("explanation", "")
+        self.assertIn("dosimetry.pdf", exp)
+        self.assertIn("diagrams.pdf", exp)
+
+        # 4. Strict zero IA/AI
+        serialized = str(failover).lower()
+        self.assertNotIn("inteligencia artificial", serialized)
+        import re
+        self.assertFalse(bool(re.search(r"\b(?:ia|ai)\b", serialized)))
+
+    def test_gather_grounding_context_multi_manual_diversity(self):
+        """Verifica que gather_grounding_context extraiga evidencia balanceada de múltiples manuales sin sesgo hacia diagrams.pdf."""
+        docs = [
+            {"manual": "diagrams", "page": 10, "text": "ITEM 475 DIE-RHA relay loop schematic page 10."},
+            {"manual": "diagrams", "page": 11, "text": "ITEM 475 DIE-RHA relay loop schematic page 11."},
+            {"manual": "diagrams", "page": 12, "text": "ITEM 475 DIE-RHA relay loop schematic page 12."},
+            {"manual": "diagrams", "page": 13, "text": "ITEM 475 DIE-RHA relay loop schematic page 13."},
+            {"manual": "dosimetry", "page": 69, "text": "ITEM 475 DIE-RHA chamber calibration and watchdog interlock."},
+            {"manual": "communications", "page": 95, "text": "ITEM 475 DIE-RHA bus arbitration and CAN timeout."},
+            {"manual": "power_supplies", "page": 73, "text": "ITEM 475 DIE-RHA 24VDC and 5V rail distribution."},
+        ]
+        engine = SearchEngine(docs)
+        ctx, citation_map = gather_grounding_context(engine, ["ITEM 475", "DIE-RHA"], max_pages=8)
+
+        # Verificar que el citation_map incluya múltiples manuales diferentes
+        manuals_in_cites = {v["manual"] for v in citation_map.values()}
+        self.assertGreaterEqual(len(manuals_in_cites), 3, f"Manuales en citas insuficientes: {manuals_in_cites}")
+        self.assertIn("dosimetry", manuals_in_cites)
+        self.assertIn("communications", manuals_in_cites)
+
+    @patch("ai_service.genai.Client")
+    def test_analyze_with_gemini_preserves_and_sanitizes_differential_diagnoses(self, mock_client_cls):
+        """Verifica que analyze_with_gemini conserve y normalice los diagnósticos diferenciales devueltos por el modelo."""
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_candidate = MagicMock()
+        mock_candidate.finish_reason = "STOP"
+        mock_response.candidates = [mock_candidate]
+        mock_response.parsed = GeminiDiagnosis(
+            root_cause="Bloqueo por disparo en tarjeta DIE-RHA",
+            subsystem="Dosimetría y Monitoreo de Haz",
+            confidence=Confidence.ALTA,
+            explanation="La señal ITEM 475 disparó la cadena de interbloqueo conforme a diagrams.pdf (Página 211).",
+            citation_ids=["C1"],
+            differential_diagnoses=[
+                DifferentialDiagnosis(
+                    hypothesis="Fallo de comunicación en bus ARCNET",
+                    subsystem="Comunicaciones",
+                    likelihood="media",
+                    rationale="Timeout intermitente reportado en el procesador central.",
+                ),
+                DifferentialDiagnosis(
+                    hypothesis="Deriva en la fuente auxiliar de 5V",
+                    subsystem="Fuentes DC",
+                    likelihood="baja",
+                    rationale="Ondulación residual por envejecimiento de capacitores.",
+                ),
+            ],
+            associated_boards=["DIE-RHA"],
+            cables_and_connectors=["PL1", "SK12"],
+            test_points_and_signals=["ITEM 475", "ITEM 471"],
+            action_steps=["Comprobar continuidad del lazo en PL1."],
+            safety_warning="Desenergizar antes de intervenir.",
+        )
+
+        mock_client.models.generate_content.return_value = mock_response
+
+        docs = [{"manual": "diagrams", "page": 211, "text": "ITEM 475 DIE-RHA on PL1."}]
+        engine = SearchEngine(docs)
+
+        result = analyze_with_gemini(["ITEM 475"], engine, api_key="dummy_key")
+        self.assertTrue(result["ok"])
+        data = result["data"]
+
+        diffs = data.get("differential_diagnoses", [])
+        self.assertEqual(len(diffs), 2)
+        self.assertEqual(diffs[0]["hypothesis"], "Fallo de comunicación en bus ARCNET")
+        self.assertEqual(diffs[0]["likelihood"], "media")
+        self.assertEqual(diffs[1]["subsystem"], "Fuentes DC")
+
+    def test_failover_diagnosis_strictly_prohibits_canned_multimeter_templates_and_prioritizes_user_boards(self):
+        """Verifica que el caso exacto reportado por el usuario (ITEM 475, ITEM 471, DIE-RHA)
+
+        produzca un diagnóstico no-enlatado, con DIE-RHA priorizada como tarjeta,
+        subsistema de Dosimetría, y pasos procedimentales profundos sin plantillas rígidas.
+        """
+        docs = [
+            {
+                "manual": "dosimetry",
+                "page": 68,
+                "text": "i471 D1 reset dose, i475 D1 Force term. Low dose rate monitor i044 / i045 calibration.",
+            },
+            {
+                "manual": "diagrams",
+                "page": 211,
+                "text": "1.101 DOSIMETRY CHANNEL ITEM 475 D1 FORCE TERM ITEM 471 D1 RESET DOSE DIE-RHA PL1 PL2 SK12",
+            },
+            {
+                "manual": "communications",
+                "page": 33,
+                "text": "List of the PCBs in the RHCA: DIE-RHA, MTU-RHA, ROC-RHA, AI12-RHA.",
+            },
+        ]
+        engine = SearchEngine(docs)
+        failover = generate_local_failover_diagnosis(["ITEM 475", "ITEM 471", "DIE-RHA"], engine, reason="timeout")
+
+        # 1. Subsistema preciso de Dosimetría
+        subsystem = failover.get("subsystem", "")
+        self.assertIn("Dosimetría", subsystem)
+
+        # 2. DIE-RHA debe estar en associated_boards y como primera tarjeta, JAMÁS en signals
+        boards = failover.get("associated_boards", [])
+        self.assertTrue(len(boards) > 0)
+        self.assertEqual(boards[0], "DIE-RHA")
+        signals = failover.get("test_points_and_signals", [])
+        self.assertNotIn("DIE-RHA", signals)
+        self.assertIn("ITEM 475", signals)
+        self.assertIn("ITEM 471", signals)
+
+        # 3. PROHIBICIÓN ABSOLUTA DE LAS 4 PLANTILLAS PREENLATADAS REPORTADAS POR EL USUARIO
+        steps = failover.get("action_steps", [])
+        self.assertGreaterEqual(len(steps), 5)
+        for s in steps:
+            self.assertNotIn("Medir con multímetro u osciloscopio los niveles lógicos y señales de prueba", s)
+            self.assertNotIn("Inspeccionar visual y térmicamente DIE-RHA, comprobando el estado de sus fusibles", s)
+            self.assertNotIn("Comprobar la continuidad eléctrica, apriete de terminales y ausencia de bornes flojos", s)
+            self.assertNotIn("Consultar los procedimientos de diagnóstico y tablas de calibración en diagrams.pdf", s)
+
+        # 4. Pasos técnicos procedimentales profundos verificables
+        step_text = " ".join(steps).lower()
+        self.assertIn("service mode", step_text)
+        self.assertTrue(any(w in step_text for w in ["chamber bias", "cámara de ionización", "polarización"]))
+        self.assertTrue(any(w in step_text for w in ["calibración", "tolerancia", "simetría"]))
+        self.assertTrue(any(w in step_text for w in ["watchdog", "arcnet", "jumpers", "puentes"]))
+        self.assertTrue(any(w in step_text for w in ["rizado", "mvpp", "rail", "rieles"]))
+        self.assertTrue(any(w in step_text for w in ["rad_on", "reinicio seguro", "normalización"]))
+
+        # 5. Prioridad equilibrada de manuales (no solo diagrams.pdf)
+        refs = failover.get("manual_references", [])
+        self.assertTrue(any("dosimetry" in r.lower() for r in refs))
+        self.assertTrue(any("diagrams" in r.lower() for r in refs))
 
 
 if __name__ == "__main__":
