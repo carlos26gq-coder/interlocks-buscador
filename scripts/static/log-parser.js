@@ -289,22 +289,6 @@ class LogParser {
         else if (typeof window.buscar === 'function') window.buscar();
     }
 
-    static actionCircuits(id) {
-        irA('Circuits');
-        if (window.CircuitVisualizer && typeof window.CircuitVisualizer.openFromTrace === 'function') {
-            window.CircuitVisualizer.openFromTrace([id || '']);
-        }
-    }
-
-    static actionMultimeter(tp) {
-        irA('Multimeter');
-        if (typeof window.dmmSelTp === 'function') {
-            window.dmmSelTp(tp);
-        } else if (window.Multimeter && typeof window.Multimeter.seleccionarPuntoDePrueba === 'function') {
-            window.Multimeter.seleccionarPuntoDePrueba(tp);
-        }
-    }
-
     static actionDiagnose(id) {
         irA('Diagnose');
         const inputs = document.querySelectorAll('.symptom-input');
@@ -348,8 +332,6 @@ class LogParser {
                 
                 html += `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:10px;">
                     <button type="button" class="btn btn-ghost btn-sm" data-log-action="search" data-target="${primaryId}">🔍 Ver en Manuales</button>
-                    <button type="button" class="btn btn-ghost btn-sm" data-log-action="circuits" data-target="${primaryId}">📚 Consultar rutas documentadas</button>
-                    ${suggestedTp ? `<button type="button" class="btn btn-ghost btn-sm" data-log-action="multimeter" data-target="${suggestedTp}">📟 Medir con Multímetro (${suggestedTp})</button>` : ''}
                     <button type="button" class="btn btn-primary btn-sm" data-log-action="export-notes" data-idx="${idx}">📝 Exportar a Mis Apuntes</button>
                     <button type="button" class="btn btn-ghost btn-sm" data-log-action="diagnose" data-target="${primaryId}">🧭 Ver Traza Topológica</button>
                 </div>`;
@@ -579,8 +561,6 @@ document.addEventListener("DOMContentLoaded", () => {
             e.preventDefault();
             const act = btn.dataset.logAction;
             if (act === "search") LogParser.actionSearch(btn.dataset.target);
-            else if (act === "circuits") LogParser.actionCircuits(btn.dataset.target);
-            else if (act === "multimeter") LogParser.actionMultimeter(btn.dataset.target);
             else if (act === "export-notes") LogParser.exportToNotes(parseInt(btn.dataset.idx, 10));
             else if (act === "diagnose") LogParser.actionDiagnose(btn.dataset.target);
         });

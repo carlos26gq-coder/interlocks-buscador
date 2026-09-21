@@ -75,18 +75,7 @@ class APITests(unittest.TestCase):
         data = res.get_json()
         self.assertIn("results", data)
 
-    def test_diagnose_graph_endpoint_success(self):
-        res = self.client.post("/diagnose/graph", json={"symptoms": ["ITEM 409", "ITEM 332"]})
-        self.assertEqual(res.status_code, 200)
-        data = res.get_json()
-        self.assertTrue(data.get("found"))
-        self.assertIn("pcbs", data)
 
-    def test_diagnose_graph_endpoint_empty_symptoms_returns_400(self):
-        res = self.client.post("/diagnose/graph", json={"symptoms": []})
-        self.assertEqual(res.status_code, 400)
-        data = res.get_json()
-        self.assertFalse(data.get("found"))
 
     def test_diagnose_ai_endpoint_without_key_returns_400(self):
         res = self.client.post("/diagnose/ai", json={"symptoms": ["falla de gantry"]})

@@ -27,12 +27,7 @@ from search_engine import (
     tokens,
     MAX_SEARCH_LATENCY_COLD_MS,
 )
-from graph_engine import (
-    get_graph_engine,
-    MIN_GRAPH_ENTITIES,
-    MIN_GRAPH_ADJACENCY,
-    MAX_GRAPH_PAYLOAD_MB,
-)
+
 from api import app, search_engine as api_search_engine
 
 
@@ -48,7 +43,6 @@ class MassiveSOLVITestSuite(unittest.TestCase):
             cls.master_data = json.load(f)
 
         cls.engine = SearchEngine(cls.master_data)
-        cls.graph_engine = get_graph_engine()
         cls.client = app.test_client()
 
     # ─── 1. INTEGRIDAD DE DATOS MAESTROS ─────────────────────────────────────
@@ -114,25 +108,6 @@ class MassiveSOLVITestSuite(unittest.TestCase):
         self.assertEqual(total_offline_pages, len(self.master_data), "El total de páginas offline debe ser 6,322")
 
     # ─── 3. GRAFO DE CONOCIMIENTO (TOPOLOGÍA LINAC) ──────────────────────────
-
-    def test_03_knowledge_graph_parity_and_size(self):
-        """Verifica que linac_graph.json en data/ y static/ sean idénticos y < 2 MB."""
-        self.assertTrue(self.graph_data_path.exists())
-        self.assertTrue(self.graph_static_path.exists())
-
-        bytes_data = self.graph_data_path.read_bytes()
-        bytes_static = self.graph_static_path.read_bytes()
-
-        self.assertEqual(bytes_data, bytes_static, "linac_graph.json en data/ y static/ deben ser idénticos")
-        
-        size_mb = len(bytes_data) / (1024 * 1024)
-        self.assertLess(size_mb, MAX_GRAPH_PAYLOAD_MB, f"El grafo pesa {size_mb:.2f} MB, debe ser menor a {MAX_GRAPH_PAYLOAD_MB} MB para móviles")
-
-        # Entidades y adyacencias
-        self.assertGreaterEqual(len(self.graph_engine.entities), MIN_GRAPH_ENTITIES)
-        self.assertGreaterEqual(len(self.graph_engine.adjacency), MIN_GRAPH_ADJACENCY)
-
-    # ─── 4. BÚSQUEDA MASIVA (100 QUERIES TÉCNICAS Y RECHAZO DE FALSOS POSITIVOS) ─
 
     def test_04_massive_search_queries_and_false_positive_rejection(self):
         """Ejecuta 100 búsquedas técnicas reales y verifica precisión y velocidad."""
@@ -200,29 +175,6 @@ class MassiveSOLVITestSuite(unittest.TestCase):
 
     # ─── 5. TRAZA DE CIRCUITOS (TOPOLOGÍA FÍSICA) ────────────────────────────
 
-    def test_05_circuit_traces(self):
-        """Verifica la resolución y traza de circuitos para combinaciones complejas."""
-        cases = [
-            (["ITEM 409", "ITEM 332"], True, "alta"),
-            (["dose rate mon"], True, None),
-            (["check fail ht2"], True, None),
-            (["Interlock 283"], False, None),
-            (["D_RATE 1", "RAD_ON"], True, None),
-            (["ITEM 474"], True, None),
-            (["palabra_falsa_99999"], False, None)
-        ]
-
-        for symptoms, should_find, expected_conf in cases:
-            res = self.graph_engine.trace_circuit(symptoms, search_engine=self.engine)
-            self.assertEqual(res["found"], should_find, f"Fallo en traza para {symptoms}: {res}")
-            if should_find:
-                self.assertGreater(len(res["resolved_nodes"]), 0)
-                self.assertGreater(len(res["pcbs"]), 0)
-                if expected_conf:
-                    self.assertEqual(res["confidence"], expected_conf)
-
-    # ─── 6. VALIDACIÓN INTEGRAL DE ENDPOINTS FLASK ───────────────────────────
-
     def test_06_flask_endpoints(self):
         """Verifica el ciclo de vida completo de endpoints HTTP."""
         # 1. Root y Headers de seguridad
@@ -261,12 +213,6 @@ class MassiveSOLVITestSuite(unittest.TestCase):
             d_data = r_diag.get_json()
             self.assertIn("results", d_data)
             self.assertGreater(len(d_data["results"]), 0)
-
-        # 6. Diagnose graph endpoint
-        r_graph = self.client.post("/diagnose/graph", json={"symptoms": ["ITEM 409", "ITEM 332"]})
-        self.assertEqual(r_graph.status_code, 200)
-        g_data = r_graph.get_json()
-        self.assertTrue(g_data["found"])
 
         # 7. Notes endpoint
         r_notes = self.client.get("/notes")

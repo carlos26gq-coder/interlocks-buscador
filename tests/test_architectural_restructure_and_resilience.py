@@ -33,10 +33,7 @@ class ArchitecturalRestructureAndResilienceSuite(unittest.TestCase):
             cls.app_js = f.read()
         with open(STATIC_DIR / "log-parser.js", "r", encoding="utf-8") as f:
             cls.log_parser_js = f.read()
-        with open(STATIC_DIR / "multimeter.js", "r", encoding="utf-8") as f:
-            cls.multimeter_js = f.read()
-        with open(STATIC_DIR / "circuit-visualizer.js", "r", encoding="utf-8") as f:
-            cls.cv_js = f.read()
+
         with open(ROOT / "sw.js", "r", encoding="utf-8") as f:
             cls.sw_js = f.read()
 
@@ -53,7 +50,6 @@ class ArchitecturalRestructureAndResilienceSuite(unittest.TestCase):
         expected_tools = [
             "add_manual.py",
             "build_index.py",
-            "build_linac_graph.py",
             "extract_pages.py",
             "search_manuals.py",
             "validate_data.py",
@@ -69,9 +65,6 @@ class ArchitecturalRestructureAndResilienceSuite(unittest.TestCase):
 
         from tools.build_index import BASE_DIR as idx_base
         self.assertEqual(idx_base.resolve(), ROOT.resolve(), "build_index.BASE_DIR debe apuntar al root")
-
-        from tools.build_linac_graph import ROOT_DIR as graph_root
-        self.assertEqual(graph_root.resolve(), ROOT.resolve(), "build_linac_graph.ROOT_DIR debe apuntar al root")
 
     def test_validate_data_tool_execution(self):
         """Ejecuta tools/validate_data.py y comprueba que los 6,322 registros sean íntegros."""
@@ -91,7 +84,6 @@ class ArchitecturalRestructureAndResilienceSuite(unittest.TestCase):
         forwarders = [
             "add_manual.py",
             "build_index.py",
-            "build_linac_graph.py",
             "extract_pages.py",
             "search_manuals.py",
             "validate_data.py",
@@ -199,8 +191,8 @@ class ArchitecturalRestructureAndResilienceSuite(unittest.TestCase):
         self.assertIn("activeToolName", self.html)
         self.assertIn("activeToolMode", self.html)
         self.assertIn("BUSCADOR", self.html)
-        self.assertIn("MULTÍMETRO", self.html)
-        self.assertIn("ESQUEMAS", self.html)
+        self.assertNotIn("MULTÍMETRO", self.html)
+        self.assertNotIn("ESQUEMAS", self.html)
 
     def test_warning_toast_styling_support(self):
         """Verifica que index.html y app.js soporten toasts de advertencia con estilo .twarn."""

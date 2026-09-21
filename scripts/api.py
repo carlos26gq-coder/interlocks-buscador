@@ -526,133 +526,6 @@ def diagnose():
     return jsonify(result)
 
 
-@app.route("/diagnose/graph", methods=["POST"])
-@limiter.limit("600 per hour; 60 per minute")
-def diagnose_graph():
-    try:
-        data = json_body()
-        symptoms = strict_string_list(
-            data.get("symptoms", []), key="symptoms", max_items=6, max_length=300, required=True
-        )
-
-        from graph_engine import get_graph_engine
-        engine = get_graph_engine()
-        result = engine.trace_circuit(symptoms, search_engine=search_engine)
-        result["r2_url"] = R2_PUBLIC_URL
-
-        # Relacionar etiquetas del índice con rutas/referencias documentadas.
-        # Esto no transforma coocurrencias del grafo en un cableado certificado.
-        try:
-            from circuit_data import match_subsystem_for_trace
-            comps = list(symptoms) + (result.get("pcbs") or []) + (result.get("cables") or []) + (result.get("test_points") or [])
-            result["circuit_schematic"] = match_subsystem_for_trace(comps)
-        except Exception:
-            pass
-
-        return jsonify(result), 200
-    except ValidationError as val_err:
-        return jsonify({"found": False, "error": "validation_error", "message": str(val_err)}), 400
-    except Exception as exc:
-        app.logger.exception("Error en endpoint /diagnose/graph")
-        return jsonify({"found": False, "error": "server_exception", "message": _sanitize_error_message(exc)}), 500
-
-
-@app.route("/circuits/subsystems", methods=["GET"])
-@limiter.limit("1200 per hour; 120 per minute")
-def circuits_subsystems():
-    try:
-        from circuit_data import get_all_subsystems
-        return jsonify({"ok": True, "subsystems": get_all_subsystems()}), 200
-    except Exception as exc:
-        app.logger.exception("Error en /circuits/subsystems")
-        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
-
-
-@app.route("/circuits/<subsystem_id>", methods=["GET"])
-@limiter.limit("1200 per hour; 120 per minute")
-def circuit_subsystem_detail(subsystem_id):
-    try:
-        from circuit_data import get_subsystem
-        sub_id = str(subsystem_id).strip()[:64]
-        sub = get_subsystem(sub_id)
-        if not sub:
-            return jsonify({"ok": False, "error": "not_found", "message": f"Subsistema '{sub_id}' no encontrado."}), 404
-        return jsonify({"ok": True, "subsystem": sub}), 200
-    except Exception as exc:
-        app.logger.exception("Error en /circuits/<subsystem_id>")
-        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
-
-
-@app.route("/circuits/match", methods=["POST"])
-@limiter.limit("1200 per hour; 120 per minute")
-def circuit_match():
-    try:
-        data = json_body()
-        components_raw = data.get("components", [])
-        components = strict_string_list(
-            components_raw, key="components", max_items=50, max_length=100
-        )
-        from circuit_data import match_subsystem_for_trace
-        res = match_subsystem_for_trace(components)
-        return jsonify({"ok": True, **res}), 200
-    except ValidationError as val_err:
-        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
-    except Exception as exc:
-        app.logger.exception("Error en /circuits/match")
-        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
-
-
-@app.route("/multimeter/test-points", methods=["GET"])
-@limiter.limit("1200 per hour; 120 per minute")
-def multimeter_test_points():
-    try:
-        from multimeter_service import get_all_test_points
-        return jsonify({"ok": True, "test_points": get_all_test_points()}), 200
-    except Exception as exc:
-        app.logger.exception("Error en /multimeter/test-points")
-        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
-
-
-@app.route("/multimeter/evaluate", methods=["POST"])
-@limiter.limit("1200 per hour; 120 per minute")
-def multimeter_evaluate():
-    try:
-        data = json_body()
-        tp_raw = data.get("test_point_id")
-        if not isinstance(tp_raw, str):
-            raise ValidationError("'test_point_id' debe ser texto.")
-        tp_id = tp_raw.strip()[:64]
-
-        val_raw = data.get("measured_value")
-        if val_raw is None:
-            raise ValidationError("El parámetro 'measured_value' es obligatorio.")
-        try:
-            measured_val = float(val_raw)
-        except (TypeError, ValueError) as exc:
-            raise ValidationError("El parámetro 'measured_value' debe ser numérico.") from exc
-
-        if not math.isfinite(measured_val):
-            raise ValidationError("El parámetro 'measured_value' debe ser finito.")
-
-        unit_raw = data.get("unit", "V DC")
-        if not isinstance(unit_raw, str):
-            raise ValidationError("'unit' debe ser texto.")
-        unit = unit_raw.strip()[:10]
-
-        from multimeter_service import evaluate_measurement
-        result = evaluate_measurement(
-            tp_id=tp_id,
-            measured_value=measured_val,
-            unit=unit,
-        )
-        return jsonify({"ok": True, "evaluation": result}), 200
-    except (ValidationError, ValueError) as val_err:
-        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
-    except Exception as exc:
-        app.logger.exception("Error en /multimeter/evaluate")
-        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
-
-
 @app.route("/diagnose/ai", methods=["POST"])
 @limiter.limit("300 per hour; 30 per minute")
 def diagnose_ai():
@@ -940,44 +813,10 @@ def openapi_spec():
                     "responses": {"200": {"description": "Convergencia de síntomas en manuales"}},
                 }
             },
-            "/diagnose/graph": {
-                "post": {
-                    "summary": "Correlación de entidades en el índice documental",
-                    "responses": {"200": {"description": "Coincidencias de índice y referencias documentadas; no certifica una ruta física"}},
-                }
-            },
             "/diagnose/ai": {
                 "post": {
                     "summary": "Diagnóstico causal avanzado asistido por LLM",
                     "responses": {"200": {"description": "Causa raíz técnica, puntos TP y citas deterministas"}},
-                }
-            },
-            "/circuits/subsystems": {
-                "get": {
-                    "summary": "Listado de rutas y referencias documentales verificadas",
-                    "responses": {"200": {"description": "Catálogo de rutas funcionales y hojas de referencia"}},
-                }
-            },
-            "/circuits/{subsystem_id}": {
-                "get": {
-                    "summary": "Detalle de una ruta o referencia documental",
-                    "responses": {"200": {"description": "Pasos, límites y evidencia de manual disponible"}},
-                }
-            },
-            "/multimeter/test-points": {
-                "get": {
-                    "summary": "Registro de mediciones manuales con evidencia documental",
-                    "responses": {"200": {"description": "Solo mediciones publicables, con citas y alcance"}},
-                }
-            },
-            "/multimeter/evaluate": {
-                "post": {
-                    "summary": "Registro de lectura frente a una referencia documentada",
-                    "responses": {
-                        "200": {"description": "Referencia, delta y aviso de que no existe veredicto OK/FALLA"},
-                        "400": {"description": "Error de validación o unidad incompatible", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}},
-                        "500": {"description": "Error interno del servidor", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
-                    },
                 }
             },
             "/notes": {

@@ -12,7 +12,7 @@ La consulta de manuales y el diagnóstico no requieren cuenta ni contraseña. La
 - **PDF offline:** no se precargan los 19 manuales completos; cada PDF queda disponible sin conexión únicamente después de una descarga explícita y caché local.
 - **Registro de mediciones:** el módulo recibe lecturas manuales tomadas por personal autorizado. No conecta instrumentos, no inyecta tensión/corriente ni simula fallas. Solo publica registros con valor, ubicación y evidencia trazables; si el manual no da un rango de aceptación, muestra la comparación como referencia sin OK/FALLA.
 - **Trazabilidad:** las afirmaciones técnicas publicables se registran en `data/documentary_traceability.json` con manual, página y extracto.
-- **Rutas documentadas:** `data/verified_signal_paths.json` es el único catálogo del explorador de señales. Una ruta solo se publica cuando cada afirmación enlaza a evidencia verificable; las hojas que solo aportan etiquetas se muestran como referencias, no como cableado, simulación ni códigos de error inferidos.
+- **Evidencia documental:** `data/documentary_traceability.json` mantiene afirmaciones verificables con manual, página física y extracto. SOLVI presenta resultados como referencias documentales; no publica rutas de cableado ni valores de medición inferidos.
 - **Apuntes:** Supabase es la fuente compartida. Las notas nuevas creadas sin conexión quedan en una cola local y se eliminan de la cola solamente después de una respuesta exitosa del servidor.
 
 ## Variables de entorno
@@ -57,7 +57,7 @@ No agregue un TP, tolerancia, voltaje, corriente, inyección o interpretación d
 
 ## Añadir una ruta o referencia documentada
 
-No se deben dibujar conexiones a partir de coocurrencias en el índice. Para publicar una ruta, agregue primero la afirmación a `data/documentary_traceability.json` con manual, página física, extracto y estado verificable. Después agregue el registro a `data/verified_signal_paths.json`; cada paso, comprobación o efecto de falla debe enlazar mediante `citation_id` a esa matriz. Si una hoja únicamente etiqueta elementos, publíquela como `verified_document_reference`, sin pasos dirigidos ni efectos inferidos.
+No se deben inferir conexiones físicas a partir de coocurrencias en el índice. Toda conclusión mostrada debe poder remitirse a una entrada de `data/documentary_traceability.json` con manual, página física, extracto y estado verificable. Si una hoja únicamente etiqueta elementos, se presenta como referencia documental, sin pasos dirigidos ni efectos de falla inferidos.
 
 ## Pruebas y validación
 

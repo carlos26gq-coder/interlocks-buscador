@@ -2,7 +2,6 @@
 
 from . import add_manual
 from . import build_index
-from . import build_linac_graph
 from . import extract_pages
 from . import search_manuals
 from . import validate_data
@@ -10,7 +9,6 @@ from . import validate_data
 __all__ = [
     "add_manual",
     "build_index",
-    "build_linac_graph",
     "extract_pages",
     "search_manuals",
     "validate_data",

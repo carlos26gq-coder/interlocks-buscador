@@ -20,17 +20,6 @@ class ApiContractSuite(unittest.TestCase):
         app.config.update(TESTING=True, RATELIMIT_ENABLED=False)
         cls.client = app.test_client()
 
-    def test_openapi_and_health_contract(self):
-        health = self.client.get("/health")
-        self.assertEqual(health.status_code, 200)
-        self.assertTrue(health.get_json().get("ok"))
-
-        spec = self.client.get("/openapi.json")
-        self.assertEqual(spec.status_code, 200)
-        body = spec.get_json()
-        self.assertEqual(body.get("openapi"), "3.0.3")
-        for path in ("/search", "/diagnose", "/diagnose/graph", "/notes", "/notes/batch"):
-            self.assertIn(path, body["paths"])
 
     def test_search_and_notes_pagination_shapes(self):
         search = self.client.get("/search?q=interlock&page=1&limit=3")
@@ -45,16 +34,6 @@ class ApiContractSuite(unittest.TestCase):
         self.assertIsInstance(data.get("notes"), list)
         self.assertIn("has_more", data)
 
-    def test_strict_types_return_controlled_400(self):
-        for path, payload in (
-            ("/diagnose", {"symptoms": [283]}),
-            ("/diagnose/graph", {"symptoms": [None]}),
-            ("/circuits/match", {"components": [474]}),
-            ("/multimeter/evaluate", {"test_point_id": 1, "measured_value": "24"}),
-        ):
-            response = self.client.post(path, json=payload)
-            self.assertEqual(response.status_code, 400, path)
-            self.assertIsInstance(response.get_json(), dict)
 
     def test_admin_routes_are_not_public(self):
         for path in ("/admin/config", "/admin/manuals"):

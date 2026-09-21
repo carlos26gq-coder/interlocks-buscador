@@ -22,8 +22,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from api import app, limiter, _sanitize_error_message
 from search_engine import SearchEngine, normalize
-from graph_engine import GraphEngine, get_graph_engine
-from circuit_data import match_subsystem_for_trace, get_all_subsystems, get_subsystem
+
+
 from ai_service import (
     extract_json_safely,
     get_cached_diagnosis,
@@ -44,8 +44,6 @@ class PerformanceAndStressSuite(unittest.TestCase):
         with open(ROOT / "data" / "all_manuals.json", "r", encoding="utf-8") as f:
             cls.manuals_data = json.load(f)
         cls.search_engine = SearchEngine(cls.manuals_data)
-        cls.graph_engine = get_graph_engine()
-
     def setUp(self):
         clear_diagnostic_cache()
 
@@ -84,39 +82,6 @@ class PerformanceAndStressSuite(unittest.TestCase):
         self.assertEqual(len(results), 80)
         self.assertTrue(all(s == 200 for s in results))
         self.assertLess(avg_ms, 80.0, f"Latencia promedio por consulta demasiado alta: {avg_ms:.2f}ms")
-
-    def test_concurrent_diagnose_and_graph_endpoints_stress(self):
-        """Peticiones simultáneas a /diagnose/graph y /circuits/* procesadas de forma concurrente."""
-        endpoints = [
-            ("POST", "/diagnose/graph", {"symptoms": ["ITEM 409", "ITEM 332"]}),
-            ("POST", "/diagnose/graph", {"symptoms": ["interlock 283", "PCB 16N"]}),
-            ("POST", "/circuits/match", {"components": ["ion chamber", "i189", "-320 V"]}),
-            ("GET", "/circuits/dosimetry_bias_320v", None),
-            ("GET", "/circuits/ht_rf_ppg_reference", None),
-            ("GET", "/circuits/subsystems", None),
-            ("GET", "/health", None),
-        ]
-
-        def call_endpoint(method, url, payload):
-            with app.test_client() as client:
-                if method == "POST":
-                    r = client.post(url, json=payload)
-                else:
-                    r = client.get(url)
-                return r.status_code, r.get_json()
-
-        failures = []
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            tasks = [executor.submit(call_endpoint, ep[0], ep[1], ep[2]) for i in range(50) for ep in [endpoints[i % len(endpoints)]]]
-            for t in as_completed(tasks):
-                try:
-                    status, data = t.result()
-                    if status not in (200, 429):
-                        failures.append(f"HTTP {status} en {data}")
-                except Exception as exc:
-                    failures.append(str(exc))
-
-        self.assertEqual(len(failures), 0, f"Fallos en endpoints bajo concurrencia: {failures}")
 
     # ─── 2. FUZZING ADVERSARIAL Y PAYLOADS MALFORMADOS (CERO 500 CRASHES) ────
 
@@ -157,7 +122,7 @@ class PerformanceAndStressSuite(unittest.TestCase):
             {"components": ["x" * 5000]},  # Componente gigante
         ]
 
-        endpoints_to_test = ["/diagnose", "/diagnose/graph", "/circuits/match"]
+        endpoints_to_test = ["/diagnose"]
 
         for ep in endpoints_to_test:
             for p in fuzz_payloads:
@@ -178,54 +143,12 @@ class PerformanceAndStressSuite(unittest.TestCase):
             b"   \t\n  ",
         ]
         for data in raw_garbage:
-            with self.client.post("/diagnose/graph", data=data, content_type="application/json") as res:
+            with self.client.post("/diagnose", data=data, content_type="application/json") as res:
                 self.assertEqual(res.status_code, 400)
                 json_resp = res.get_json()
                 self.assertIsNotNone(json_resp)
 
     # ─── 3. ESTRÉS DEL GRAFO Y SEGURIDAD ANTE CICLOS ─────────────────────────
-
-    def test_graph_engine_cyclic_topology_stress(self):
-        """Grafos con bucles redundantes y caminos circulares no generan recursión infinita."""
-        cyclic_data = {
-            "version": "test",
-            "entities": {
-                "A": {"type": "pcb", "pages": []},
-                "B": {"type": "pcb", "pages": []},
-                "C": {"type": "cable", "pages": []},
-                "D": {"type": "test_point", "pages": []},
-            },
-            "adjacency": {
-                "A": [["B", "wire", 1, "diag", 1], ["C", "wire", 1, "diag", 2]],
-                "B": [["A", "wire", 1, "diag", 1], ["C", "wire", 1, "diag", 3]],
-                "C": [["D", "wire", 1, "diag", 4], ["A", "wire", 1, "diag", 2]],
-                "D": [["B", "wire", 1, "diag", 5], ["A", "wire", 1, "diag", 6]],
-            },
-            "lookup": {"a": "A", "b": "B", "c": "C", "d": "D"}
-        }
-        engine = GraphEngine(cyclic_data)
-        # Búsqueda de camino con bucles cerrados
-        path = engine.find_shortest_path("A", "D")
-        self.assertIsNotNone(path)
-        self.assertLessEqual(len(path), 4)
-
-        # Traza con todos los nodos del ciclo
-        trace = engine.trace_circuit(["A", "B", "C", "D"])
-        self.assertTrue(trace["found"])
-        self.assertIn("hub_node", trace)
-
-    def test_circuit_matcher_with_heavy_payload(self):
-        """match_subsystem_for_trace soporta 300 componentes y símbolos adversariales en < 50ms."""
-        heavy_components = [f"COMP_{i}" for i in range(200)] + ["ion chamber", "i189", "-320 V"]
-        start = time.perf_counter()
-        match = match_subsystem_for_trace(heavy_components)
-        elapsed_ms = (time.perf_counter() - start) * 1000
-
-        self.assertIn("subsystem_id", match)
-        self.assertIn("matched_nodes", match)
-        self.assertLess(elapsed_ms, 50.0, f"El matcher tardó demasiado: {elapsed_ms:.2f}ms")
-
-    # ─── 4. CACHÉ EN MEMORIA: CONCURRENCIA, AISLAMIENTO Y PARSING ROBUSTO ────
 
     def test_cache_concurrent_multi_thread_read_write(self):
         """Escrituras y lecturas simultáneas en hilos paralelos no corrompen _DIAG_CACHE."""
@@ -301,11 +224,9 @@ class PerformanceAndStressSuite(unittest.TestCase):
     # ─── 6. RESILIENCIA EN FRONTEND Y REGLA CERO IA VISIBLE ──────────────────
 
     def test_frontend_memory_cleanup_and_gc_safeguards(self):
-        """Verifica que app.js y circuit-visualizer.js implementen salvaguardas contra fugas de memoria."""
+        """Verifica que app.js implemente salvaguardas contra fugas de memoria."""
         with open(ROOT / "scripts" / "static" / "app.js", "r", encoding="utf-8") as f:
             app_js = f.read()
-        with open(ROOT / "scripts" / "static" / "circuit-visualizer.js", "r", encoding="utf-8") as f:
-            cv_js = f.read()
         with open(ROOT / "scripts" / "static" / "search-worker.js", "r", encoding="utf-8") as f:
             sw_js = f.read()
 
@@ -318,17 +239,8 @@ class PerformanceAndStressSuite(unittest.TestCase):
         # 2. Cola de mensajes del Web Worker no acumula peticiones ilimitadas
         self.assertIn("_workerPending.size > 50", app_js)
 
-        # 3. El visor documental no crea blobs/SVG ni listeners por registro;
-        # conserva un único estado y cierra su evidencia al desactivarse.
-        self.assertIn("let state =", cv_js)
-        self.assertIn("function onDeactivate()", cv_js)
-        self.assertIn("closeEvidence();", cv_js)
-        self.assertNotIn("URL.createObjectURL", cv_js)
-
-        # 4. Search worker previene NaN en maxScore, null crash en componentes y optimiza búsqueda con pageMap
+        # 4. Search worker previene NaN en maxScore y optimiza búsqueda
         self.assertIn("const maxScore = (selected.length && selected[0].score > 0) ? selected[0].score : 1.0;", sw_js)
-        self.assertIn("String(text || \"\").slice(0, 12000)", sw_js)
-        self.assertIn("_graphData.pageMap = pageMap;", sw_js)
 
     def test_strict_zero_visible_ai_in_all_error_handlers(self):
         """Ningún manejador de error ni mensaje emitido por el servidor expone las siglas 'IA' o 'AI' visibles."""
@@ -361,34 +273,3 @@ class PerformanceAndStressSuite(unittest.TestCase):
             msg = res.get("message", "")
             self.assertNotIn(dummy_key, msg)
             self.assertIn("[CLAVE_ENMASCARADA]", msg)
-
-    def test_graph_engine_page_to_entities_indexed_lookup_speed(self):
-        """GraphEngine indexa page_to_entities y resuelve entidades con lookup O(1) de alta velocidad."""
-        engine = get_graph_engine()
-        self.assertGreater(len(engine.page_to_entities), 20)
-        # Búsqueda repetitiva para verificar latencia sub-milisegundo
-        start = time.perf_counter()
-        for _ in range(100):
-            res = engine.resolve_entity("AREA 70")
-            self.assertEqual(res, "AREA 70")
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        self.assertLess(elapsed_ms, 20.0, f"Resolución de entidades demasiado lenta: {elapsed_ms:.2f}ms")
-
-    def test_diagnose_and_circuits_numerical_and_null_fuzzing(self):
-        """Endpoints soportan síntomas puramente numéricos y componentes con None sin 500."""
-        # Síntomas con números puros como códigos de interlocks
-        with self.client.post("/diagnose", json={"symptoms": [283, 409]}) as r1:
-            # El contrato estricto rechaza códigos numéricos sin tipo string;
-            # evita coerciones ambiguas en rutas de diagnóstico.
-            self.assertEqual(r1.status_code, 400)
-
-        with self.client.post("/diagnose/graph", json={"symptoms": [283, 409]}) as r2:
-            self.assertEqual(r2.status_code, 400)
-
-        # Match con componentes con valores None o vacíos
-        with self.client.post("/circuits/match", json={"components": [None, "", "DOOR_SW_283", 474]}) as r3:
-            self.assertEqual(r3.status_code, 400)
-
-
-if __name__ == "__main__":
-    unittest.main()

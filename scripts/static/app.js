@@ -1,4 +1,4 @@
-console.log("✅ SOLVI app.js v17 — búsqueda indexada, diagnóstico y diagrama de relaciones");
+console.log("✅ SOLVI app.js v18 — búsqueda indexada y diagnóstico documental");
 
 // ─── RED Y RESILIENCIA OFFLINE-FIRST ───────────────────────────────
 function isOnline() {
@@ -271,11 +271,11 @@ function verPDF(manual, page, keyword) {
     const pdfFile = cleanManual.toLowerCase().endsWith(".pdf") ? cleanManual : (cleanManual + ".pdf");
     const baseR2 = _r2url.replace(/\/+$/, "");
     const pdfUrl = baseR2 + "/" + encodeURIComponent(pdfFile);
-    
+
     const pageInt = parseInt(page, 10) || 1;
 
     toast("📄 Abriendo visor...", "ok");
-    
+
     cargarPdfJs(function() {
         abrirVisorPDF(pdfUrl, pageInt, manual);
     });
@@ -307,7 +307,7 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
             "position:fixed;inset:0;z-index:9999;background:#1a1a2e;display:flex;flex-direction:column;";
         document.body.appendChild(modal);
     }
-    
+
     modal.innerHTML =
         '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#111827;border-bottom:1px solid #1e293b;flex-shrink:0;gap:8px;flex-wrap:wrap;">' +
             '<div style="font-size:.75rem;color:#00d4ff;font-family:monospace;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:45vw">📘 ' + esc(manual) + '</div>' +
@@ -336,8 +336,8 @@ function abrirVisorPDF(pdfUrl, pageNum, manual) {
     const shouldDisableRange = isMobileOrTablet || !isOnline();
 
     const loadingTask = pdfjsLib.getDocument({
-        url: pdfUrl, 
-        disableRange: shouldDisableRange, 
+        url: pdfUrl,
+        disableRange: shouldDisableRange,
         disableStream: false,
         disableAutoFetch: true,
         maxImageSize: 1024 * 1024 * 16
@@ -452,8 +452,8 @@ function renderPdfPagina(num) {
         canvas.width  = vp.width;
         canvas.height = vp.height;
 
-        canvas.dataset.baseWidth = vw; 
-        canvas.style.width = vw + "px"; 
+        canvas.dataset.baseWidth = vw;
+        canvas.style.width = vw + "px";
 
         const renderTask = page.render({ canvasContext: ctx, viewport: vp });
         window._pdfRenderTask = renderTask;
@@ -615,8 +615,8 @@ function activarZoomCanvas() {
 
     canvas.addEventListener('touchmove', (e) => {
         if (e.touches.length === 2 && isPinching && initialDistance) {
-            e.preventDefault(); 
-            if (animationFrameId) return; 
+            e.preventDefault();
+            if (animationFrameId) return;
 
             const touch1 = e.touches[0];
             const touch2 = e.touches[1];
@@ -626,32 +626,32 @@ function activarZoomCanvas() {
                     touch1.pageX - touch2.pageX,
                     touch1.pageY - touch2.pageY
                 );
-                
+
                 const pinchX = (touch1.clientX + touch2.clientX) / 2;
                 const pinchY = (touch1.clientY + touch2.clientY) / 2;
-                
+
                 const scaleChange = currentDistance / initialDistance;
                 let newZoom = currentZoom * scaleChange;
-                
+
                 newZoom = Math.max(1, Math.min(newZoom, 3));
                 const actualScaleRatio = newZoom / currentZoom;
-                
+
                 if (actualScaleRatio !== 1) {
                     const rect = canvas.getBoundingClientRect();
                     const pointX = pinchX - rect.left;
                     const pointY = pinchY - rect.top;
-                    
+
                     const baseWidth = parseFloat(canvas.dataset.baseWidth || window.innerWidth);
                     canvas.style.width = (baseWidth * newZoom) + "px";
-                    
+
                     container.scrollLeft += pointX * (actualScaleRatio - 1);
                     container.scrollTop += pointY * (actualScaleRatio - 1);
-                    
+
                     currentZoom = newZoom;
                     canvas.dataset.currentZoom = newZoom;
                     initialDistance = currentDistance;
                 }
-                animationFrameId = null; 
+                animationFrameId = null;
             });
         }
     }, { passive: false });
@@ -689,12 +689,12 @@ async function verNotaEnGrande(id) {
             }
         } catch(e) {}
     }
-    
+
     if (!nota) { toast("⚠️ Apunte no encontrado", "err"); return; }
-    
+
     document.getElementById("viewNoteTitle").innerText = safeStr(nota.title);
     document.getElementById("viewNoteText").innerText = safeStr(nota.text);
-    
+
     const tagsContainer = document.getElementById("viewNoteTags");
     tagsContainer.innerHTML = "";
     if (nota.tags && nota.tags.length > 0) {
@@ -705,7 +705,7 @@ async function verNotaEnGrande(id) {
             tagsContainer.appendChild(span);
         });
     }
-    
+
     document.getElementById("noteViewer").style.display = "block";
 }
 
@@ -873,14 +873,14 @@ function mostrarBienvenida() {
     const modal = document.createElement("div");
     modal.id = "modalBienvenida";
     modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:10000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);";
-    
-    modal.innerHTML = 
+
+    modal.innerHTML =
         '<div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:24px;text-align:center;max-width:80%;box-shadow:0 10px 25px rgba(0,0,0,0.5);">' +
             '<div style="font-size:2.5rem;margin-bottom:12px;">👋</div>' +
             '<p style="color:#e2e8f0;font-size:1.1rem;font-weight:bold;margin:0 0 20px 0;line-height:1.4;">Buscador técnico disponible online y offline</p>' +
             '<button type="button" data-action="modal-bienvenida-cerrar" style="background:#00d4ff;color:#0b0f1a;border:none;padding:10px 24px;border-radius:8px;font-weight:bold;font-size:1rem;cursor:pointer;">OK</button>' +
         '</div>';
-    
+
     document.body.appendChild(modal);
 }
 
@@ -912,7 +912,7 @@ const SYMPTOM_HINTS = [
 
 function _setupSymptomEnter(input) {
     input.addEventListener("keydown", e => {
-        if (e.key === "Enter") { e.preventDefault(); ejecutarTrazaGrafo(); }
+        if (e.key === "Enter") { e.preventDefault(); analizarDiagnostico(); }
     });
 }
 
@@ -1006,254 +1006,13 @@ function renderDiagrama(results, symptoms) {
     container.style.display = "block";
 }
 
-// ─── KNOWLEDGE GRAPH CIRCUIT TRACER (OFFLINE FIRST) ───────
-function renderTrazaGrafo(data, symptoms) {
-    const container = document.getElementById("graphTraceResult");
-    const empty     = document.getElementById("diagEmpty");
-    if (!container) return;
-
-    if (!data || !data.found) {
-        container.style.display = "block";
-        container.innerHTML =
-            '<div class="diagnostic-card" style="border-left:4px solid var(--warn);background:rgba(245,158,11,0.05);padding:14px 16px;">' +
-                '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
-                    '<span class="graph-badge" style="background:rgba(245,158,11,.15);color:var(--warn);border-color:rgba(245,158,11,.4);font-weight:700;">📚 CORRELACIÓN DEL ÍNDICE DOCUMENTAL</span>' +
-                '</div>' +
-                '<h3 style="color:#f8fafc;font-size:.92rem;margin:6px 0">No se encontró una correlación documental suficiente</h3>' +
-                '<p style="font-size:.76rem;color:var(--muted);line-height:1.5;margin-bottom:12px;">' +
-                    'El índice relaciona entidades que aparecen en la documentación; no certifica cableado ni una ruta física. ' +
-                    'Para descripciones de fallas o síntomas sin código de componente, utiliza la búsqueda cruzada en los 19 manuales técnicos o el Diagnóstico Causal Avanzado.' +
-                '</p>' +
-                '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-                    '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">🔍 Relacionar en Manuales (Documental)</button>' +
-                    '<button type="button" class="btn btn-ai btn-sm" data-action="diagnostico-ai">🧠 Diagnóstico Causal Avanzado</button>' +
-                '</div>' +
-            '</div>';
-        return;
-    }
-
-    if (empty) empty.style.display = "none";
-
-    const pcbsChips = (data.pcbs || []).map(b =>
-        '<span class="diag-chip" style="background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.35);color:#d8b4fe">📍 ' + esc(b) + '</span>'
-    ).join("");
-
-    const cablesChips = (data.cables || []).map(c =>
-        '<span class="diag-chip" style="background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.35);color:#93c5fd">🔌 ' + esc(c) + '</span>'
-    ).join("");
-
-    const connsChips = (data.connectors || []).map(cn =>
-        '<span class="diag-chip" style="background:rgba(6,182,212,.12);border-color:rgba(6,182,212,.35);color:#67e8f9">🔗 ' + esc(cn) + '</span>'
-    ).join("");
-
-    const tpsChips = (data.test_points || []).map(tp =>
-        '<button type="button" class="diag-chip" data-action="medir-tp" data-tp="' + esc(tp) + '" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047;cursor:pointer">⚡ ' + esc(tp) + ' (Medir)</button>'
-    ).join("");
-
-    const areasChips = (data.areas || []).map(ar =>
-        '<span class="diag-chip" style="background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.35);color:#86efac">🏢 ' + esc(ar) + '</span>'
-    ).join("");
-
-    const symsKw = symptoms.join(" ");
-    const manualsChips = (data.manual_references || []).map(m => {
-        const mStr = String(m || "").trim();
-        const match = mStr.match(/([a-z0-9_\s\-]+?)(?:\.pdf)?\s*(?:\([^\d]*(\d+)[^\)]*\))?$/i);
-        if (match) {
-            const manualName = match[1].trim().toLowerCase();
-            const pageNum = parseInt(match[2], 10) || 1;
-            return '<button type="button" class="diag-chip" data-action="ver-pdf" data-manual="' + esc(manualName) + '" data-page="' + pageNum + '" data-kw="' + esc(symsKw) + '" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent);cursor:pointer">📖 ' + esc(mStr) + '</button>';
-        }
-        return '<span class="diag-chip" style="background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.3);color:var(--accent)">📚 ' + esc(mStr) + '</span>';
-    }).join("");
-
-    const flowDiagram = data.trace_diagram
-        ? '<div class="graph-flow-box" style="margin-bottom:12px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.25);border-radius:8px;padding:10px 12px;">' +
-            '<span style="font-size:0.65rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;display:block;margin-bottom:4px;">📐 RECORRIDO DEL ÍNDICE (NO ES CABLEADO CERTIFICADO):</span>' +
-            '<b style="color:#f8fafc;font-family:var(--mono);font-size:0.8rem;line-height:1.6;">' + esc(data.trace_diagram) + '</b>' +
-          '</div>'
-        : '';
-
-    const tpMeasureBtn = (data.test_points && data.test_points.length > 0)
-        ? '<button type="button" class="btn btn-ghost btn-sm" data-action="medir-tp" data-tp="' + esc(data.test_points[0]) + '" style="display:inline-flex;align-items:center;gap:6px;color:#fde047;border-color:rgba(253,224,71,0.35);background:rgba(253,224,71,0.08)">' +
-            '<span>📟</span> Medir ' + esc(data.test_points[0]) + ' en Multímetro' +
-          '</button>'
-        : '';
-
-    const hasDocumentedManuals = Boolean(data.manual_references && data.manual_references.length > 0);
-    const verificationBadge = hasDocumentedManuals
-        ? '<span style="font-size:.65rem;font-family:var(--mono);color:var(--accent)">⬤ REFERENCIAS DEL ÍNDICE</span>'
-        : '<span style="font-size:.65rem;font-family:var(--mono);color:var(--warn)">⬤ SIN EVIDENCIA DE RUTA</span>';
-
-    container.innerHTML =
-        '<div class="graph-card" style="border-left:4px solid var(--accent);background:linear-gradient(180deg, rgba(0,212,255,0.04) 0%, rgba(15,23,42,0.85) 100%);padding:16px;border-radius:12px;border:1px solid var(--border);border-left:4px solid var(--accent);">' +
-            '<div class="graph-top" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
-                '<span class="graph-badge" style="background:rgba(0,212,255,.15);color:var(--accent);border-color:rgba(0,212,255,.4);font-weight:700;">📚 CORRELACIÓN DOCUMENTAL DE ENTIDADES</span>' +
-                verificationBadge +
-            '</div>' +
-            '<div style="background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.25);border-radius:8px;padding:10px 14px;margin-bottom:12px;">' +
-                '<span style="font-size:0.65rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;display:block;">📍 Entidad coincidente en el índice:</span>' +
-                '<div class="graph-hub" style="font-size:1.15rem;color:#f8fafc;font-weight:700;margin-top:2px;">' + esc(data.hub_node || "Componente Central") + '</div>' +
-            '</div>' +
-            flowDiagram +
-            (cablesChips || connsChips ?
-                '<div style="margin-bottom:10px;background:rgba(0,0,0,0.2);padding:8px 10px;border-radius:8px;border:1px solid var(--border);">' +
-                    '<div style="font-size:.64rem;font-family:var(--mono);color:#93c5fd;text-transform:uppercase;margin-bottom:5px;">🔌 Etiquetas de cableado y conectores en el índice:</div>' +
-                    '<div class="diag-chips" style="gap:6px;">' + (cablesChips + connsChips) + '</div>' +
-                '</div>'
-            : '') +
-            (pcbsChips || areasChips ?
-                '<div style="margin-bottom:10px;background:rgba(0,0,0,0.2);padding:8px 10px;border-radius:8px;border:1px solid var(--border);">' +
-                    '<div style="font-size:.64rem;font-family:var(--mono);color:#d8b4fe;text-transform:uppercase;margin-bottom:5px;">📍 Etiquetas de tarjetas y módulos en el índice:</div>' +
-                    '<div class="diag-chips" style="gap:6px;">' + (pcbsChips + areasChips) + '</div>' +
-                '</div>'
-            : '') +
-            (tpsChips ?
-                '<div style="margin-bottom:10px;background:rgba(0,0,0,0.2);padding:8px 10px;border-radius:8px;border:1px solid var(--border);">' +
-                    '<div style="font-size:.64rem;font-family:var(--mono);color:#fde047;text-transform:uppercase;margin-bottom:5px;">⚡ Etiquetas de puntos de prueba; confirmar en el manual:</div>' +
-                    '<div class="diag-chips" style="gap:6px;">' + tpsChips + '</div>' +
-                '</div>'
-            : '') +
-            (manualsChips ?
-                '<div style="margin-top:10px;border-top:1px solid rgba(0,212,255,.15);padding-top:10px;">' +
-                    '<div style="font-size:.64rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;margin-bottom:6px;">📖 Referencias del manual (abrir y verificar):</div>' +
-                    '<div class="diag-chips" style="gap:8px;">' + manualsChips + '</div>' +
-                '</div>'
-            : '') +
-            '<div style="margin-top:14px;border-top:1px solid rgba(0,212,255,.2);padding-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
-                '<button type="button" class="btn btn-primary btn-sm" data-action="esquema-svg" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25);">' +
-                    '<span>📖</span> Abrir rutas documentadas' +
-                '</button>' +
-                tpMeasureBtn +
-                '<span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Solo las rutas del visor documental declaran conexiones verificadas</span>' +
-            '</div>' +
-        '</div>';
-    container.style.display = "block";
-    _ultimoResultadoGrafo = data;
-}
-
-let _ultimoResultadoGrafo = null;
-function abrirEnEsquemaSvg(traceData) {
-    const data = traceData || _ultimoResultadoGrafo;
-    if (!data) {
-        toast("No hay una correlación activa para consultar", "err");
-        return;
-    }
-    if (typeof window.irA === "function") {
-        window.irA("Circuits");
-    } else if (typeof irA === "function") {
-        irA("Circuits");
-    }
-    const applyTrace = () => {
-        if (window.CircuitVisualizer && typeof window.CircuitVisualizer.loadAndHighlightFromTrace === "function") {
-            window.CircuitVisualizer.loadAndHighlightFromTrace(data);
-        }
-    };
-    if (window.requestAnimationFrame) {
-        window.requestAnimationFrame(() => setTimeout(applyTrace, 40));
-    } else {
-        setTimeout(applyTrace, 60);
-    }
-}
-
-function abrirMultimetroConTp(tpId) {
-    const measurement = window.Multimeter && typeof window.Multimeter.resolveMeasurement === "function"
-        ? window.Multimeter.resolveMeasurement(tpId) : null;
-    if (!measurement) {
-        toast("No existe una medición documentada para esa señal; no se abrirá un punto de prueba inferido.", "warn");
-        return;
-    }
-    if (typeof window.irA === "function") {
-        window.irA("Multimeter");
-    } else if (typeof irA === "function") {
-        irA("Multimeter");
-    }
-    if (window.Multimeter && typeof window.Multimeter.seleccionarPuntoDePrueba === "function") {
-        window.Multimeter.seleccionarPuntoDePrueba(tpId);
-    }
-}
-
-let _isTracingGraph = false;
-async function ejecutarTrazaGrafo() {
-    if (_isTracingGraph) return;
-    const symptoms = diagnosticoSymptoms();
-    if (!symptoms.length) {
-        toast("Ingresa al menos un síntoma, código ITEM o interlock", "err");
-        return;
-    }
-
-    _isTracingGraph = true;
-    const btnTrace = document.getElementById("btnTraceGraph");
-    const container = document.getElementById("graphTraceResult");
-    const diagResults = document.getElementById("diagResults");
-    const diagDiagram = document.getElementById("diagDiagram");
-    const diagNotice = document.getElementById("diagNotice");
-    const diagEmpty = document.getElementById("diagEmpty");
-
-    if (diagResults) diagResults.innerHTML = "";
-    if (diagDiagram) diagDiagram.style.display = "none";
-    if (diagNotice) diagNotice.style.display = "none";
-    if (diagEmpty) diagEmpty.style.display = "none";
-
-    if (btnTrace) { btnTrace.disabled = true; btnTrace.textContent = "Trazando..."; }
-
-    if (container) {
-        container.style.display = "block";
-        container.innerHTML =
-            '<div style="text-align:center;padding:16px;font-size:.78rem;color:var(--accent);font-family:var(--mono)">' +
-                '<span class="spinner" style="display:inline-block;width:18px;height:18px;border-width:2px;vertical-align:middle;margin-right:6px"></span>' +
-                'Correlacionando entidades del índice documental...' +
-            '</div>';
-    }
-
-    try {
-        let resData = null;
-        if (isOnline()) {
-            try {
-                const res = await apiRequest("/diagnose/graph", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ symptoms })
-                });
-                if (res && res.found !== undefined) resData = res;
-            } catch (netErr) {
-                console.warn("Fallo de red en /diagnose/graph, recurriendo al worker offline:", netErr);
-            }
-        }
-
-        if (!resData && typeof _searchWorker !== "undefined") {
-            const workerResp = await workerRequest("diagnose_graph", { symptoms });
-            if (workerResp && workerResp.found !== undefined) resData = workerResp;
-        }
-
-        if (resData) {
-            if (resData.r2_url && resData.r2_url !== "No configurada") {
-                _r2url = resData.r2_url;
-                try { localStorage.setItem("r2url", _r2url); } catch (_e) {}
-            }
-            renderTrazaGrafo(resData, symptoms);
-        } else {
-            renderTrazaGrafo({ found: false, nodes: [], edges: [], message: "No se identificó ruta de hardware en el grafo para los términos ingresados." }, symptoms);
-        }
-    } catch (err) {
-        console.error("Error en traza de grafo:", err);
-        toast("Inconveniente al trazar circuito: " + (err.message || err), "err");
-    } finally {
-        _isTracingGraph = false;
-        if (btnTrace) { btnTrace.disabled = false; btnTrace.textContent = "📚 Correlacionar en el Índice"; }
-    }
-}
-
 // ─── RENDER DIAGNÓSTICO ───────────────────────────────────
 function renderDiagnostico(data, mode, symptoms) {
     const list    = document.getElementById("diagResults");
     const empty   = document.getElementById("diagEmpty");
     const meta    = document.getElementById("diagMeta");
     const notice  = document.getElementById("diagNotice");
-    const diagram = document.getElementById("diagDiagram");
-    const graphTrace = document.getElementById("graphTraceResult");
-    if (graphTrace) graphTrace.style.display = "none";
     if (list) list.innerHTML = "";
-    if (diagram) diagram.style.display = "none";
 
     const results = Array.isArray(data.results) ? data.results : [];
     if (meta) meta.textContent = (mode === "online" ? "ONLINE" : "OFFLINE") + " · " + results.length + " referencias documentales";
@@ -1284,8 +1043,6 @@ function renderDiagnostico(data, mode, symptoms) {
     list.appendChild(docBanner);
 
     const allSymptoms = symptoms || (Array.isArray(data.signals) ? data.signals : []);
-    renderDiagrama(results, allSymptoms);
-
     const confColors = { alta: "var(--green)", media: "var(--warn)", baja: "var(--muted)" };
     const confLabels = { alta: "⬤ Alta probabilidad", media: "⬤ Probabilidad media", baja: "⬤ Baja probabilidad" };
 
@@ -1377,9 +1134,6 @@ function renderDiagnosticoAi(aiData, symptoms) {
     };
     const conf = confMap[aiData.confidence] || confMap.alta;
 
-    // Renderizar diagrama dedicado de causa raíz técnica
-    renderDiagramaAi(aiData, symptoms);
-
     const card = document.createElement("article");
     card.className = "diag-ai-card";
 
@@ -1393,14 +1147,9 @@ function renderDiagnosticoAi(aiData, symptoms) {
         '<span class="diag-chip" style="background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.35);color:#93c5fd">🔌 ' + esc(c) + "</span>"
     ).join("");
 
-    // 3. Puntos de Prueba (TP) y Voltajes (con validación contra catálogo canónico)
+    // 3. Señales y puntos de comprobación citados por la evidencia recuperada.
     const signalsChips = (aiData.test_points_and_signals || []).map(t => {
         const tpCode = String(t || "").trim();
-        const isKnownTp = Boolean(tpCode && typeof window.Multimeter !== "undefined" &&
-            typeof window.Multimeter.resolveMeasurement === "function" && window.Multimeter.resolveMeasurement(tpCode));
-        if (isKnownTp) {
-            return '<button type="button" class="diag-chip" data-action="medir-tp" data-tp="' + esc(tpCode) + '" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047;cursor:pointer">⚡ ' + esc(t) + ' (Medir)</button>';
-        }
         return '<span class="diag-chip" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047">⚡ ' + esc(t) + '</span>';
     }).join("");
 
@@ -1449,7 +1198,7 @@ function renderDiagnosticoAi(aiData, symptoms) {
         (cablesChips ? '<div class="diag-chips" style="margin-bottom:8px">' + cablesChips + '</div>' : '') +
         (signalsChips ? '<div class="diag-chips" style="margin-bottom:12px">' + signalsChips + '</div>' : '') +
         '<div class="diag-ai-section">' +
-            '<div class="diag-ai-sectit">🧠 Análisis y Deducción Causal de Circuitos</div>' +
+            '<div class="diag-ai-sectit">🧠 Análisis y deducción causal basada en manuales</div>' +
             '<div class="diag-ai-body">' + esc(aiData.explanation || "") + '</div>' +
         '</div>' +
         (stepsHtml ?
@@ -1460,40 +1209,14 @@ function renderDiagnosticoAi(aiData, symptoms) {
         : '') +
         (manualsChips ?
             '<div class="diag-ai-section">' +
-                '<div class="diag-ai-sectit">📖 Esquemas y Manuales de Referencia (Clic para abrir)</div>' +
+        '<div class="diag-ai-sectit">📖 Manuales de Referencia (Clic para abrir)</div>' +
                 '<div class="diag-chips" style="gap:8px">' + manualsChips + '</div>' +
             '</div>'
         : '') +
-        warningHtml +
-        '<div style="margin-top:14px;border-top:1px solid rgba(168,85,247,.25);padding-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
-            '<!-- Abre el catálogo de rutas/referencias documentadas -->' +
-            '<button type="button" class="btn btn-primary btn-sm" data-action="esquema-svg" style="display:inline-flex;align-items:center;gap:6px;box-shadow:0 0 14px rgba(0,212,255,0.25)">' +
-                '<span>📚</span> Abrir rutas documentadas' +
-            '</button>' +
-            '<span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Solo mostrará relaciones respaldadas por una fuente trazable</span>' +
-        '</div>';
+        warningHtml;
 
     if (list) list.appendChild(card);
 
-    const sanitizeCandidateList = (list) => {
-        if (!Array.isArray(list)) return [];
-        return list.filter(item => {
-            if (!item || typeof item !== "string") return false;
-            const trimmed = item.trim();
-            return trimmed.length > 0 && trimmed.length <= 80 && !/[<>{}\\]/.test(trimmed);
-        });
-    };
-
-    _ultimoResultadoGrafo = {
-        found: true,
-        is_inferred: true,
-        hub_node: String(aiData.root_cause || "Causa Raíz").slice(0, 100),
-        resolved_nodes: symptoms.slice(0, 6),
-        pcbs: sanitizeCandidateList(aiData.associated_boards),
-        cables: sanitizeCandidateList(aiData.cables_and_connectors),
-        test_points: sanitizeCandidateList(aiData.test_points_and_signals),
-        manual_references: Array.isArray(aiData.manual_references) ? aiData.manual_references : []
-    };
 }
 
 let _isAnalyzingAi = false;
@@ -1516,9 +1239,7 @@ async function analizarDiagnosticoAi() {
     const list    = document.getElementById("diagResults");
     const empty   = document.getElementById("diagEmpty");
     const diagram = document.getElementById("diagDiagram");
-    const graphTrace = document.getElementById("graphTraceResult");
 
-    if (graphTrace) graphTrace.style.display = "none";
     if (empty) empty.style.display   = "none";
     if (diagram) diagram.style.display = "none";
     if (list) {
@@ -1575,13 +1296,11 @@ async function analizarDiagnosticoAi() {
                     '<div class="diag-rank"><span style="color:var(--warn)">📴 MODO BÚNKER / SIN CONEXIÓN EXTERNA</span></div>' +
                     '<h3 style="color:#f8fafc;font-size:.95rem;line-height:1.4;margin:6px 0">El análisis causal avanzado requiere acceso a internet.</h3>' +
                     '<p style="font-size:.8rem;color:var(--muted);margin:8px 0 14px;line-height:1.5">' +
-                        'En el búnker de radioterapia o sin salida a internet, utiliza las herramientas offline integradas: ' +
-                        'el <strong>Diagnóstico Local</strong> (búsqueda relacional en catálogo) y la <strong>Traza de Circuito</strong> (topología física determinista), ' +
-                        'que operan 100% desconectadas en el navegador.' +
+                        'En el búnker de radioterapia o sin salida a internet, utiliza el <strong>Diagnóstico Local</strong>, ' +
+                        'que busca las referencias indexadas disponibles en el navegador.' +
                     '</p>' +
                     '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
                         '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local offline</button>' +
-                        '<button type="button" class="btn btn-ghost btn-sm" data-action="traza-offline">🧭 Traza de circuito offline</button>' +
                     '</div>' +
                 '</div>';
         } else if (errType === "no_api_key" || errLower.includes("clave de api") || errMsg.includes("API_KEY") || errType === "invalid_api_key") {
@@ -1595,7 +1314,6 @@ async function analizarDiagnosticoAi() {
                     '</p>' +
                     '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
                         '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local offline</button>' +
-                        '<button type="button" class="btn btn-ghost btn-sm" data-action="traza-offline">🧭 Traza de circuito offline</button>' +
                     '</div>' +
                 '</div>';
         } else if (errType === "quota_exceeded" || errLower.includes("429") || errLower.includes("cuota") || errLower.includes("límite")) {
@@ -1612,10 +1330,9 @@ async function analizarDiagnosticoAi() {
                 '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
                     '<div class="diag-rank"><span style="color:var(--warn)">⏳ SERVICIO TEMPORALMENTE SATURADO</span></div>' +
                     '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">El análisis remoto no está disponible en este momento.</h3>' +
-                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">Puedes continuar ahora con el diagnóstico documental local y la traza de circuito. Reintenta más tarde si necesitas el análisis remoto.</p>' +
+                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">Puedes continuar ahora con el diagnóstico documental local. Reintenta más tarde si necesitas el análisis remoto.</p>' +
                     '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
                         '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">⚡ Diagnóstico local instantáneo</button>' +
-                        '<button type="button" class="btn btn-ghost btn-sm" data-action="traza-offline">🧭 Traza de circuito</button>' +
                         '<button type="button" class="btn btn-ghost btn-sm" data-action="diagnostico-ai">🔄 Reintentar análisis</button>' +
                     '</div>' +
                 '</div>';
@@ -1624,10 +1341,9 @@ async function analizarDiagnosticoAi() {
                 '<div class="diagnostic-card" style="border-left-color:var(--warn)">' +
                     '<div class="diag-rank"><span style="color:var(--warn)">⏱ TIEMPO DE RESPUESTA EXCEDIDO</span></div>' +
                     '<h3 style="color:#f8fafc;font-size:.92rem;line-height:1.4;margin:6px 0">El servidor tardó más de lo esperado en responder.</h3>' +
-                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">El análisis causal avanzado puede completarse en el siguiente intento. Puedes consultar de inmediato la correlación en manuales o la traza de hardware.</p>' +
+                    '<p style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">El análisis causal avanzado puede completarse en el siguiente intento. Puedes consultar de inmediato la correlación documental en manuales.</p>' +
                     '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
                         '<button type="button" class="btn btn-primary btn-sm" data-action="diagnostico-local">🔍 Relacionar en manuales</button>' +
-                        '<button type="button" class="btn btn-ghost btn-sm" data-action="traza-offline">⚡ Traza de circuito</button>' +
                         '<button type="button" class="btn btn-ghost btn-sm" data-action="diagnostico-ai">🔄 Reintentar análisis</button>' +
                     '</div>' +
                 '</div>';
@@ -1646,9 +1362,10 @@ async function analizarDiagnosticoAi() {
         _isAnalyzingAi = false;
         if (btnAi)   { btnAi.disabled = false; btnAi.textContent = "🧠 Diagnóstico Causal Avanzado"; }
         if (btnDiag) { btnDiag.disabled = false; }
+        const btnTrans = document.getElementById("btnTransferToReport");
+        if (btnTrans && list && list.innerHTML.trim() !== "") { btnTrans.style.display = "block"; }
     }
 }
-
 function guardarYReintentarAi() {
     toast("Configura la variable GEMINI_API_KEY en el servidor", "warn");
     analizarDiagnostico();
@@ -1663,11 +1380,7 @@ async function analizarDiagnostico() {
     const button  = document.getElementById("btnDiagnose");
     const list    = document.getElementById("diagResults");
     const empty   = document.getElementById("diagEmpty");
-    const diagram = document.getElementById("diagDiagram");
-    const graphTrace = document.getElementById("graphTraceResult");
-    if (graphTrace) graphTrace.style.display = "none";
     empty.style.display   = "none";
-    diagram.style.display = "none";
     list.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div>' +
         '<p style="font-size:.8rem;color:var(--muted);margin-top:10px">Relacionando síntomas en manuales...</p></div>';
     if (button) {
@@ -1700,11 +1413,25 @@ async function analizarDiagnostico() {
             button.disabled    = false;
             button.textContent = "🔍 Relacionar en Manuales (Documental)";
         }
+        const btnTrans = document.getElementById("btnTransferToReport");
+        if (btnTrans && list && list.innerHTML.trim() !== "") { btnTrans.style.display = "block"; }
     }
 }
 
 // ─── INIT ────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async function() {
+    const addReportPart = () => {
+        const target = document.getElementById("reportParts");
+        if (!target) return;
+        const row = document.createElement("div");
+        row.className = "field";
+        row.style.display = "grid";
+        row.style.gridTemplateColumns = "1fr 2fr 80px auto";
+        row.style.gap = "6px";
+        row.innerHTML = '<input aria-label="P/N" placeholder="P/N" maxlength="80"><input aria-label="Descripción" placeholder="Descripción" maxlength="300"><input aria-label="Cantidad" type="number" min="1" value="1"><button type="button" class="btn btn-danger btn-sm" data-action="report-remove-part">×</button>';
+        target.appendChild(row);
+    };
+    addReportPart();
     const q = document.getElementById("q");
     if (q) {
         q.addEventListener("keydown", function(event) {
@@ -1724,10 +1451,7 @@ document.addEventListener("DOMContentLoaded", async function() {
         const el = event.target.closest("[data-action]");
         if (!el) return;
         const action = el.dataset.action;
-        if (action === "medir-tp") {
-            event.preventDefault();
-            abrirMultimetroConTp(el.dataset.tp);
-        } else if (action === "ver-pdf") {
+        if (action === "ver-pdf") {
             event.preventDefault();
             verPDF(el.dataset.manual, parseInt(el.dataset.page, 10) || 1, el.dataset.kw || "");
         } else if (action === "descargar-pdf-offline") {
@@ -1737,9 +1461,6 @@ document.addEventListener("DOMContentLoaded", async function() {
             if (pdfUrl) {
                 cacheManualOffline(pdfUrl, manual);
             }
-        } else if (action === "esquema-svg") {
-            event.preventDefault();
-            abrirEnEsquemaSvg();
         } else if (action === "ver-nota-grande") {
             event.preventDefault();
             verNotaEnGrande(el.dataset.id);
@@ -1755,9 +1476,12 @@ document.addEventListener("DOMContentLoaded", async function() {
         } else if (action === "diagnostico-local") {
             event.preventDefault();
             analizarDiagnostico();
-        } else if (action === "traza-offline") {
+        } else if (action === "report-add-part") {
             event.preventDefault();
-            ejecutarTrazaGrafo();
+            addReportPart();
+        } else if (action === "report-remove-part") {
+            event.preventDefault();
+            el.closest(".field")?.remove();
         } else if (action === "diagnostico-ai") {
             event.preventDefault();
             analizarDiagnosticoAi();
@@ -2028,15 +1752,15 @@ async function syncPendientes() {
         if (!pend.length) { setNotesSyncStatus("sincronizado", "ok"); return; }
         setNotesSyncStatus("sincronizando…");
         let ok = 0;
-        
+
         const creates = pend.filter(item => item.op === "create");
         const deletes = pend.filter(item => item.op === "delete");
         const others = pend.filter(item => item.op !== "create" && item.op !== "delete");
-        
+
         for (const item of others) {
             pendDel(item.id);
         }
-        
+
         for (let i = 0; i < creates.length; i += 50) {
             const batch = creates.slice(i, i + 50);
             try {
@@ -2071,7 +1795,7 @@ async function syncPendientes() {
                 break;
             }
         }
-        
+
         for (const item of deletes) {
             try {
                 if (_adminPw) {
@@ -2108,7 +1832,7 @@ async function syncPendientes() {
 }
 
 // ─── ADMIN ───────────────────────────────────────────────
-let _adminPw = ""; 
+let _adminPw = "";
 let _notesPage = 1;
 let _notesHasMore = false;
 
@@ -2139,13 +1863,13 @@ async function cargarNotas(reset = true) {
         if (more) more.style.display = "none";
         return;
     }
-    
+
     notas.forEach(n => {
         const d = document.createElement("div");
         d.className = "note-item"; d.id = "ni-"+n.id;
         const tags = (n.tags||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join("");
         const pend = pendLoad().some(p=>p.id===n.id);
-        
+
         const textoSeguro = safeStr(n.text);
         d.innerHTML =
             '<div class="note-item-header">'+
@@ -2184,11 +1908,11 @@ function abrirFormNota() {
 function cerrarFormNota() { const f=document.getElementById("formNota"); if(f) f.style.display="none"; }
 
 function editarNota(id) {
-    if (!_adminPw) { 
-        toast("🔒 Acceso denegado: Inicia sesión como Admin para editar", "err"); 
-        return; 
+    if (!_adminPw) {
+        toast("🔒 Acceso denegado: Inicia sesión como Admin para editar", "err");
+        return;
     }
-    
+
     const n = notasLocal().find(x=>x.id===id); if(!n) return;
     const f = document.getElementById("formNota"); if(!f) return;
     f.style.display="block";
@@ -2217,7 +1941,7 @@ async function guardarNota() {
     const title = document.getElementById("notaTit").value.trim();
     const text  = document.getElementById("notaTxt").value.trim();
     const tags  = document.getElementById("notaTags").value.split(",").map(t=>t.trim()).filter(Boolean);
-    
+
     if (!title) { toast("El título es obligatorio","err"); return; }
     if (title.length > 200 || text.length > 20000 || tags.length > 20 || tags.some(tag => tag.length > 50)) {
         toast("El apunte supera los límites permitidos", "err");
@@ -2266,9 +1990,9 @@ async function guardarNota() {
 async function eliminarNota(id) {
     const isLocalPending = pendLoad().some(p => p.id === id && p.op === "create");
 
-    if (!isLocalPending && !_adminPw) { 
-        toast("🔒 Acceso denegado: Inicia sesión como Admin para eliminar", "err"); 
-        return; 
+    if (!isLocalPending && !_adminPw) {
+        toast("🔒 Acceso denegado: Inicia sesión como Admin para eliminar", "err");
+        return;
     }
 
     if (!confirm("¿Eliminar este apunte de forma permanente?")) return;
@@ -2335,7 +2059,7 @@ async function adminEntrar() {
 }
 
 function adminSalir() {
-    _adminPw = ""; 
+    _adminPw = "";
     document.getElementById("adminLock").style.display = "flex";
     document.getElementById("adminCont").style.display = "none";
     document.getElementById("adminPw").value = "";
@@ -2372,11 +2096,9 @@ window.buscar = buscar;
 window.cargarMasResultados = cargarMasResultados;
 window.quitarSintoma = quitarSintoma;
 window.agregarSintoma = agregarSintoma;
-window.ejecutarTrazaGrafo = ejecutarTrazaGrafo;
 window.analizarDiagnostico = analizarDiagnostico;
 window.analizarDiagnosticoAi = analizarDiagnosticoAi;
 window.guardarYReintentarAi = guardarYReintentarAi;
-window.abrirEnEsquemaSvg = abrirEnEsquemaSvg;
 window.cargarNotas = cargarNotas;
 window.abrirFormNota = abrirFormNota;
 window.guardarNota = guardarNota;
@@ -2392,5 +2114,4 @@ window.cerrarVisorPDF = cerrarVisorPDF;
 window.adminEntrar = adminEntrar;
 window.adminSalir = adminSalir;
 window.cargarListaManuales = cargarListaManuales;
-window.abrirMultimetroConTp = abrirMultimetroConTp;
 window.isOnline = isOnline;

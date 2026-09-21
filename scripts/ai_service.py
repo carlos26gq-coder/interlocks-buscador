@@ -50,10 +50,10 @@ Debes responder SIEMPRE en formato JSON válido con la siguiente estructura exac
   "root_cause": "Identificación precisa del componente, tarjeta PCB, sensor, actuador o circuito causante (ej: Descalibración en canal 1 de dosimetría / Fallo en driver de motor de colimador PCB 16N en Área 16 / Falla en contacto de relé RLA1 en circuito de interlock HT)",
   "subsystem": "Subsistema técnico específico de Elekta (ej: Beam Steering & Dosimetry / Vacuum & Waveguide / Gantry Motion & Drive / MLC Agility Control)",
   "confidence": "alta" | "media" | "baja",
-  "explanation": "Explicación técnica profunda, minuciosa y no genérica del mecanismo de falla: describe cómo interactúan las señales, qué fenómeno físico o eléctrico ocurrió, por qué convergen los síntomas ingresados y cuál es la lógica de control o lazo de retroalimentación según los diagramas y manuales.",
+  "explanation": "Explicación técnica concreta y no repetitiva del mecanismo que vincula los síntomas con la causa propuesta. Debe distinguir hechos citados, inferencias y datos no confirmados; puede tratar software, calibración, mecánica, dosimetría, vacío, imágenes, componentes, PCB o señales según la evidencia disponible.",
   "associated_boards": ["Lista exhaustiva de tarjetas PCB, módulos, áreas físicas o racks vinculados (ej: PCB 12D, PCB AO8, Área 16, Rack HTCA)"],
   "cables_and_connectors": ["Lista de cables, arneses, conectores, terminales y pines asociados (ej: Cable W14, Conector PL1 / SK12, Pin 3, Terminal Block TB2)"],
-  "test_points_and_signals": ["Puntos de prueba TP, voltajes nominales, fusibles, relés y números de ITEM involucrados (ej: TP2 (+15VDC ±0.5V), ITEM 474, Relé RLB2, Fusible FS1)"],
+  "test_points_and_signals": ["Solo ITEM, señales, parámetros, calibraciones, repuestos, P/N, valores o procedimientos que aparezcan explícitamente en los bloques de evidencia; lista vacía si no aplica"],
   "citation_ids": ["Lista de identificadores de evidencia EXACTAMENTE como aparecen entre corchetes en el bloque de evidencia (ej: 'C1', 'C3'). Incluye únicamente los bloques que realmente sustentan tu diagnóstico."],
   "action_steps": [
     "Paso 1: Medición o inspección física específica con multímetro/osciloscopio (indicando puntos de prueba TP, voltajes nominales o fusibles)",
@@ -67,8 +67,8 @@ Debes responder SIEMPRE en formato JSON válido con la siguiente estructura exac
 Reglas estrictas de precisión e ingeniería biomédica:
 1. Rigor con códigos y señales: Cada señal o ITEM numérico es único y específico (ej: ITEM 474 es diferente de ITEM 409 o ITEM 332). No mezcles ni confundas señales parecidas.
 2. Nivel de detalle técnico alto: Evita respuestas genéricas o superficiales. Especifica nombres de PCBs (ej: PCB 12D, PCB AO8, PCB 16N), áreas de montaje (Área 16, HTCA), buses de comunicación (CAN, ArcNet, RS485) o lazos de control de retroalimentación según se describa en los manuales.
-3. Pasos de acción concretos: En 'action_steps', proporciona instrucciones accionables que un ingeniero de campo pueda ejecutar con un multímetro, osciloscopio o en la consola de servicio.
-4. Fundamentación en los manuales: Basa tus deducciones directamente en las conexiones, tarjetas, áreas y esquemas documentados en los manuales de Elekta proporcionados en el contexto.
+3. Pasos de acción concretos: En 'action_steps', indica inspecciones, procedimientos de servicio, calibraciones o verificaciones que estén sustentadas por las citas. No inventes mediciones, umbrales ni conexiones.
+4. Fundamentación en los manuales: Basa cada deducción directamente en los bloques de evidencia suministrados. El corpus abarca todos los manuales, no solo circuitos o voltajes.
 5. Si el usuario ingresa descripciones en lenguaje natural (ej: 'gantry se frena al girar en sentido horario y hay sobrecorriente'), deduce el fenómeno físico (driver de motor, puente H, encoder, relé térmico) y tradúcelo a la arquitectura Elekta.
 6. Responde ÚNICAMENTE el objeto JSON sin bloques de código markdown ni texto adicional.
 7. NUNCA escribas de memoria un nombre de manual o número de página. La evidencia que recibes está dividida en bloques etiquetados entre corchetes (ej: [C1], [C2]). En 'citation_ids' cita SOLO esas etiquetas, tal cual aparecen, nunca el nombre del manual ni el número de página directamente. Si ningún bloque sustenta una afirmación, no la incluyas en el diagnóstico.
@@ -259,12 +259,12 @@ def extract_keywords_for_retrieval(symptoms: list[str]) -> list[str]:
 
 
 def gather_grounding_context(
-    search_engine: SearchEngine, symptoms: list[str], max_pages: int = 6
+    search_engine: SearchEngine, symptoms: list[str], max_pages: int = 12
 ) -> tuple[str, dict[str, dict[str, object]]]:
     """Busca en los 19 manuales los fragmentos técnicos más relevantes para fundamentar la respuesta.
 
     Balance óptimo entre profundidad de ingeniería y velocidad:
-    - Hasta 6 páginas de diagnóstico relacional y esquemas
+    - Hasta 6 páginas de diagnóstico relacional recuperadas del corpus documental
     - Extracción de componentes (PCBs, Items, Cables, Test Points)
     - Fragmentos de hasta 1600 caracteres por manual
     - Total máximo 10,000 caracteres para análisis exhaustivo
@@ -328,32 +328,8 @@ def gather_grounding_context(
                     snip = str(r.get("context", ""))[:1200]
                     contexts.append(f"--- [{cid}] Manual: {r['manual']} (Página {r['page']}) ---\n{snip}")
 
-    # 4. Complementar con traza de circuito de hardware del Grafo si está disponible
-    try:
-        from graph_engine import get_graph_engine
-        g_engine = get_graph_engine()
-        g_trace = g_engine.trace_circuit(symptoms)
-        if g_trace.get("found"):
-            hub = g_trace.get("hub_node", "")
-            trace_str = g_trace.get("trace_diagram", "")
-            pcbs_str = ", ".join(g_trace.get("pcbs") or [])
-            cables_str = ", ".join(g_trace.get("cables") or [])
-            conns_str = ", ".join(g_trace.get("connectors") or [])
-            tps_str = ", ".join(g_trace.get("test_points") or [])
-            areas_str = ", ".join(g_trace.get("areas") or [])
-            cid = _register("Grafo de Topología Linac", 0)
-            contexts.append(
-                f"--- [{cid}] Grafo Topológico Elekta: {hub} ---\n"
-                f"Componente/Tarjeta Central: {hub}\n"
-                f"Ruta de Conexión: {trace_str}\n"
-                f"Tarjetas: {pcbs_str} | Cables: {cables_str} | Conectores: {conns_str}\n"
-                f"Puntos de Prueba TP/Voltajes: {tps_str} | Ubicación: {areas_str}"
-            )
-    except Exception:
-        pass
-
     combined = "\n\n".join(contexts) if contexts else "No se encontraron páginas directas con los términos exactos."
-    return combined[:10000], citation_map
+    return combined[:18000], citation_map
 
 
 def _resolve_citations(data: dict, citation_map: dict[str, dict[str, object]]) -> dict:
@@ -402,36 +378,11 @@ def generate_local_failover_diagnosis(
     search_engine: SearchEngine,
     reason: str = "timeout",
 ) -> dict:
-    """Genera un diagnóstico determinista local cruzando el grafo topológico y los manuales de Elekta.
+    """Genera un diagnóstico determinista local a partir del corpus documental.
 
     Se ejecuta automáticamente ante eventos de timeout o latencia excesiva en el servicio de nube,
     garantizando continuidad operativa ininterrumpida para el ingeniero de servicio en el búnker.
     """
-    hub_node = ""
-    trace_diagram = ""
-    g_pcbs: list[str] = []
-    g_cables: list[str] = []
-    g_conns: list[str] = []
-    g_tps: list[str] = []
-    g_areas: list[str] = []
-    g_manuals: list[str] = []
-
-    try:
-        from graph_engine import get_graph_engine
-        g_engine = get_graph_engine()
-        g_trace = g_engine.trace_circuit(symptoms, search_engine=search_engine)
-        if g_trace.get("found"):
-            hub_node = str(g_trace.get("hub_node") or "")
-            trace_diagram = str(g_trace.get("trace_diagram") or "")
-            g_pcbs = list(g_trace.get("pcbs") or [])
-            g_cables = list(g_trace.get("cables") or [])
-            g_conns = list(g_trace.get("connectors") or [])
-            g_tps = list(g_trace.get("test_points") or [])
-            g_areas = list(g_trace.get("areas") or [])
-            g_manuals = list(g_trace.get("manual_references") or [])
-    except Exception as g_err:
-        logger.warning("No se pudo consultar el grafo en failover: %s", g_err)
-
     s_manuals: list[str] = []
     s_components: list[str] = []
     try:
@@ -447,16 +398,16 @@ def generate_local_failover_diagnosis(
         logger.warning("No se pudo consultar manuales en failover: %s", s_err)
 
     combined_manuals: list[str] = []
-    for m in (s_manuals + g_manuals):
+    for m in s_manuals:
         if m and m not in combined_manuals:
             combined_manuals.append(m)
-    has_evidence = bool(combined_manuals or hub_node or g_pcbs or g_cables or g_conns or g_tps)
+    has_evidence = bool(combined_manuals)
     if not has_evidence:
         return {
             "root_cause": "Sin correlación documentada",
             "subsystem": "No identificado",
             "confidence": "baja",
-            "explanation": "No se encontró evidencia suficiente en manuales ni topología local.",
+            "explanation": "No se encontró evidencia suficiente en los manuales cargados.",
             "associated_boards": [],
             "cables_and_connectors": [],
             "test_points_and_signals": [],
@@ -466,33 +417,27 @@ def generate_local_failover_diagnosis(
             "_diagnostic_meta": {"failover": True, "reason": reason, "evidence_blocked": True},
         }
 
-    if hub_node and hub_node != "Conexión Técnica en Manuales":
-        root_cause = f"Discontinuidad o anomalía en {hub_node} (Topología Hardware)"
-    elif s_components:
+    if s_components:
         root_cause = f"Condición de interbloqueo en {s_components[0][:80]}"
     elif symptoms:
-        root_cause = f"Disparo de circuito o pérdida de señal en lazo de {symptoms[0][:60]}"
+        root_cause = f"Correlación documental pendiente para {symptoms[0][:60]}"
     else:
         root_cause = "Disparo en bucle de seguridad de interlocks"
 
-    subsystem = g_areas[0] if g_areas else "Bucle de Seguridad e Interconexión Linac"
+    subsystem = "No determinado por evidencia suficiente"
 
     interruption_reason = (
         "saturación temporal" if reason == "service_unavailable" else "tiempo de espera excedido"
     )
     explanation = (
-        "Diagnóstico determinista local generado a partir de la topología física del grafo y "
-        f"la correlación en los 19 manuales de Elekta debido a {interruption_reason} en el "
-        f"servicio externo de análisis. La traza eléctrica identificó convergencia en {hub_node or 'el bucle de interlocks'}, "
-        f"con ruta de interconexión: {trace_diagram or 'continuidad de señales nominales'}. "
-        "Se recomienda proceder con la inspección física de tarjetas y la medición de voltajes en los puntos de prueba indicados."
+        "Resultado local de contingencia basado únicamente en coincidencias recuperadas de los manuales debido a "
+        f"{interruption_reason} en el servicio externo. No establece una causa raíz ni instrucciones de intervención; "
+        "abra las referencias y siga el procedimiento del fabricante."
     )
 
     action_steps = [
-        f"Paso 1: Consultar la evidencia de medición disponible para {', '.join(g_tps[:3]) if g_tps else 'las señales asociadas'}; no inferir un punto de prueba ni un umbral si la fuente no lo publica.",
-        f"Paso 2: Comprobar continuidad eléctrica en arneses y conectores ({', '.join((g_cables + g_conns)[:3]) if (g_cables + g_conns) else 'cableado de señal'}).",
-        "Paso 3: Validar en Service Mode el estado lógico de los interlocks y lazos de retroalimentación.",
-        f"Paso 4: Cotejar planos esquemáticos en {', '.join(combined_manuals[:2])}."
+        f"Paso 1: Revisar los extractos de {', '.join(combined_manuals[:3])}.",
+        "Paso 2: Aplicar únicamente el procedimiento de servicio que corresponda al modelo y versión del equipo."
     ]
 
     return {
@@ -500,9 +445,9 @@ def generate_local_failover_diagnosis(
         "subsystem": subsystem,
         "confidence": "media",
         "explanation": explanation,
-        "associated_boards": g_pcbs[:4] or (["PCB de Control Linac"] if not g_pcbs else []),
-        "cables_and_connectors": (g_cables + g_conns)[:5],
-        "test_points_and_signals": g_tps[:4],
+        "associated_boards": s_components[:4],
+        "cables_and_connectors": [],
+        "test_points_and_signals": [],
         "manual_references": combined_manuals[:5],
         "action_steps": action_steps,
         "safety_warning": "Verificar desenergización y descarga de condensadores antes de intervenir tarjetas o cadenas de alta tensión.",
@@ -511,7 +456,7 @@ def generate_local_failover_diagnosis(
             "reason": reason,
             "degraded_parse": False,
             "failover_notice": (
-                "Diagnóstico determinista local generado a partir de la topología del grafo y los manuales técnicos "
+                "Resultado local de contingencia generado a partir de los manuales técnicos "
                 f"debido a {interruption_reason} en el servicio externo."
             ),
         },

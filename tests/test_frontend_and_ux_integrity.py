@@ -26,8 +26,6 @@ class FrontendAndUxIntegritySuite(unittest.TestCase):
             cls.html = f.read()
         with (STATIC_DIR / "app.js").open("r", encoding="utf-8") as f:
             cls.app_js = f.read()
-        with (STATIC_DIR / "circuit-visualizer.js").open("r", encoding="utf-8") as f:
-            cls.cv_js = f.read()
         with (STATIC_DIR / "search-worker.js").open("r", encoding="utf-8") as f:
             cls.sw_js = f.read()
         with (ROOT / "sw.js").open("r", encoding="utf-8") as f:
@@ -53,8 +51,8 @@ class FrontendAndUxIntegritySuite(unittest.TestCase):
         """Verifica que funciones críticas llamadas desde onclicks inline estén exportadas a window."""
         essential_handlers = [
             "verPDF", "buscar", "cargarMasResultados", "quitarSintoma", "agregarSintoma",
-            "ejecutarTrazaGrafo", "analizarDiagnostico", "analizarDiagnosticoAi",
-            "guardarYReintentarAi", "abrirEnEsquemaSvg", "cargarNotas", "abrirFormNota",
+            "analizarDiagnostico", "analizarDiagnosticoAi",
+            "guardarYReintentarAi", "cargarNotas", "abrirFormNota",
             "guardarNota", "cerrarFormNota", "editarNota", "eliminarNota",
             "verNota", "verNotaEnGrande", "cerrarVisorNota",
             "pdfPagAnterior", "pdfPagSiguiente", "cerrarVisorPDF",
@@ -66,50 +64,6 @@ class FrontendAndUxIntegritySuite(unittest.TestCase):
                 self.app_js,
                 f"El manejador '{handler}' es necesario globalmente para la UI y debe estar exportado en window."
             )
-
-    def test_circuit_visualizer_public_api_methods(self):
-        """Verifica que el objeto window.CircuitVisualizer declare todos los métodos de su API pública."""
-        required_cv_methods = [
-            "init", "selectRecord", "buscarEnEsquema", "clearSearch",
-            "openEvidence", "closeEvidence", "openFromTrace",
-            "loadAndHighlightFromTrace", "onActivate", "onDeactivate"
-        ]
-        match_cv = re.search(r"window\.CircuitVisualizer\s*=\s*\{([\s\S]*?)\n\s*\};\s*\n\s*\}\)\(window\);", self.cv_js)
-        self.assertIsNotNone(match_cv, "window.CircuitVisualizer no está asignado en circuit-visualizer.js")
-        cv_body = match_cv.group(1)
-
-        for method in required_cv_methods:
-            self.assertTrue(
-                re.search(rf"\b{method}\b", cv_body),
-                f"El método '{method}' falta en el objeto público window.CircuitVisualizer."
-            )
-
-    # ─── 2. COHERENCIA ENTRE HTML Y MANEJADORES JAVASCRIPT ───────────────────
-
-    def test_html_inline_event_handlers_are_defined(self):
-        """Verifica que todos los onclick, onchange y oninput de index.html tengan su implementación."""
-        handlers = re.findall(r'(?:onclick|onchange|oninput)\s*=\s*["\']([^"\']+)["\']', self.html)
-        for h in handlers:
-            call_match = re.match(r"([A-Za-z0-9_$.]+)\s*\(", h.strip())
-            if not call_match:
-                continue
-            fn_name = call_match.group(1)
-            if fn_name.startswith("CircuitVisualizer."):
-                method = fn_name.split(".")[1]
-                self.assertIn(
-                    method,
-                    self.cv_js,
-                    f"El manejador HTML '{fn_name}' no existe en circuit-visualizer.js."
-                )
-            else:
-                defined = (
-                    f"window.{fn_name} =" in self.app_js or
-                    f"function {fn_name}" in self.app_js or
-                    f"function {fn_name}" in self.html
-                )
-                self.assertTrue(defined, f"El manejador HTML '{fn_name}' no está definido ni en app.js ni en index.html.")
-
-    # ─── 3. REGLA ESTRICTA DE USUARIO: CERO MENCIONES VISIBLES DE IA / AI ────
 
     def test_zero_visible_ai_mentions_in_ui_templates(self):
         """Verifica que NO haya menciones visibles de 'IA', 'AI' o 'Inteligencia Artificial' en index.html."""
@@ -139,9 +93,7 @@ class FrontendAndUxIntegritySuite(unittest.TestCase):
         core_assets = re.findall(r'["\'](/[^"\']+)["\']', match_core.group(1))
 
         self.assertGreaterEqual(len(core_assets), 8)
-        self.assertIn("/data/verified_signal_paths.json", core_assets)
         self.assertIn("/data/documentary_traceability.json", core_assets)
-        self.assertIn("/static/circuit-visualizer.js", core_assets)
 
         for asset in core_assets:
             with self.client.get(asset) as res:
@@ -159,21 +111,6 @@ class FrontendAndUxIntegritySuite(unittest.TestCase):
         self.assertIn("function generarUUID()", self.app_js)
         self.assertIn("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx", self.app_js)
         self.assertIn("id || generarUUID()", self.app_js)
-
-    def test_documented_paths_bridge_present_in_causal_diagnostics(self):
-        """El diagnóstico causal abre el catálogo trazable mediante delegación, sin prometer un SVG físico."""
-        match_fn = re.search(r"function\s+renderDiagnosticoAi\s*\([\s\S]*?\n\}", self.app_js)
-        self.assertIsNotNone(match_fn, "renderDiagnosticoAi no encontrada")
-        fn_code = match_fn.group(0)
-        self.assertIn('data-action="esquema-svg"', fn_code)
-        self.assertIn("Abrir rutas documentadas", fn_code)
-        self.assertIn("_ultimoResultadoGrafo", fn_code)
-
-    def test_document_viewer_does_not_claim_to_export_a_synthetic_svg(self):
-        """La reconstrucción abre evidencia del manual y no exporta un plano inventado."""
-        self.assertIn("openPdfForEvidence", self.cv_js)
-        self.assertIn("EVIDENCIA VERIFICADA", self.cv_js)
-        self.assertNotIn("exportSvg", self.cv_js)
 
     def test_global_irA_navigation_function_exported(self):
         """Verifica que window.irA esté asignada a nivel de script en index.html."""

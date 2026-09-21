@@ -172,58 +172,10 @@ class ApiEndpointsSuite(unittest.TestCase):
             data = res.get_json()
             self.assertIn("results", data)
 
-    def test_diagnose_graph_endpoint_includes_schematic_correlation(self):
-        """El endpoint de traza topológica incluye la correlación con esquemas SVG interactivos."""
-        payload = {"symptoms": ["ITEM 409", "ITEM 332"]}
-        with self.client.post("/diagnose/graph", json=payload) as res:
-            self.assertEqual(res.status_code, 200)
-            data = res.get_json()
-            self.assertTrue(data.get("found"))
-            self.assertIn("circuit_schematic", data)
-            self.assertIn("subsystem_id", data["circuit_schematic"])
-            self.assertIn("matched_nodes", data["circuit_schematic"])
 
-    def test_diagnose_graph_empty_symptoms_rejects_with_400(self):
-        """Llamar a traza de grafo sin síntomas genera error 400 de validación."""
-        with self.client.post("/diagnose/graph", json={"symptoms": []}) as res:
-            self.assertEqual(res.status_code, 400)
-            data = res.get_json()
-            self.assertEqual(data.get("error"), "validation_error")
 
-    # ─── 4. ENDPOINTS DEL VISUALIZADOR DE ESQUEMAS SVG ───────────────────────
 
-    def test_circuits_subsystems_list(self):
-        """El endpoint expone únicamente las rutas/referencias con evidencia textual."""
-        with self.client.get("/circuits/subsystems") as res:
-            self.assertEqual(res.status_code, 200)
-            data = res.get_json()
-            self.assertTrue(data.get("ok"))
-            self.assertGreaterEqual(len(data.get("subsystems", [])), 1)
-            self.assertTrue(all(item["status"] == "verified_text" for item in data["subsystems"]))
 
-    def test_circuit_subsystem_detail_and_404(self):
-        """Detalle de subsistema válido devuelve datos; ID inexistente devuelve 404."""
-        with self.client.get("/circuits/dosimetry_bias_320v") as res:
-            self.assertEqual(res.status_code, 200)
-            data = res.get_json()
-            self.assertTrue(data.get("ok"))
-            self.assertEqual(data["subsystem"]["id"], "dosimetry_bias_320v")
-
-        with self.client.get("/circuits/subsistema_falso_xyz") as res_404:
-            self.assertEqual(res_404.status_code, 404)
-            data_404 = res_404.get_json()
-            self.assertFalse(data_404.get("ok"))
-
-    def test_circuits_match_endpoint(self):
-        """El endpoint /circuits/match procesa componentes y determina el subsistema óptimo."""
-        payload = {"components": ["ion chamber", "i189", "-320 V"]}
-        with self.client.post("/circuits/match", json=payload) as res:
-            self.assertEqual(res.status_code, 200)
-            data = res.get_json()
-            self.assertTrue(data.get("ok"))
-            self.assertEqual(data.get("subsystem_id"), "dosimetry_bias_320v")
-
-    # ─── 5. SEGURIDAD Y CONTROL DE ACCESO ADMINISTRATIVO ─────────────────────
 
     def test_admin_endpoints_require_authentication(self):
         """Rutas administrativas rechazan peticiones sin la cabecera X-Admin-Password."""
