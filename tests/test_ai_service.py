@@ -23,6 +23,8 @@ from ai_service import (
     generate_local_failover_diagnosis,
     _sanitize_error_message,
     _sanitize_explanation,
+    _sanitize_root_cause,
+    _is_drawing_or_schematic_number,
     _sanitize_action_steps,
     _sanitize_differential_diagnoses,
     DifferentialDiagnosis,
@@ -410,10 +412,13 @@ Fin del reporte."""
         self.assertTrue(any("ITEM 475" in s or "ITEM 471" in s for s in steps))
         self.assertTrue(any("DIE-RHA" in s or "PCB 12D" in s or "tarjetas" in s for s in steps))
 
-        # 5. Explicación fundamentada sin texto genérico repetitivo ni plantillas fijas
+        # 5. Explicación fundamentada sin texto genérico repetitivo ni enumeración de manuales
         explanation = failover.get("explanation", "")
         self.assertNotIn("Contexto Operativo: En la arquitectura del acelerador lineal Elekta, las señales analizadas forman parte integral del Sistema General de Interbloqueos", explanation)
-        self.assertIn("diagrams.pdf", explanation)
+        self.assertNotIn(".pdf", explanation)
+        self.assertNotIn("diagrams.pdf", explanation)
+        refs = failover.get("manual_references", [])
+        self.assertTrue(any("diagrams" in r.lower() for r in refs))
         self.assertTrue(any(sig in explanation for sig in ["ITEM 475", "ITEM 471"]))
 
         # 6. Ausencia total de cadenas prohibidas o evasivas
@@ -611,10 +616,14 @@ Fin del reporte."""
         self.assertTrue(any(w in step_text for w in ["calibración", "tolerancia", "umbral", "tensión", "voltaje"]))
         self.assertTrue(any(w in step_text for w in ["relé", "lazo", "arnés", "conector", "continuidad"]))
 
-        # 3. Explicación fundamentada con citas a múltiples manuales
+        # 3. Explicación fundamentada y sin enumerar manuales en la narrativa
         exp = failover.get("explanation", "")
-        self.assertIn("dosimetry.pdf", exp)
-        self.assertIn("diagrams.pdf", exp)
+        self.assertNotIn(".pdf", exp)
+        self.assertNotIn("dosimetry.pdf", exp)
+        self.assertNotIn("diagrams.pdf", exp)
+        refs = failover.get("manual_references", [])
+        self.assertTrue(any("dosimetry" in r.lower() for r in refs))
+        self.assertTrue(any("diagrams" in r.lower() for r in refs))
 
         # 4. Strict zero IA/AI
         serialized = str(failover).lower()
@@ -882,6 +891,145 @@ Fin del reporte."""
         self.assertIn("corrective", manuals_cited)
         self.assertIn("planned", manuals_cited)
         self.assertIn("item part", manuals_cited)
+
+    def test_generate_local_failover_diagnosis_ht_con_k(self):
+        """Verifica que el diagnóstico de 'ht con k' filtre esquemas, coordenadas y razone la secuencia física."""
+        docs = [
+            {"manual": "diagrams", "page": 63, "text": "CONTACTOR K CON-K CON-A CON-D CON-J DIE-HTA PCB 16M RL4 DIE-HTB PCB 16N CON_K_MON 1024690 PCB 72H."},
+            {"manual": "diagrams", "page": 159, "text": "Drawing 4513 330 7021 DIE-HTB CON_K_MON RAD_ON."},
+            {"manual": "ht_rf", "page": 110, "text": "CON-K High Tension contactor sequence CON_K_MON feedback line."},
+            {"manual": "power_supplies", "page": 45, "text": "CON-K auxiliary contact microswitch RL4 on DIE-HTA."},
+        ]
+        engine = SearchEngine(docs)
+        failover = generate_local_failover_diagnosis(["ht con k"], engine)
+
+        # 1. Subsistema adecuado
+        self.assertIn("Alta Tensión", failover["subsystem"])
+
+        # 2. Boards no deben incluir coordenadas como PCB 72H ni números de esquema
+        boards = failover["associated_boards"]
+        self.assertNotIn("PCB 72H", boards)
+        self.assertNotIn("1024690", boards)
+        self.assertNotIn("45133307021", boards)
+        self.assertTrue(any("DIE-HT" in b or "16M" in b or "16N" in b for b in boards))
+
+        # 3. Señales no deben incluir números de plano
+        signals = failover["test_points_and_signals"]
+        self.assertNotIn("1024690", signals)
+        self.assertNotIn("45133307021", signals)
+        self.assertTrue(any("CON-K" in s or "CON_K_MON" in s for s in signals))
+
+        # 4. Hallazgos diagnósticos integrados (hasta 5)
+        findings = failover.get("diagnostic_findings") or failover.get("differential_diagnoses") or []
+        self.assertTrue(1 <= len(findings) <= 5)
+        for f in findings:
+            self.assertIn("cause_mechanism", f)
+            self.assertIn("solution_procedure", f)
+            self.assertIn("title", f)
+            self.assertTrue(len(f["cause_mechanism"]) > 20)
+            self.assertTrue(len(f["solution_procedure"]) > 20)
+            self.assertNotIn("PCB 72H", f["title"])
+            self.assertNotIn("1024690", f["title"])
+
+        # 5. Cero IA / AI
+        serialized = str(failover).lower()
+        self.assertNotIn("inteligencia artificial", serialized)
+        import re
+        self.assertFalse(bool(re.search(r"\b(?:ia|ai)\b", serialized)))
+
+    def test_is_drawing_or_schematic_number(self):
+        """Verifica la detección de números de planos, códigos 12NC y coordenadas de esquemas."""
+        self.assertTrue(_is_drawing_or_schematic_number("1024690"))
+        self.assertTrue(_is_drawing_or_schematic_number("1024686"))
+        self.assertTrue(_is_drawing_or_schematic_number("1512977"))
+        self.assertTrue(_is_drawing_or_schematic_number("45133307021"))
+        self.assertTrue(_is_drawing_or_schematic_number("4513 330 7021"))
+        self.assertTrue(_is_drawing_or_schematic_number("4513-330-7021"))
+        self.assertTrue(_is_drawing_or_schematic_number("PCB 72H"))
+        self.assertTrue(_is_drawing_or_schematic_number("72H"))
+        self.assertTrue(_is_drawing_or_schematic_number("WD-14"))
+        self.assertTrue(_is_drawing_or_schematic_number("P/N 12345"))
+        # Componentes legítimos no deben ser clasificados como planos
+        self.assertFalse(_is_drawing_or_schematic_number("DIE-HTA"))
+        self.assertFalse(_is_drawing_or_schematic_number("PCB 16M"))
+        self.assertFalse(_is_drawing_or_schematic_number("PCB 16N"))
+        self.assertFalse(_is_drawing_or_schematic_number("CON-K"))
+        self.assertFalse(_is_drawing_or_schematic_number("CON_K_MON"))
+        self.assertFalse(_is_drawing_or_schematic_number("ITEM 251"))
+
+    def test_sanitize_root_cause_user_case(self):
+        """Verifica que _sanitize_root_cause elimine limpiamente coordenadas y esquemas sin dejar conjunciones residuales."""
+        raw = "Disparo en lazo de seguridad de Distribución de Potencia y Fuentes DC (Power Supplies & Contactors), comprometiendo PCB 72H y señales 1024690, 45133307021"
+        cleaned = _sanitize_root_cause(raw)
+        self.assertEqual(
+            cleaned,
+            "Disparo en lazo de seguridad de Distribución de Potencia y Fuentes DC (Power Supplies & Contactors)"
+        )
+        self.assertNotIn("PCB 72H", cleaned)
+        self.assertNotIn("1024690", cleaned)
+        self.assertNotIn("45133307021", cleaned)
+        self.assertNotIn("comprometiendo", cleaned)
+
+    def test_sanitize_root_cause_preserves_valid_boards_and_signals(self):
+        """Verifica que conserve tarjetas y señales válidas al limpiar planos adyacentes."""
+        raw = "Disparo en lazo de seguridad de Distribución de Potencia, comprometiendo DIE-HTA y señales 1024690"
+        cleaned = _sanitize_root_cause(raw)
+        self.assertEqual(cleaned, "Disparo en lazo de seguridad de Distribución de Potencia, comprometiendo DIE-HTA")
+
+        raw_sig = "Disparo en lazo de seguridad de Distribución de Potencia, comprometiendo PCB 72H y señales CON_K_MON"
+        cleaned_sig = _sanitize_root_cause(raw_sig)
+        self.assertEqual(cleaned_sig, "Disparo en lazo de seguridad de Distribución de Potencia, comprometiendo señales CON_K_MON")
+
+    def test_sanitize_explanation_user_case(self):
+        """Verifica que _sanitize_explanation elimine citas a manuales, páginas, coordenadas y comas repetidas."""
+        raw = (
+            "Análisis documental de Distribución de Potencia y Fuentes DC (Power Supplies & Contactors): "
+            "Las señales analizadas (1024690, 45133307021, ITEM 26) convergen en la supervisión operativa de PCB 72H, TS22A, MLC. "
+            "La documentación técnica contrastada en diagrams.pdf (Página 63), diagrams.pdf (Página 159), item part.pdf (Página 77), "
+            "accessory.pdf (Página 24) evidencia que una discrepancia en el lazo de interbloqueo maestro genera el corte."
+        )
+        cleaned = _sanitize_explanation(raw)
+        self.assertNotIn(".pdf", cleaned)
+        self.assertNotIn("diagrams.pdf", cleaned)
+        self.assertNotIn("Página", cleaned)
+        self.assertNotIn("1024690", cleaned)
+        self.assertNotIn("45133307021", cleaned)
+        self.assertNotIn("PCB 72H", cleaned)
+        self.assertNotIn("(, ,", cleaned)
+        self.assertIn("ITEM 26", cleaned)
+        self.assertIn("TS22A", cleaned)
+        self.assertIn("El análisis del sistema evidencia que", cleaned)
+
+    def test_all_failover_subsystems_generate_5_rich_findings_with_solutions(self):
+        """Verifica que todos los subsistemas failover generen hasta 5 hallazgos con causas físicas y soluciones técnicas."""
+        subsystems_to_test = [
+            (["d1 force", "item 475"], "Dosimetría"),
+            (["vacuum", "ion pump", "sw1"], "Vacío"),
+            (["magnetron", "tiratrón", "prf"], "Alta Tensión y Generación de RF"),
+            (["collimator leaf", "encoder position"], "Control de Movimiento"),
+            (["general interlock loop"], "Sistema General"),
+        ]
+        docs = [
+            {"manual": "dosimetry", "page": 10, "text": "ITEM 475 DIE-RHA dosimetry channel."},
+            {"manual": "vacuum", "page": 10, "text": "Vacuum ion pump SW1 pressure switch."},
+            {"manual": "ht_rf", "page": 10, "text": "Magnetron thyratron RF pulse system."},
+            {"manual": "movement", "page": 10, "text": "Collimator leaf encoder position error."},
+            {"manual": "diagrams", "page": 10, "text": "General safety loop interlock relay chain."},
+        ]
+        engine = SearchEngine(docs)
+
+        for symptoms, expected_sub in subsystems_to_test:
+            failover = generate_local_failover_diagnosis(symptoms, engine)
+            findings = failover.get("diagnostic_findings") or failover.get("differential_diagnoses") or []
+            self.assertEqual(len(findings), 5, f"Fallo para síntomas: {symptoms}")
+            for idx, f in enumerate(findings):
+                self.assertTrue(len(f["title"]) > 10, f"Título muy corto en hallazgo {idx+1} para {symptoms}")
+                self.assertTrue(len(f["cause_mechanism"]) > 40, f"Causa física muy corta en hallazgo {idx+1} para {symptoms}")
+                self.assertTrue(len(f["solution_procedure"]) > 40, f"Solución técnica muy corta en hallazgo {idx+1} para {symptoms}")
+                # No debe tener etiquetas de probabilidad en el título
+                self.assertFalse(any(p in f["title"].lower() for p in ["probabilidad", "prioridad"]))
+                # No debe enumerar archivos .pdf en la causa
+                self.assertNotIn(".pdf", f["cause_mechanism"])
 
 
 if __name__ == "__main__":

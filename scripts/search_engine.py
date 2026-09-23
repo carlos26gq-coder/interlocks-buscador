@@ -94,8 +94,12 @@ def _phrase_pattern_cached(val: str) -> re.Pattern | None:
     parts = tokens(val)
     if not parts:
         return None
-    if len(parts) > 32:
-        parts = parts[:32]
+    # Deduplicar tokens consecutivos idénticos para eliminar ReDoS por backtracking exponencial
+    deduped: list[str] = []
+    for p in parts:
+        if not deduped or p != deduped[-1]:
+            deduped.append(p)
+    parts = deduped[:16]
     sep = r"[\W_]+(?:(?:the|a|an|of|in|to|and|or|de|la|el|del|y|en)[\W_]+)?"
     return re.compile(r"\b" + sep.join(re.escape(part) for part in parts) + r"\b")
 
@@ -106,8 +110,11 @@ def _phrase_pattern(value: object) -> re.Pattern | None:
     parts = tokens(value)
     if not parts:
         return None
-    if len(parts) > 32:
-        parts = parts[:32]
+    deduped: list[str] = []
+    for p in parts:
+        if not deduped or p != deduped[-1]:
+            deduped.append(p)
+    parts = deduped[:16]
     sep = r"[\W_]+(?:(?:the|a|an|of|in|to|and|or|de|la|el|del|y|en)[\W_]+)?"
     return re.compile(r"\b" + sep.join(re.escape(part) for part in parts) + r"\b")
 
@@ -167,7 +174,8 @@ INVALID_BOARDS = {
     "PCB AREA", "PCB POSITION", "PCB DESCRIPTION", "PCB TITLE", "PCB DETAILS",
     "PCB NUMBER", "PCB REF", "PCB REFERENCE", "PCB NAME", "PCB REV", "PCB REVISION",
     "PCB CODE", "PCB STATUS", "PCB SYSTEM", "PCB CIRCUIT", "PCB SUB", "PCB PART",
-    "PCB PCB", "PCB P4", "PCB FS17B",
+    "PCB PCB", "PCB P4", "PCB FS17B", "PCB 72H", "PCB 74", "PCB RACK", "PCB CABINET",
+    "PCB FRAME", "PCB CHASSIS", "PCB ITEM",
 }
 
 _INVALID_PCB_SUBTITLES = {
@@ -176,7 +184,8 @@ _INVALID_PCB_SUBTITLES = {
     "CIRCUIT", "SUB", "ASSY", "ASSEMBLY", "MOUNTING", "IDENTIFICATION", "PART",
     "PROGRAMMING", "PRINTED", "RETRACTILE", "FPGA", "LAYOUT", "DRAWING",
     "SCHEMATIC", "CONNECTIONS", "FUSE", "RELAY", "SWITCH", "TERMINAL",
-    "CONNECTOR", "ISOLATION", "DETECTOR", "CROWBAR", "PCB",
+    "CONNECTOR", "ISOLATION", "DETECTOR", "CROWBAR", "PCB", "RACK", "CABINET",
+    "FRAME", "CHASSIS", "ITEM", "BOX", "PANEL", "GRID",
     "THROUGH", "IF", "SETS", "SENSES", "IS", "AND", "SUPPLIES", "MONITORS", "AS",
     "TO", "IN", "FOR", "WITH", "THAT", "WHEN", "WHERE", "BY", "FROM", "ON", "AT",
     "OR", "AN", "THE", "NOT", "CAN", "MAY", "WILL", "DOES", "HAS", "HAVE", "GIVES",
@@ -190,26 +199,39 @@ def extract_structured_components(text: str) -> dict[str, list[str] | str]:
     """Extrae componentes estructurados y limpios (tarjetas, cables, señales, puntos de prueba y subsistema)."""
     cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", str(text or "")[:12000])
 
-    # 1. Items y Números de Parte (Elekta 12NC y códigos ITEM / i<num>)
+    # 1. Items de señal y supervisión (solo códigos funcionales ITEM <num> o i<num>; excluye planos 1024xxx y 4513...)
     items: list[str] = []
     item_matches = re.findall(
-        r"\b(?:ITEM\s*\d+|i\d{1,4}|P\/N\s*[A-Z0-9\-]+|PART\s*NO\.?\s*[A-Z0-9\-]+|45\d{2}[\s\-]?\d{3}[\s\-]?\d{4,5}|1024\d{3})\b",
+        r"\b(?:ITEM\s*\d{1,4}|i\d{1,4})\b",
         cleaned,
         re.IGNORECASE,
     )
     for it in item_matches:
         m_i = re.match(r"^i(\d{1,4})$", it, re.I)
         if m_i:
-            it_clean = f"ITEM {m_i.group(1)}"
+            it_clean = f"ITEM {int(m_i.group(1))}"
         else:
-            it_clean = re.sub(r"\s+", " ", it).strip().upper()
+            m_num = re.search(r"\d+", it)
+            it_clean = f"ITEM {int(m_num.group(0))}" if m_num else it.upper()
         if it_clean not in items:
             items.append(it_clean)
+
+    # 1b. Planos y esquemas técnicos (1024xxx, 4513..., P/N) - clasificados como planos, NUNCA como señales funcionales
+    drawings: list[str] = []
+    drawing_matches = re.findall(
+        r"\b(?:45\d{2}[\s\-]?\d{3}[\s\-]?\d{4,5}|1024\d{3}|P\/N\s*[A-Z0-9\-]+|PART\s*NO\.?\s*[A-Z0-9\-]+)\b",
+        cleaned,
+        re.IGNORECASE,
+    )
+    for dr in drawing_matches:
+        dr_clean = re.sub(r"\s+", " ", dr).strip().upper()
+        if dr_clean not in drawings:
+            drawings.append(dr_clean)
 
     # 2. Tarjetas / PCBs / Cards / Unidades (con soporte para módulos de potencia y RF)
     boards: list[str] = []
     functional_named_boards = [
-        "DIE-HTA", "DIE-HTB", "PCB 22", "HT ISOLATION PCB", "HT PSU CONTROL PCB",
+        "DIE-HTA", "DIE-HTB", "PCB 16M", "PCB 16N", "PCB 22", "HT ISOLATION PCB", "HT PSU CONTROL PCB",
         "HT CROWBAR DETECTOR PCB", "DRIVER PCB", "ROC-HTA", "AO12-HTA",
         "PPG-HTB", "DIE-RHA", "DIE-RHB", "DIE-ICA", "DIE-ICB", "TS22A",
     ]
@@ -232,6 +254,9 @@ def extract_structured_components(text: str) -> dict[str, list[str] | str]:
                 continue
             if re.match(r"^(?:P\d+|FS\d+|PL\d+|SK\d+|TB\d+|SW\d+|TS\d+|CB\d+)$", sub_part):
                 continue
+            # Rechazar coordenadas de rejilla de esquemas (ej: 72H, 14A, 15B)
+            if re.match(r"^\d{2,3}[A-Z]$", sub_part) and sub_part not in {"16M", "16N", "16R", "16H", "16L", "16S", "16C", "17A", "17B", "12D", "12F"}:
+                continue
         if b_clean not in boards and len(b_clean) >= 3 and b_clean not in INVALID_BOARDS:
             boards.append(b_clean)
 
@@ -244,18 +269,19 @@ def extract_structured_components(text: str) -> dict[str, list[str] | str]:
     )
     for c in cable_matches:
         c_clean = re.sub(r"\s+", " ", c).strip().upper()
-        if c_clean not in cables and len(c_clean) >= 2:
+        if c_clean not in cables:
             cables.append(c_clean)
-
     # 4. Puntos de Prueba (TP), Interruptores Térmicos, Relés, Fusibles, Disyuntores y Señales Críticas
     tps: list[str] = []
     tp_matches = re.findall(
-        r"\b(?:TP[U]?[0-9]{1,3}(?:-[0-9]{1,3})?|TS[U]?[0-9]{1,3}[A-Z]?(?:-[0-9]{1,3})?|TP_[A-Z0-9]+|SW[1-9]\d?|TS[1-9]\d?[A-Z]?|CB[1-9]\d?|CON-[A-Z]|RL[AB]?[0-9]{1,3}|RLD-1|FS[0-9]{1,3}[A-Z]?|FUSE\s*[A-Z0-9]+|PRI\s+I\s+MON|PRI\s+REF|HT\s+OVERTEMP\s+DETECTOR|RAD_ON|GUN_ON|CROWBAR\s+O\/P|CHARGERATE|[+\-]?\d+(?:\.\d+)?\s*(?:VDC|VAC|kV|mA|A))\b",
+        r"\b(?:TP[U]?[0-9]{1,3}(?:-[0-9]{1,3})?|TS[U]?[0-9]{1,3}[A-Z]?(?:-[0-9]{1,3})?|TP_[A-Z0-9]+|SW[1-9]\d?|TS[1-9]\d?[A-Z]?|CB[1-9]\d?|CON-[A-Z]|CON\s+[A-Z]|CON_[A-Z]_(?:ON|MON)|RL[AB]?[0-9]{1,3}|RLD-1|FS[0-9]{1,3}[A-Z]?|FUSE\s*[A-Z0-9]+|PRI\s+I\s+MON|PRI\s+REF|HT\s+OVERTEMP\s+DETECTOR|RAD_ON|GUN_ON|CROWBAR\s+O\/P|CHARGERATE|[+\-]?\d+(?:\.\d+)?\s*(?:VDC|VAC|kV|mA|A))\b",
         cleaned,
         re.IGNORECASE,
     )
     for tp in tp_matches:
         tp_clean = re.sub(r"\s+", " ", tp).strip().upper()
+        if re.match(r"^CON\s+([A-Z])$", tp_clean):
+            tp_clean = f"CON-{tp_clean.split()[1]}"
         if tp_clean not in tps:
             tps.append(tp_clean)
 
@@ -286,6 +312,7 @@ def extract_structured_components(text: str) -> dict[str, list[str] | str]:
     return {
         "boards": boards,
         "items": items,
+        "drawings": drawings,
         "cables": cables,
         "tps": tps,
         "areas": areas,
@@ -402,6 +429,14 @@ class SearchEngine:
                 expanded_tokens.update(["exchanger", "chiller", "cooling"])
             if "sw1" in norm_doc or "sw2" in norm_doc or "ts1" in norm_doc or "ts2" in norm_doc:
                 expanded_tokens.update(["sw1", "sw2", "ts1", "ts2"])
+            if "con-k" in norm_doc or "con k" in norm_doc or "contactor k" in norm_doc or "con_k" in norm_doc:
+                expanded_tokens.update(["con-k", "conk", "con_k"])
+            if "con-a" in norm_doc or "con a" in norm_doc or "contactor a" in norm_doc:
+                expanded_tokens.update(["con-a", "cona"])
+            if "con-d" in norm_doc or "con d" in norm_doc or "contactor d" in norm_doc:
+                expanded_tokens.update(["con-d", "cond"])
+            if "con-j" in norm_doc or "con j" in norm_doc or "contactor j" in norm_doc:
+                expanded_tokens.update(["con-j", "conj"])
             for m_item in re.finditer(r"\b(?:item|i)\s*(\d{1,4})\b", norm_doc):
                 c_code = m_item.group(1)
                 expanded_tokens.add(f"i{c_code}")
@@ -423,6 +458,19 @@ class SearchEngine:
         self._search_cache_lock = threading.Lock()
 
     def _candidate_ids(self, query: str, manual: str = "") -> set[int]:
+        norm_q = normalize(query)
+        if re.search(r"\b(?:ht[\s\-_]+)?(?:con[\s\-_]*k|contactor[\s\-_]*k)\b", norm_q) or norm_q in ("con k", "con-k", "ht con k", "ht con-k", "contactor k"):
+            candidates = set()
+            for c_tok in ["con-k", "conk", "con_k", "contactor", "die-hta", "die-htb"]:
+                if c_tok in self.postings:
+                    candidates.update(self.postings[c_tok])
+            if candidates:
+                if manual:
+                    manual = normalize(manual).strip()
+                    if manual:
+                        candidates.intersection_update(self.manuals.get(manual, []))
+                return candidates
+
         m_code = re.match(r"^(?:item|interlock|codigo|code|i)?\s*(\d+)$", str(query or "").strip().lower())
         if m_code:
             code_num = str(int(m_code.group(1)))
@@ -631,6 +679,14 @@ class SearchEngine:
                 specific_tokens.update(["pcb22", "ts22a", "ts22"])
             if "ts1" in norm_val or "ts2" in norm_val or "sw1" in norm_val or "sw2" in norm_val:
                 specific_tokens.update(["ts1", "ts2", "sw1", "sw2"])
+            if re.search(r"\b(?:ht[\s\-_]+)?(?:con[\s\-_]*k|contactor[\s\-_]*k)\b", norm_val) or norm_val in ("con k", "con-k", "ht con k", "ht con-k", "contactor k"):
+                specific_tokens.update(["con-k", "conk", "con_k", "contactor", "die-hta", "die-htb", "htca", "pcb16m", "pcb16n", "con_k_mon", "con_k_on", "rl4"])
+            if "con-a" in norm_val or "con a" in norm_val or "contactor a" in norm_val:
+                specific_tokens.update(["con-a", "cona"])
+            if "con-d" in norm_val or "con d" in norm_val or "contactor d" in norm_val:
+                specific_tokens.update(["con-d", "cond"])
+            if "con-j" in norm_val or "con j" in norm_val or "contactor j" in norm_val:
+                specific_tokens.update(["con-j", "conj"])
 
             prepared.append((label, value, normalize(value), value_tokens, specific_tokens, weight, code_regexes))
             all_signal_tokens.update(specific_tokens)
