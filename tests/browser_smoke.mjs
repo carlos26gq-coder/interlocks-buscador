@@ -31,7 +31,10 @@ try {
     assert.equal(await page.locator("#navR").count(), 1, "Informes debe estar disponible");
 
     const welcome = page.locator("#modalBienvenida");
-    if (await welcome.count()) await welcome.getByRole("button", { name: /ok|entendido|continuar/i }).click();
+    if (await welcome.count()) {
+        await welcome.getByRole("button", { name: /ok|entendido|continuar/i }).click();
+        await welcome.waitFor({ state: "detached" }).catch(() => {});
+    }
 
     // Buscar: escribir no consulta; Enter inicia una búsqueda efectiva.
     let searchRequests = 0;
@@ -43,18 +46,29 @@ try {
     await page.waitForTimeout(350);
     assert.equal(searchRequests, 0, "la búsqueda se disparó mientras el usuario escribía");
     await page.locator("#q").press("Enter");
-    await poll(async () => searchRequests >= 1 || await page.locator("#metaBar").evaluate(el => getComputedStyle(el).display !== "none"));
+    await poll(async () => {
+        const metaVisible = await page.locator("#metaBar").evaluate(el => getComputedStyle(el).display !== "none").catch(() => false);
+        const cardCount = await page.locator("#resultsList .result-card").count().catch(() => 0);
+        return searchRequests >= 1 && metaVisible && cardCount > 0;
+    }, 15000);
     page.off("request", countSearchRequest);
+    assert.ok(searchRequests >= 1, "la búsqueda no generó peticiones al servidor");
     assert.notEqual(await page.locator("#metaBar").evaluate(el => getComputedStyle(el).display), "none", "la búsqueda no actualizó su estado visible");
+    assert.ok((await page.locator("#resultsList .result-card").count()) > 0, "la búsqueda no renderizó resultados");
 
     // Diagnóstico documental y causal: ambos flujos dan una salida visible.
     await page.locator("#navD").click();
     await page.locator(".symptom-input").first().fill("Interlock 283");
     await page.locator("#btnDiagnose").click();
-    await poll(async () => await page.locator("#diagResults .diagnostic-card, #diagEmpty").count() > 0);
+    await poll(async () => await page.locator("#diagResults .diagnostic-card, #diagEmpty").count() > 0, 15000);
     assert.ok((await page.locator("#diagResults, #diagEmpty").allInnerTexts()).join(" ").length > 0, "el diagnóstico documental no produjo salida");
     await page.locator("#btnDiagnoseAi").click();
-    await poll(async () => await page.locator("#diagResults").innerText().then(text => text.trim().length > 0));
+    await poll(async () => {
+        const loading = await page.locator("#diagResults .diag-ai-loading").count();
+        const busy = await page.locator("#btnDiagnoseAi").isDisabled();
+        const text = await page.locator("#diagResults").innerText().then(t => t.trim()).catch(() => "");
+        return loading === 0 && !busy && text.length > 0;
+    }, 25000);
     assert.doesNotMatch(await page.locator("#diagResults").innerText(), /Error al procesar el diagnóstico causal: 503/i, "se filtró un error remoto crudo al usuario");
 
     // Registros: análisis local de texto y resultado renderizado.

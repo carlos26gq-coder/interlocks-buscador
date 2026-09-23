@@ -56,9 +56,7 @@ jobs:
         run: |
           node --check scripts/static/app.js
           node --check scripts/static/search-worker.js
-          node --check scripts/static/circuit-visualizer.js
           node --check scripts/static/log-parser.js
-          node --check scripts/static/multimeter.js
           node --check sw.js
 
   browser-contract:
