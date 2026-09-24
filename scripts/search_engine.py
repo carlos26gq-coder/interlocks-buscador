@@ -5,7 +5,7 @@ El índice se construye una vez al iniciar. Las coincidencias son textuales con
 búsqueda general (Search) y diagnóstico técnico (Relacionar).
 
 En el diagnóstico:
-- Se evalúan múltiples síntomas/señales independientes (hasta 4).
+- Se evalúan múltiples síntomas/señales independientes (hasta 5).
 - Se priorizan las páginas y diagramas donde coinciden las señales ingresadas.
 - Se extrae e identifica la tarjeta, PCB, área, o componente asociado más próximo.
 - Se asigna un nivel de confianza (alta, media, baja) para decidir relevancia del PDF.
@@ -686,7 +686,7 @@ class SearchEngine:
         candidate_ids: set[int] = set()
         total_docs = len(self.documents)
 
-        for i, raw_value in enumerate(symptoms[:8]):
+        for i, raw_value in enumerate(symptoms[:5]):
             value = str(raw_value or "").strip()
             if not value:
                 continue

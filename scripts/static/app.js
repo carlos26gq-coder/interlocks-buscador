@@ -902,16 +902,13 @@ async function cargarCatalogoManuales() {
 }
 
 // ─── GESTIÓN DE SÍNTOMAS (PESTAÑA RELACIONAR) ────────────
-const SYMPTOM_NUMS = ["①","②","③","④","⑤","⑥","⑦","⑧"];
+const SYMPTOM_NUMS = ["①","②","③","④","⑤"];
 const SYMPTOM_HINTS = [
     "Ej: Interlock 283",
     "Ej: Error 66",
     "Ej: ITEM 409",
     "Ej: Leaf missing",
-    "Ej: D_RATE 1",
-    "Ej: PCB 16N",
-    "Ej: Area 70",
-    "Ej: CON-K"
+    "Ej: D_RATE 1"
 ];
 
 function _setupSymptomEnter(input) {
@@ -923,7 +920,7 @@ function _setupSymptomEnter(input) {
 function agregarSintoma() {
     const container = document.getElementById("symptomsContainer");
     const rows = container.querySelectorAll(".symptom-row");
-    if (rows.length >= 8) { toast("Máximo 8 síntomas", "err"); return; }
+    if (rows.length >= 5) { toast("Máximo 5 síntomas", "err"); return; }
     const idx = rows.length;
     const row = document.createElement("div");
     row.className = "symptom-row";
@@ -937,7 +934,7 @@ function agregarSintoma() {
     container.querySelectorAll(".sym-del-btn").forEach(b => b.style.display = "");
     _setupSymptomEnter(row.querySelector(".symptom-input"));
     row.querySelector(".symptom-input").focus();
-    if (container.querySelectorAll(".symptom-row").length >= 8) {
+    if (container.querySelectorAll(".symptom-row").length >= 5) {
         document.getElementById("btnAddSym").style.display = "none";
     }
 }
@@ -970,7 +967,7 @@ function renderDiagrama(results, symptoms) {
     const main   = results[0];
     const others = results.slice(1, 3);
 
-    const symsHtml = symptoms.slice(0, 8).map(s =>
+    const symsHtml = symptoms.slice(0, 5).map(s =>
         '<div class="diag-sym-node" title="' + esc(s) + '">' +
         esc(s.length > 24 ? s.slice(0, 22) + "…" : s) + '</div>'
     ).join("");
@@ -1130,7 +1127,7 @@ function renderDiagramaAi(aiData, symptoms) {
     const container = document.getElementById("diagDiagram");
     if (!aiData || !symptoms.length) { container.style.display = "none"; return; }
 
-    const symsHtml = symptoms.slice(0, 8).map(s =>
+    const symsHtml = symptoms.slice(0, 5).map(s =>
         '<div class="diag-sym-node" style="border-color:rgba(168,85,247,.4);color:#d8b4fe;background:rgba(168,85,247,.08)" title="' + esc(s) + '">' +
         esc(s.length > 24 ? s.slice(0, 22) + "…" : s) + '</div>'
     ).join("");
@@ -1271,6 +1268,10 @@ async function analizarDiagnosticoAi() {
     const symptoms = diagnosticoSymptoms();
     if (!symptoms.length) {
         toast("Ingresa al menos un síntoma, error o descripción de falla", "err");
+        return;
+    }
+    if (symptoms.length > 5) {
+        toast("Máximo 5 síntomas permitidos", "err");
         return;
     }
 
@@ -1440,6 +1441,10 @@ async function analizarDiagnostico() {
     const symptoms = diagnosticoSymptoms();
     if (!symptoms.length) {
         toast("Ingresa al menos un síntoma o error", "err");
+        return;
+    }
+    if (symptoms.length > 5) {
+        toast("Máximo 5 síntomas permitidos", "err");
         return;
     }
     const button  = document.getElementById("btnDiagnose");

@@ -347,12 +347,12 @@ function extractAssociatedComponents(text) {
 
 async function _diagnoseSymptomsOffline(symptomList, requestedLimit = 3) {
     const resultLimit = Math.min(50, Math.max(1, Number(requestedLimit) || 3));
-    const weightsByPosition = [1.4, 1.3, 1.2, 1.1];
+    // Todas las informaciones y síntomas ingresados tienen prioridad equitativa y alta (peso 1.0)
     const prepared = [];
     const allSignalTokens = new Set();
     const candidates = new Set();
 
-    for (let i = 0; i < Math.min(symptomList.length, 4); i++) {
+    for (let i = 0; i < Math.min(symptomList.length, 5); i++) {
         const value = String(symptomList[i] || "").trim();
         if (!value) continue;
         const allToks = new Set(queryTokens(value));
@@ -368,7 +368,7 @@ async function _diagnoseSymptomsOffline(symptomList, requestedLimit = 3) {
             normalizedValue: normalize(value),
             valueTokens: allToks,
             specificTokens: activeTokens,
-            weight: weightsByPosition[i] || 1.0
+            weight: 1.0
         });
         for (const token of activeTokens) {
             allSignalTokens.add(token);

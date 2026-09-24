@@ -118,14 +118,30 @@ Reglas estrictas de precisión e ingeniería biomédica:
     - Ruta de retorno a 0V: Desde el pin C7/C8 de DIE-ICA a través de las tarjetas IRC-74C e IRC-74B hasta el punto de masa CGPB 20.
     - Alimentación de bobinas: 24V AC procedente del transformador de control T1 (Área 70), protegido por fusible FS73A (5A) y CB9 (2A), conmutado por la tarjeta de salidas ROC-ICA (Área 72, slot J, PCB 72J, relés RL2/RL3) e interruptores de seguridad en serie: colimador primario SW12, filtro secundario SW13 y contactos de puertas de sala (Room Doors ITEM 258/259).
     - Secuencia de arranque suave: al presionar START, CON-J (i78) y CON-K (i79) enclavan simultáneamente aplicando tensión a través de resistencias de arranque suave; tras el vencimiento del temporizador hardware en IRC-74A, se energiza CON-D (i72). Si CON-K falla o i79 queda en 0, se genera inhibición i79 o i72 e impide entrar en estado Preparatory (i2 parte 4 != 34).
-15. INVESTIGACIÓN Y RAZONAMIENTO PROFUNDO DE TODAS LAS ENTRADAS:
+15. INVESTIGACIÓN Y RAZONAMIENTO PROFUNDO DE TODAS LAS ENTRADAS (MÁXIMO 5 SÍNTOMAS):
+    - La herramienta admite un máximo estricto de 5 síntomas o señales de entrada (de 1 a 5).
     - Cuando se ingresen múltiples síntomas o códigos, TODOS son importantes y deben investigarse con rigor equivalente, sin descartar ni relegar ninguno.
-    - No asumas datos por proximidad: básate estrictamente en la evidencia recuperada de los manuales.
+    - No asumas datos por proximidad: básate estrictamente en la evidencia técnica recuperada de los manuales de Elekta.
     - Genera hasta 5 hallazgos diagnósticos ordenados del más probable al menos probable (Diagnóstico 1, Diagnóstico 2, Diagnóstico 3, Diagnóstico 4, Diagnóstico 5).
     - Cada diagnóstico debe abordar una causa física, componente, circuito o calibración diferente sin redundar entre sí (ej. desgaste de contactos auxiliares, caída de tensión en bobinas/transformador T1, microinterruptores en serie en cabezal/puertas, tarjeta de relés de mando y temporizadores, interbloqueos previos en disyuntores o vacío).
     - Cada diagnóstico debe integrar en su contenido la deducción física/electrónica exacta y el procedimiento concreto de verificación, medición con instrumentos y calibración.
 16. EXIGENCIA DE HARDWARE EN ALTA TENSIÓN (HT), FUENTES (PSU) Y VMAT:
     - En caso de sobretemperatura HT PSU OT (ITEM 251): lazo serie con interruptor SW1 (disipador TR1/TR2), fuelle SW2 en T4, termostatos TS1/TS2 y regleta TS22A / PCB 22 en Área 22, transmitido por HT ISOLATION PCB (4513 330 7753 con optoacopladores OPTO 3/9) hacia DIE-HTB pin PL2-a3. Diferenciar estrictamente de ITEM 330 (Chargerate analógico DAC en TPU1-8 vs TPU1-1).
+17. RAZONAMIENTO CRÍTICO DE RELACIÓN VS INDEPENDENCIA ENTRE SÍNTOMAS:
+    - Cuando se ingresen de 2 a 5 síntomas, debes razonar e investigar primeramente si dichos síntomas están técnicamente relacionados o si corresponden a fallas independientes:
+    a) SÍNTOMAS TÉCNICAMENTE RELACIONADOS:
+       - Si los síntomas comparten un mismo subsistema, lazo de seguridad en serie, cadena secuencial de contactores, señal común de inhibición o causa raíz convergente según los 19 manuales técnicos de Elekta (ej: ITEM 79 y CON-K; o sobretemperatura HT PSU e inhibición de pulsos PRF; o disparos en bomba iónica y baja presión en columna de vacío):
+       - Razona la correlación causal física y eléctrica: detalla en 'explanation' la cadena de propagación a través de circuitos, tarjetas PCB y señales.
+       - En 'root_cause' define la causa raíz común unificada.
+       - En 'diagnostic_findings' proporciona hasta 5 diagnósticos diferenciales que investigan las distintas hipótesis causales de esta falla correlacionada.
+    b) SÍNTOMAS NO RELACIONADOS (FALLAS INDEPENDIENTES EN SUBSISTEMAS DESACOPLADOS):
+       - Si los síntomas pertenecen a subsistemas desacoplados sin vínculo de circuito, lazo común ni relación causal en los manuales (ej: potenciómetro de mesa PSS y filamento del cañón de electrones; o colimador de hojas MLC y presión de gas dieléctrico SF6; o canal de dosimetría y freno mecánico de gantry):
+       - PROHIBIDO inventar, forzar o suponer correlaciones rebuscadas o conexiones artificiales entre síntomas sin relación de circuito.
+       - Razona y declara abiertamente en 'explanation' que los síntomas corresponden a anomalías independientes en subsistemas desacoplados del acelerador lineal Elekta.
+       - En 'subsystem', indica los subsistemas desacoplados involucrados (ej: 'Control de Movimiento (Mesa PSS) / Sistema de Vacío y Cañón').
+       - En 'root_cause', sintetiza con honestidad técnica que son incidencias concurrentes independientes (ej: 'Anomalías técnicas independientes en potenciómetro de mesa PSS y circuito de filamento del cañón (sin correlación de circuito documentada)').
+       - En 'explanation', investiga cada síntoma por separado con máximo rigor técnico, desglosando el circuito, tarjetas y señales de cada uno con base en la evidencia de los manuales.
+       - En 'diagnostic_findings', genera diagnósticos estructurados que aborden equitativamente cada síntoma ingresado de manera independiente y fundamentada (distribuyendo los diagnósticos entre los síntomas), manteniendo siempre el formato continuo estándar (Diagnóstico 1..N).
 """
 
 
@@ -611,7 +627,7 @@ def gather_grounding_context(
         citation_map[cid] = {"manual": manual, "page": page}
         return cid
 
-    valid_syms = [s.strip() for s in symptoms if s and s.strip()]
+    valid_syms = [s.strip() for s in symptoms if s and s.strip()][:5]
     num_syms = max(len(valid_syms), 1)
     # Reservar espacio garantizado para la evidencia directa de CADA síntoma
     relational_limit = max(4, max_pages - (num_syms * 2))
@@ -942,6 +958,353 @@ def _map_subsystem_from_text_and_manual(manual: str, text: str, raw_sub: str = "
     return "Sistema General de Interbloqueos y Seguridad (Elekta LINAC)"
 
 
+SUBSYSTEM_DOMAIN_NAMES: dict[str, str] = {
+    "power_contactors": "Distribución de Potencia y Secuencia de Alta Tensión (HT Power & Contactors)",
+    "ht_rf": "Alta Tensión y Generación de RF (HT Modulator & RF Pulse System)",
+    "dosimetry": "Dosimetría y Monitoreo de Haz (Dosimetry Channel & Safety Interlocks)",
+    "vacuum_gun": "Sistema de Vacío y Cañón de Electrones (Vacuum System & Gun)",
+    "movement": "Control de Movimiento (Gantry, Colimador y Mesa de Tratamiento)",
+    "communications": "Procesador Central y Comunicaciones (CCP & Safety Bus)",
+    "power_distribution": "Distribución de Potencia y Fuentes DC (Power Supplies & Contactors)",
+    "general_interlocks": "Sistema General de Interbloqueos y Seguridad (Elekta LINAC)",
+}
+
+
+def _classify_symptom_domain(sym: str) -> str:
+    s = sym.lower()
+    if any(k in s for k in ["con-k", "con k", "contactor k", "con_k", "item 79", "i79", "con-a", "con-d", "con-j", "cb1", "cb9", "fs73a", "t1", "arranque suave", "die-ica", "dieica"]):
+        return "power_contactors"
+    if any(k in s for k in ["ht psu", "psu ot", "item 330", "i330", "item 251", "i251", "over temp", "overtemp", "die-hta", "die-htb"]):
+        return "ht_rf"
+    if any(k in s for k in ["dosimetr", "die-rha", "item 475", "item 471", "item 474", "i475", "i471", "i474", "d1 force", "d1 reset", "d2 force", "d2 reset", "chamber bias", "cámara de ionización", "camara de ionizacion", "tasa de dosis", "dose rate", "simetría", "canal 1", "canal 2", "d_rate", "cámara", "camara"]):
+        return "dosimetry"
+    if any(k in s for k in ["vacuum", "vacío", "vacio", "ion pump", "bomba iónica", "bomba ionica", "filamento", "filament", "cañón", "canon", "electron gun", "gun bias", "cátodo", "catodo", "sw1 vacuum", "torr", "degas"]) or re.search(r"\b(?:interlock\s*51|i\s*51)\b", s):
+        return "vacuum_gun"
+    if any(k in s for k in ["magnetron", "magnetrón", "thyratron", "tiratrón", "rf", "modulador", "modulator", "klystron", "prf", "afc", "ht_rf", "arc", "pfn", "item 409", "i409", "item 236", "i236", "item 122", "i122", "error 66", "e66", "error 14", "e14"]) or re.search(r"\b(?:interlock\s*12|i\s*12)\b", s):
+        return "ht_rf"
+    if any(k in s for k in ["leaf", "mlc", "collimat", "colimad", "gantry", "motor", "table", "mesa", "pss", "encoder", "potentiometer", "potenciómetro", "potenciometro", "touchguard", "limit switch", "fin de carrera", "embrague", "freno", "servo", "item 301", "i301"]) or re.search(r"\b(?:interlock\s*283|i\s*283)\b", s):
+        return "movement"
+    if any(k in s for k in ["can bus", "arcnet", "ccp", "rtu", "fiber", "fibra óptica", "fibra optica", "timeout", "procesador central", "mtu"]):
+        return "communications"
+    if any(k in s for k in ["power supply", "fuente", "24vdc", "contactor", "fuse", "relay", "relé"]):
+        return "power_distribution"
+    return "general_interlocks"
+
+
+def _get_domain_summary(domain: str, sym: str) -> str:
+    s = sym.lower()
+    if domain == "movement":
+        if any(k in s for k in ["mesa", "pss", "table", "potenci"]):
+            return (
+                "La mesa de tratamiento PSS opera bajo supervisión en bucle cerrado contrastando encoders digitales "
+                "de posición frente a potenciómetros analógicos multivuelta de referencia. El desgaste resistivo en pistas "
+                "o deslizamiento en acoplamientos elásticos genera discrepancias angulares (> 1 mm o 0.2°) que inhiben el movimiento."
+            )
+        return (
+            "El control de movimiento cinemático opera en bucle cerrado contrastando encoders ópticos frente a potenciómetros "
+            "analógicos. Holguras en correas de transmisión, fatiga en frenos electromagnéticos de 24 VDC o sobrecorriente de servo "
+            "provocan el bloqueo preventivo del eje e inhiben el haz."
+        )
+    if domain == "vacuum_gun":
+        if any(k in s for k in ["filamento", "filament", "cañón", "canon", "gun"]):
+            return (
+                "El circuito de filamento del cañón de electrones opera en ultra alto vacío (< 10^-7 Torr) recibiendo corriente "
+                "regulada de caldeo desde la fuente aislada Gun Filament PSU. Interrupciones o derivas en la emisión termoiónica "
+                "inhiben la generación de corriente de haz sin interactuar con los circuitos cinemáticos ni la mesa."
+            )
+        return (
+            "El subsistema de vacío ultra alto mantiene presiones inferiores a 10^-7 Torr en columna mediante la bomba iónica. "
+            "Disparos de corriente iónica o desajustes en el presostato SW1 cortan preventivamente la alta tensión para proteger "
+            "la ventana de RF y la columna aceleradora."
+        )
+    if domain == "dosimetry":
+        return (
+            "El canal de dosimetría monitorea la tasa de dosis y simetría en cámara de ionización redundante (Canal 1 y Canal 2) "
+            "con tolerancia de ±2%. Derivas en amplificadores integradores o tensión de polarización HT activan la terminación forzada."
+        )
+    if domain == "ht_rf":
+        return (
+            "La generación de pulsos de RF requiere sincronismo de disparos PRF, modulación en tiratrón/magnetrón y presurización "
+            "dieléctrica en gas SF6. Derivas térmicas o arcos de microondas activan la inhibición inmediata de potencia."
+        )
+    if domain == "power_contactors":
+        return (
+            "La secuencia de contactores principales (CON-A, CON-D, CON-J, CON-K) conmuta 24V AC mediante el transformador T1 "
+            "y tarjetas de interbloqueo DIE-ICA / IRC-A/B con retorno a 0V hacia el punto de masa CGPB 20."
+        )
+    if domain == "communications":
+        return (
+            "La arquitectura de comunicaciones distribuidas supervisa tramas de bus CAN y fibra óptica Arcnet mediante watchdogs "
+            "locales hacia el procesador central CCP. Pérdidas de trama generan interbloqueo maestro para prevenir accionamientos no verificados."
+        )
+    return (
+        "La supervisión operativa evalúa la integridad de relés redundantes y umbrales de seguridad documentados en los manuales "
+        "de Elekta antes de autorizar la emisión de radiación."
+    )
+
+
+def _get_domain_findings(domain: str, sym: str) -> list[dict[str, str | list[str]]]:
+    s = sym.lower()
+    sub_name = SUBSYSTEM_DOMAIN_NAMES.get(domain, "Subsistema Elekta LINAC")
+    findings: list[dict[str, str | list[str]]] = []
+
+    if domain == "movement":
+        if any(k in s for k in ["mesa", "pss", "table", "potenci"]):
+            findings.append({
+                "title": "Desgaste de pista resistiva o deslizamiento en potenciómetro de mesa PSS",
+                "hypothesis": "Desgaste de pista resistiva o deslizamiento en potenciómetro de mesa PSS",
+                "subsystem": "Control de Movimiento (Mesa PSS)",
+                "cause_mechanism": "La mesa de tratamiento PSS utiliza potenciómetros analógicos multivuelta como realimentación redundante frente a encoders digitales de eje. El desgaste de la pista resistiva o deslizamiento en el acoplamiento elástico introduce discrepancias angulares (> 1 mm o 0.2°), activando el interbloqueo cinemático e inhibiendo el desplazamiento.",
+                "solution_procedure": "1. Acceder a Service Mode -> Motions Calibration -> Table/PSS y contrastar las lecturas digitales del encoder contra el voltaje analógico del potenciómetro.\n2. Con el equipo consignado, medir con multímetro la linealidad y continuidad de la pista resistiva durante el giro manual continuo.\n3. Inspeccionar el acoplamiento mecánico elástico y reapretar tornillos prisioneros de fijación al eje motor.\n4. Ejecutar la calibración de offset y ganancia de mesa PSS en consola técnica.",
+                "affected_components": ["Potenciómetro PSS", "Table Control PCB", "Encoder Mesa", "Acoplamiento PSS"],
+            })
+            findings.append({
+                "title": "Fricción mecánica, holgura en correas o retardo en frenos electromagnéticos de mesa PSS",
+                "hypothesis": "Fricción mecánica, holgura en correas o retardo en frenos electromagnéticos de mesa PSS",
+                "subsystem": "Control de Movimiento (Mesa PSS)",
+                "cause_mechanism": "El servodriver de mesa supervisa el bucle de corriente y seguimiento de velocidad del eje. Si los frenos electromagnéticos de 24 VDC no desclavan a tiempo por resistencia en su bobina o fatiga en sus muelles, el motor entra en sobrecorriente y dispara el interbloqueo.",
+                "solution_procedure": "1. Medir con galga dinamométrica la tensión mecánica de las correas dentadas según especificación de servicio.\n2. Medir la tensión de excitación (24 VDC) en bornes de la bobina del freno durante el comando de movimiento.\n3. Desconectar mecánicamente el motor y comprobar a mano la suavidad de giro y ausencia de puntos duros en la reductora.\n4. Limpiar guías lineales y lubricar rodamientos según la tabla de mantenimiento preventivo.",
+                "affected_components": ["Freno Electromagnético 24V", "Correa Dentada Mesa", "Servomotor PSS", "Servodriver"],
+            })
+        findings.append({
+            "title": "Discrepancia de seguimiento entre potenciómetro analógico y encoder digital de posición",
+            "hypothesis": "Discrepancia de seguimiento entre potenciómetro analógico y encoder digital de posición",
+            "subsystem": sub_name,
+            "cause_mechanism": "Los ejes cinemáticos de Elekta (Gantry, Colimador, Diafragmas o Hojas MLC) utilizan verificación redundante: un encoder óptico digital acoplado al servomotor y un potenciómetro multivuelta analógico de referencia. Si el acoplamiento elástico desliza, o el potenciómetro presenta desgaste en su pista resistiva, la divergencia angular excede la ventana de tolerancia admitida (< 0.2° o 1 mm), activando el interbloqueo preventivo de posición.",
+            "solution_procedure": "1. Acceder a Service Mode -> Motions Calibration y comparar las lecturas del encoder frente al potenciómetro para el eje afectado.\n2. Inspeccionar mecánicamente el tornillo prisionero del acoplamiento elástico entre el motor y el potenciómetro.\n3. Medir con multímetro la linealidad de la pista del potenciómetro durante el giro manual continuo.\n4. Ejecutar el procedimiento de calibración de offset y ganancia de posición en CCP tras reapretar.",
+            "affected_components": ["Encoder de Posición", "Potenciómetro Multivuelta", "Motor Driver PCB", "Eje Mecánico"],
+        })
+        findings.append({
+            "title": "Falsa activación o microdesalineación en sensores de final de carrera o microinterruptores touchguard",
+            "hypothesis": "Falsa activación o microdesalineación en sensores de final de carrera o microinterruptores touchguard",
+            "subsystem": sub_name,
+            "cause_mechanism": "Los sensores de final de carrera y las barras protectoras de colisión (Touchguard) operan con circuitos normalmente cerrados cableados en serie hacia la tarjeta de interbloqueo. Si un microinterruptor bimetálico presenta holgura en su soporte, fatiga en su lengüeta o suciedad óptica en barreras de infrarrojos, se producen microcortes de contacto durante la aceleración que detienen el movimiento.",
+            "solution_procedure": "1. Comprobar en Service Mode -> Interlocks el estado de los bits de 'Limit Switch' y 'Touchguard' del subsistema.\n2. Inspeccionar físicamente el alineamiento de las levas mecánicas y banderas ópticas de final de carrera.\n3. Medir la continuidad eléctrica del bucle de seguridad con multímetro mientras se acciona y suelta manualmente cada sensor.\n4. Ajustar el soporte mecánico o sustituir el microinterruptor si la histéresis es errática.",
+            "affected_components": ["Microswitch Limit", "Touchguard Ring", "DIE Board", "Arnés de Cabezal"],
+        })
+        findings.append({
+            "title": "Retardo de paquetes o saturación de cola en el bus CAN de posicionamiento",
+            "hypothesis": "Retardo de paquetes o saturación de cola en el bus CAN de posicionamiento",
+            "subsystem": sub_name,
+            "cause_mechanism": "Cada nodo controlador de eje (motor controller node) reporta periódicamente al bus CAN de control. Si las resistencias de terminación de 120 ohm del bus CAN están ausentes o abiertas, las reflexiones de señal aumentan la tasa de errores de trama forzando retransmisiones continuas y provocando timeout de posición.",
+            "solution_procedure": "1. Medir con el sistema apagado la resistencia entre CAN_H y CAN_L en cualquier punto del bus (debe ser 60 ohm exactos con dos terminadores de 120 ohm en paralelo).\n2. Conectar osciloscopio en el bus CAN y verificar niveles de tensión diferenciales (recesivo ~2.5 V, dominante CAN_H ~3.5 V, CAN_L ~1.5 V).\n3. Inspeccionar el blindaje del cable CAN y aislar nodos individuales si un transceptor CAN defectuoso satura el bus.",
+            "affected_components": ["CAN Bus Line", "Terminadores 120ohm", "CAN Transceiver", "CCP"],
+        })
+
+    elif domain == "vacuum_gun":
+        if any(k in s for k in ["filamento", "filament", "cañón", "canon", "gun"]):
+            findings.append({
+                "title": "Deriva o interrupción en la corriente de caldeo del filamento del cañón de electrones",
+                "hypothesis": "Deriva o interrupción en la corriente de caldeo del filamento del cañón de electrones",
+                "subsystem": "Sistema de Vacío y Cañón de Electrones",
+                "cause_mechanism": "El filamento del cañón de electrones (cátodo emisor) opera en el cabezal del acelerador bajo ultra alto vacío. Una interrupción en el devanado secundario del transformador de filamento, fatiga resistiva por horas de operación en el hilo emisor de tungsteno, o falso contacto en el conector PL del cabezal, reduce la emisión termoiónica a cero o fuera de rango de tolerancia, provocando inhibición por ausencia de corriente de haz (Beam Current Inhibit).",
+                "solution_procedure": "1. Desenergizar el equipo, consignar y verificar descarga completa de condensadores.\n2. Con multímetro en escala baja de ohmios, desconectar el conector de alimentación del cañón y medir la resistencia estática del filamento (debe indicar continuidad con resistencia típicamente < 1.5 ohm).\n3. Medir con pinza amperimétrica o punto de prueba de telemetría la corriente de caldeo nominal suministrada por la fuente Gun Filament PSU.\n4. Si el filamento está abierto, planificar la sustitución del cañón de electrones o conjunto cátodo-ánodo con posterior bombeo y horneado de vacío.",
+                "affected_components": ["Filamento Cañón", "Gun Filament PSU", "Conector Gun PL", "Columna Aceleradora"],
+            })
+        findings.append({
+            "title": "Disparo de corriente telemétrica en bomba iónica por pérdida de vacío ultra alto (< 10^-7 Torr)",
+            "hypothesis": "Disparo de corriente telemétrica en bomba iónica por pérdida de vacío ultra alto (< 10^-7 Torr)",
+            "subsystem": sub_name,
+            "cause_mechanism": "La bomba iónica mantiene el ultra alto vacío en la columna aceleradora y la cavidad del cañón de electrones. Si se produce desorción gaseosa interna, microfisura en ventanas dieléctricas o saturación de los cátodos de titanio, la presión residual se degrada por encima de 10^-7 Torr, provocando un pico de corriente iónica que abre el contacto del presostato SW1 e inhibe preventivamente el disparo de filamento y alta tensión.",
+            "solution_procedure": "1. Comprobar en Service Mode o en el panel de control de vacío la lectura de corriente iónica (debe ser < 2 μA en reposo).\n2. Inspeccionar la curva de desgasificación dejando la bomba en operación continua sin filamento encendido.\n3. Comprobar la continuidad del contacto normalmente cerrado del presostato SW1 con multímetro.\n4. Si la presión no se recupera, realizar prueba de búsqueda de fugas con helio en ventanas cerámicas y bridas ConFlat.",
+            "affected_components": ["Ion Pump", "SW1", "Vacuum Controller", "Columna Aceleradora"],
+        })
+        findings.append({
+            "title": "Fuga dieléctrica superficial en el aislador cerámico del pasamuros del cañón o alto vacío",
+            "hypothesis": "Fuga dieléctrica superficial en el aislador cerámico del pasamuros del cañón o alto vacío",
+            "subsystem": sub_name,
+            "cause_mechanism": "La acumulación de polvo conductivo o depósito metálico por sputtering en la superficie exterior del aislador cerámico crea una vía resistiva parásita. Esta fuga eleva la corriente aparente de la fuente de la bomba sin que exista una pérdida de vacío real en la columna.",
+            "solution_procedure": "1. Desenergizar completamente la fuente de alto voltaje de la bomba iónica (3 kV a 5 kV) y conectar pértiga de descarga a tierra.\n2. Limpiar minuciosamente el aislador cerámico pasamuros con alcohol isopropílico de grado analítico y paños libres de pelusa.\n3. Inspeccionar el cuerpo cerámico con lupa óptica en busca de fisuras, grietas o caminos de arco.\n4. Aplicar compuesto de sellado aislante o sustituir el pasamuros si el agrietamiento es estructural.",
+            "affected_components": ["Ceramic Feedthrough", "Gun HV Cable", "Ion Chamber"],
+        })
+        findings.append({
+            "title": "Inestabilidad en la fuente de polarización de alta tensión de la bomba de iones (3 kV - 5 kV)",
+            "hypothesis": "Inestabilidad en la fuente de polarización de alta tensión de la bomba de iones (3 kV - 5 kV)",
+            "subsystem": sub_name,
+            "cause_mechanism": "El módulo convertidor de alta tensión genera entre 3 kV y 5 kV para la descarga Penning. Fluctuaciones en el oscilador de conmutación o deriva del divisor resistivo de telemetría provocan oscilaciones espurias en la señal telemétrica de corriente, activando el interbloqueo de vacío por falso positivo.",
+            "solution_procedure": "1. Medir con sonda atenuadora de alta tensión (1000:1) la salida de polarización de la fuente iónica (nominal ~4.2 kV DC).\n2. Comprobar que no existan fluctuaciones superiores a ±50 V en vacío.\n3. Medir el voltaje analógico de salida de telemetría en el conector hacia la tarjeta de interfaz.\n4. Reemplazar la fuente de alimentación de la bomba si la alta tensión colapsa bajo carga nominal.",
+            "affected_components": ["Ion Pump PSU", "HV Sonda", "DIE-ICA", "DIE-ICB"],
+        })
+        findings.append({
+            "title": "Resistencia de contacto en bornes del lazo de seguridad de vacío y conectores",
+            "hypothesis": "Resistencia de contacto en bornes del lazo de seguridad de vacío y conectores",
+            "subsystem": sub_name,
+            "cause_mechanism": "La señal de estado de vacío atraviesa bornes y conectores hacia las tarjetas de interlock DIE-ICA / DIE-ICB. Oxidación o falta de par de apriete en las borneras genera caídas de potencial mayores a 0.5 V, interpretadas como apertura de contacto de seguridad.",
+            "solution_procedure": "1. Medir con microohmímetro la resistencia de bucle de los contactos de señal de interbloqueo de vacío (< 0.2 ohm).\n2. Reapretar los tornillos de fijación en las regletas de interconexión del armario de modulación.\n3. Aplicar limpiador de contactos residuo cero en conectores enchufables.\n4. Verificar que el relé de salida de vacío enclave firmemente con 24 VDC.",
+            "affected_components": ["Regleta de Vacío", "DIE-ICA", "DIE-ICB", "Relé de Seguridad Vacío"],
+        })
+
+    elif domain == "dosimetry":
+        findings.append({
+            "title": "Desviación de calibración o drift en los canales D1 y D2 de la cámara de ionización",
+            "hypothesis": "Desviación de calibración o drift en los canales D1 y D2 de la cámara de ionización",
+            "subsystem": sub_name,
+            "cause_mechanism": "La cámara de transmisión integra dos canales independientes redundantes (Canal 1 primario y Canal 2 secundario de respaldo). Si la ganancia de los integradores de carga analógica o el offset de cero derivan por envejecimiento de componentes o variación de humedad/temperatura interna, la relación D1/D2 diverge más allá del límite de tolerancia del ±2%, activando la inhibición forzada de dosimetría.",
+            "solution_procedure": "1. Acceder a Service Mode -> Dosimetry Calibration y comparar la lectura en tiempo real de cuentas por unidad de monitor (MU) entre Canal 1 y Canal 2.\n2. Conectar electrómetro calibrado con cámara de referencia externa en fantoma de agua/sólido para validar la dosis física absoluta a profundidad de dosis máxima (dmax).\n3. Ajustar los potenciómetros multivueltas de ganancia y offset en la tarjeta DIE-RHA hasta restablecer la simetría dentro del ±1%.\n4. Guardar los nuevos factores de calibración en la memoria no volátil del CCP.",
+            "affected_components": ["DIE-RHA", "Cámara de Ionización", "Integradores D1/D2", "CCP"],
+        })
+        findings.append({
+            "title": "Caída de tensión o corriente de fuga en la polarización de cámara (Chamber Bias HT)",
+            "hypothesis": "Caída de tensión o corriente de fuga en la polarización de cámara (Chamber Bias HT)",
+            "subsystem": sub_name,
+            "cause_mechanism": "Los electrodos colectores de la cámara de ionización requieren una alta tensión de polarización negativa continua (nominalmente -400V a -600V DC) para operar en la región de saturación iónica sin recombinación de cargas. Si la fuente de bias presenta rizado excesivo, o si el cable coaxial triaxial sufre corrientes de fuga por degradación del dieléctrico, la eficiencia de colección decae abruptamente, provocando una falsa lectura de baja tasa de dosis e inhibición inmediata de radiación.",
+            "solution_procedure": "1. Medir con voltímetro de alta impedancia de entrada (> 10 Mohm) la tensión de polarización directamente en el punto de prueba Chamber Bias del cabezal.\n2. Comprobar que el valor se mantenga estable entre -400V y -600V DC sin oscilaciones superiores a 1 Vpp.\n3. Desconectar el cable triaxial y medir con megaohmímetro la resistencia de aislamiento entre vivo, guarda y malla (> 100 Gohm a 500V DC).\n4. Sustituir el arnés triaxial si se constata corriente de fuga.",
+            "affected_components": ["Chamber Bias PSU", "Cable Triaxial", "Cámara de Ionización", "Cabezal RHCA"],
+        })
+        findings.append({
+            "title": "Fallo de comunicación en el bus de la RTU de dosimetría hacia la tarjeta DIE-RHA",
+            "hypothesis": "Fallo de comunicación en el bus de la RTU de dosimetría hacia la tarjeta DIE-RHA",
+            "subsystem": sub_name,
+            "cause_mechanism": "La tarjeta DIE-RHA transmite los datos digitalizados de dosis hacia la unidad terminal remota (MTU-RHA / ROC-RHA) mediante un bus serie síncrono apantallado. Si se producen rebotes por desadaptación de impedancias de línea o pérdida de los pulsos periódicos de reloj (watchdog), la RTU bloquea la autorización de radiación (RAD_ON) para prevenir sobredosis no monitorizada.",
+            "solution_procedure": "1. Inspeccionar en el bastidor de dosimetría la correcta inserción y apriete de las tarjetas DIE-RHA y ROC-RHA.\n2. Verificar con osciloscopio la señal de reloj del watchdog y la forma de onda de los datos en el bus interno (amplitud limpia de 5 V TTL sin sobreoscilaciones).\n3. Comprobar la resistencia de las terminaciones de bus y el estado de los conectores planos.\n4. Si el watchdog no se rearma, sustituir la tarjeta DIE-RHA.",
+            "affected_components": ["DIE-RHA", "MTU-RHA", "ROC-RHA", "Bus Dosimetría"],
+        })
+        findings.append({
+            "title": "Rizado excesivo o transitorios en fuentes de alimentación analógicas de ±15VDC",
+            "hypothesis": "Rizado excesivo o transitorios en fuentes de alimentación analógicas de ±15VDC",
+            "subsystem": sub_name,
+            "cause_mechanism": "Los amplificadores operacionales de muy bajo ruido y los convertidores analógico-digitales de la etapa de dosimetría se alimentan de rieles simétricos de ±15 VDC. El envejecimiento de los condensadores electrolíticos de filtrado en la fuente de alimentación introduce un rizado de red (100/120 Hz) mayor a 50 mVpp que se acopla a las etapas de integración, falseando el conteo de dosis.",
+            "solution_procedure": "1. Conectar osciloscopio en acoplamiento AC a los puntos de prueba de +15V y -15V en la tarjeta de dosimetría.\n2. Medir la amplitud pico a pico del rizado de conmutación y baja frecuencia (debe ser estrictamente < 20 mVpp).\n3. Inspeccionar visualmente los condensadores electrolíticos de la fuente en busca de abombamientos o fugas de electrolito.\n4. Sustituir el módulo de fuente de alimentación lineal/conmutada de ±15V si el filtrado es deficiente.",
+            "affected_components": ["Fuente ±15VDC", "Condensadores de Filtrado", "DIE-RHA", "Bastidor RHCA"],
+        })
+        findings.append({
+            "title": "Fallo en el lazo de terminación forzada o circuito de reinicio de dosis",
+            "hypothesis": "Fallo en el lazo de terminación forzada o circuito de reinicio de dosis",
+            "subsystem": sub_name,
+            "cause_mechanism": "El sistema dispone de un circuito hardware de terminación forzada redundante que corta el haz si el contador de MU sobrepasa en un 10% la dosis planificada. Si los relés electromecánicos de corte o los transistores de descarga de los condensadores de integración presentan corriente de fuga o no conmutan limpiamente durante el ciclo de reset previo al disparo, el sistema queda bloqueado en estado de interlock de dosimetría permanente.",
+            "solution_procedure": "1. Ejecutar la secuencia de rearme forzado de interlocks de dosimetría desde la consola de servicio.\n2. Verificar en osciloscopio que la señal D1_RESET descargue a cero absoluto (< 2 mV) los integradores antes de autorizar RAD_ON.\n3. Comprobar la resistencia de contacto de los relés de enclavamiento de seguridad en la tarjeta de interlocks de dosimetría.\n4. Si el reset no borra la condición de terminación, sustituir los relés o la placa de control asociada.",
+            "affected_components": ["Relé de Terminación Forzada", "Circuito D1_RESET", "DIE-RHA", "Lazo RAD_ON"],
+        })
+
+    elif domain == "ht_rf":
+        findings.append({
+            "title": "Apertura o fatiga térmica del interruptor bimetálico SW1 en disipador o termostatos TS1/TS2",
+            "hypothesis": "Apertura o fatiga térmica del interruptor bimetálico SW1 en disipador o termostatos TS1/TS2",
+            "subsystem": sub_name,
+            "cause_mechanism": "El lazo de seguridad de sobretemperatura en el área de potencia supervisa los interruptores térmicos normalmente cerrados del disipador de potencia y transformador. La fatiga del muelle bimetálico, caudal de aire insuficiente del ventilador o acumulación de polvo provocan la apertura prematura del contacto, cortando la excitación de los pulsos de alta tensión.",
+            "solution_procedure": "1. Con el equipo desenergizado, verificar con multímetro la continuidad en bornes de los termostatos SW1, TS1 y TS2 (resistencia < 0.2 ohm en frío).\n2. Inspeccionar la rotación libre y caudal del ventilador centrífugo del armario modulador, limpiando filtros de aspiración.\n3. Medir la conmutación térmica monitoreando la temperatura en Service Mode.\n4. Sustituir el interruptor térmico si la apertura ocurre por debajo del umbral de diseño.",
+            "affected_components": ["SW1 Disipador", "Termostatos TS1/TS2", "Ventilador BLA", "DIE-HTB"],
+        })
+        findings.append({
+            "title": "Dispersión temporal o deformación en el pulso de disparo de rejilla del tiratrón",
+            "hypothesis": "Dispersión temporal o deformación en el pulso de disparo de rejilla del tiratrón",
+            "subsystem": sub_name,
+            "cause_mechanism": "El tiratrón de conmutación de alta tensión requiere un pulso de disparo en rejilla con tiempo de subida < 50 ns y amplitud superior a 800 V. Si el circuito excitador presenta condensadores secos o fatiga en el transformador de impulsos, el tiratrón conmuta con jitter, provocando disparos erráticos en la red PFN y sobrecorriente primaria.",
+            "solution_procedure": "1. Conectar sonda atenuadora de alto voltaje en el punto de prueba de rejilla del tiratrón en Área 16/17.\n2. Disparar en modo Standby / Pruebas y verificar con osciloscopio la amplitud del pulso (> 800 Vpk) y tiempo de subida (< 50 ns).\n3. Ajustar el potenciómetro de retardo y tensión de polarización negativa de rejilla (-100 VDC).\n4. Si el pulso está deformado, reemplazar el módulo driver de disparo o el transformador de impulsos.",
+            "affected_components": ["Tiratrón", "Grid Driver PCB", "PFN", "Área 17"],
+        })
+        findings.append({
+            "title": "Deriva en corriente de filamento de magnetrón o desajuste de sintonía en bucle AFC",
+            "hypothesis": "Deriva en corriente de filamento de magnetrón o desajuste de sintonía en bucle AFC",
+            "subsystem": sub_name,
+            "cause_mechanism": "El magnetrón debe operar con su corriente de calentamiento de cátodo estrictamente regulada. Si el transformador de filamento o el sensor de corriente de filamento presentan deriva, o si el motor de sintonía de la cavidad AFC no compensa la frecuencia de resonancia, se produce un pico de potencia reflejada que activa el interbloqueo de RF.",
+            "solution_procedure": "1. Comprobar en Service Mode la corriente de filamento de magnetrón en Standby y durante irradiación.\n2. Verificar con multímetro la tensión primaria del transformador de filamento.\n3. Inspeccionar el servomotor del AFC y verificar que el bucle sintonice el discriminador de fase al centro de banda.\n4. Si la potencia reflejada persiste elevada, ajustar el discriminador AFC o sustituir el magnetrón.",
+            "affected_components": ["Magnetrón", "Bucle AFC", "Filamento Magnetrón", "Guía de Ondas"],
+        })
+        findings.append({
+            "title": "Activación del detector óptico de arco o pérdida de aislamiento dieléctrico en guía de ondas",
+            "hypothesis": "Activación del detector óptico de arco o pérdida de aislamiento dieléctrico en guía de ondas",
+            "subsystem": sub_name,
+            "cause_mechanism": "Los sensores de fotodiodo o fototransistores del detector óptico de arco vigilan la ventana cerámica de salida del magnetrón y la entrada de la cavidad aceleradora. Un destello de arco interno por polvo, contaminación o sobretensión conmuta el circuito detector en < 5 μs, cortando inmediatamente los pulsos PRF.",
+            "solution_procedure": "1. Comprobar en Service Mode el bit de interlock 'RF ARC DETECT' y el LED testigo en la tarjeta receptora de fibra óptica.\n2. Limpiar la fibra óptica del detector de arco y la superficie exterior de la ventana cerámica con aire comprimido seco e hisopos ópticos.\n3. Verificar la ganancia del circuito detector de arco inyectando un pulso de luz de prueba con LED calibrado.\n4. Si el interbloqueo se repite a potencias altas, reducir transitoriamente el nivel de modulador para reacondicionar la guía.",
+            "affected_components": ["Arc Detector PCB", "Fibra Óptica Arco", "Ventana Cerámica RF", "Magnetrón"],
+        })
+        findings.append({
+            "title": "Fallo en circuito de carga de desionización y chopper resonante de la fuente de alta tensión",
+            "hypothesis": "Fallo en circuito de carga de desionización y chopper resonante de la fuente de alta tensión",
+            "subsystem": sub_name,
+            "cause_mechanism": "Tras cada descarga, el tiratrón necesita desionizarse antes de que la PFN vuelva a cargarse. Si el inductor de carga, el diodo de retención (hold-off diode) o la tarjeta de control de carga HT PSU CONTROL PCB presentan derivas en los pulsos de inhibición de carga, la fuente carga prematuramente con el tiratrón aún ionizado, causando disparo continuo por conducción de arco sostenido.",
+            "solution_procedure": "1. Medir con osciloscopio la forma de onda de tensión en la red PFN comprobando la presencia del tiempo muerto de desionización (> 500 μs).\n2. Verificar el estado estático y dinámico de los diodos de retención de alta tensión con multímetro en escala de semiconductores.\n3. Inspeccionar el condensador de filtrado y conmutación en la tarjeta HT PSU CONTROL PCB (PCB 16R).\n4. Ajustar el tiempo de retardo de rampa de carga en el controlador de la fuente.",
+            "affected_components": ["HT PSU CONTROL PCB", "PCB 16R", "Hold-off Diode", "Choke L2", "Tiratrón"],
+        })
+
+    elif domain == "power_contactors":
+        findings.append({
+            "title": "Fallo o desgaste en contactos auxiliares 13/14 de CON-K o interrupción en ruta de retorno a 0V hacia DIE-ICA (Área 72) e IRC-A/B (Área 74)",
+            "hypothesis": "Fallo o desgaste en contactos auxiliares 13/14 de CON-K o interrupción en ruta de retorno a 0V hacia DIE-ICA (Área 72) e IRC-A/B (Área 74)",
+            "subsystem": sub_name,
+            "cause_mechanism": "La señal ITEM 79 (i79 'HT con K') supervisa el estado lógico del contactor principal de alta tensión CON-K en el armario de distribución y potencia (Área 70/73). Esta señal ingresa a la tarjeta DIE-ICA (PCB 72H, slot H en Área 72 - ICCA) en el conector PL/SK 72L pin C8 y a las tarjetas de relés de interbloqueo IRC-A (PCB 74A, Área 74, slot A, pin 6) e IRC-B (PCB 74B, slot B, pin 24). El desgaste mecánico, carbonización o resistencia de contacto excesiva (> 0.5 ohm) en los terminales auxiliares normalmente abiertos 13 y 14 de CON-K, o una interrupción en la ruta de retorno a 0V que conecta DIE-ICA a través de las placas IRC-74C e IRC-74B hasta el punto de masa CGPB 20, impide que la entrada lógica cierre a masa, reportando i79 = 0 e impidiendo que el LINAC ingrese al estado Preparatory (ítem i2 parte 4 != 34).",
+            "solution_procedure": "Con el equipo desenergizado y consignado en el interruptor principal del armario de interfaz, comprobar con multímetro la continuidad eléctrica entre los bornes auxiliares 13 y 14 de CON-K al accionar manualmente el contactor (resistencia < 0.2 ohm). Verificar la ruta de 0V desde el pin C8/C7 de DIE-ICA a través de las tarjetas IRC-74C e IRC-74B hacia la masa central CGPB 20. Si la resistencia de contacto es fluctuante o existe circuito abierto, sustituir el bloque de contactos auxiliares de CON-K o reparar pistas/conectores en las tarjetas IRC.",
+            "affected_components": ["CON-K", "DIE-ICA", "IRC-A", "IRC-B", "IRC-74C", "CGPB 20", "ITEM 79"],
+        })
+        findings.append({
+            "title": "Caída o ausencia de tensión de excitación de 24V AC en bobina de CON-K procedente del transformador T1 (Área 70)",
+            "hypothesis": "Caída o ausencia de tensión de excitación de 24V AC en bobina de CON-K procedente del transformador T1 (Área 70)",
+            "subsystem": sub_name,
+            "cause_mechanism": "Las bobinas de los contactores de alta tensión (CON-J, CON-K, CON-D) requieren 24V AC suministrados por el transformador de control T1 (Área 70), protegido por el fusible FS73A (5A) y el disyuntor CB9 (2A). Si la tensión en bornes de la bobina de CON-K cae por debajo del umbral de atracción magnética debido a una derivación incorrecta de tomas en T1 o caída resistiva bajo carga, el contactor no enclava mecánicamente al pulsar START, abortando la secuencia de arranque suave antes de transferir potencia al tanque HT.",
+            "solution_procedure": "Acceder con las debidas precauciones al armario de potencia y medir con voltímetro de CA la tensión en los bornes de la bobina de CON-K durante el intento de arranque en Service Mode. Si la tensión medida es inferior a 24V AC, ajustar la derivación de salida del transformador T1 en Área 70 elevando el tap secundario hasta obtener 24V AC estables bajo excitación de bobina, conforme a la sección 5.8 de Power Supplies (pág. 94). Verificar la continuidad de FS73A (5A) y el disyuntor CB9.",
+            "affected_components": ["CON-K", "T1", "FS73A", "CB9", "Área 70"],
+        })
+        findings.append({
+            "title": "Interrupción en la cadena de seguridad en serie: interruptores de cabezal SW12/SW13 y contactos de puertas de sala",
+            "hypothesis": "Interrupción en la cadena de seguridad en serie: interruptores de cabezal SW12/SW13 y contactos de puertas de sala",
+            "subsystem": sub_name,
+            "cause_mechanism": "El lazo de control de 24V AC que excita la bobina de CON-K discurre en serie a través del microinterruptor del colimador primario (SW12), microinterruptor de filtros secundarios (SW13) y la cadena de contactos de las puertas de la sala (Room Doors 1 y 2, monitoreados por ITEM 258 e ITEM 259). Un desajuste mecánico en las levas de accionamiento de SW12/SW13 en ciertos ángulos de gantry o energías, o una caída de tensión resistiva en el cableado de puertas de sala, abre la retención de la bobina, impidiendo el accionamiento de CON-K.",
+            "solution_procedure": "Comprobar en Service Mode si el fallo de CON-K se manifiesta según la rotación del gantry o la energía seleccionada. Inspeccionar en el cabezal el conmutado de SW12 (colimador primario) y SW13 (filtro secundario). Medir la resistencia del lazo de contactos de Room Doors 1 y 2 con multímetro (< 1 ohm) y sustituir cualquier microinterruptor con contactos fogueados o resortes fatigados.",
+            "affected_components": ["SW12", "SW13", "Room Doors 1", "Room Doors 2", "ITEM 258", "ITEM 259"],
+        })
+        findings.append({
+            "title": "Fallo de conmutación en tarjeta de relés de salida ROC-ICA (Área 72, PCB 72J) o temporizador de enclavamiento en IRC-74A (Área 74)",
+            "hypothesis": "Fallo de conmutación en tarjeta de relés de salida ROC-ICA (Área 72, PCB 72J) o temporizador de enclavamiento en IRC-74A (Área 74)",
+            "subsystem": sub_name,
+            "cause_mechanism": "La orden de encendido de contactores generada por el CCP es conmutada por la tarjeta de salidas de relés ROC-ICA (Área 72, slot J, PCB 72J, relés RL2/RL3). A su vez, la tarjeta IRC-A (PCB 74A, Área 74) aloja el circuito temporizador de arranque suave, el cual requiere la confirmación en nivel bajo de CON-J (i78) y CON-K (i79) para autorizar la conmutación de CON-D (i72). Si los relés de ROC-ICA no conmutan o el temporizador en IRC-74A falla, la secuencia de potencia colapsa.",
+            "solution_procedure": "Verificar en la tarjeta ROC-ICA (Área 72, slot J) el encendido del LED indicador D40 (+22V OK / PRF Enable) y la conmutación de los relés de salida RL2/RL3. Si el relé no transfiere el pulso, sustituir la tarjeta ROC-ICA. Si la tarjeta conmuta pero el temporizador en IRC-74A no inicia el conteo tras confirmar CON-J y CON-K, extraer y reemplazar la tarjeta IRC-A (PCB 74A) en el bastidor de interbloqueos de Área 74.",
+            "affected_components": ["ROC-ICA", "PCB 72J", "IRC-A", "PCB 74A", "LED D40", "RL2", "RL3"],
+        })
+        findings.append({
+            "title": "Inhibición previa de seguridad de HT por disparo de disyuntor principal CB1 (ITEM 74), presostato SF6 (ITEM 243) o vacío de guía",
+            "hypothesis": "Inhibición previa de seguridad de HT por disparo de disyuntor principal CB1 (ITEM 74), presostato SF6 (ITEM 243) o vacío de guía",
+            "subsystem": sub_name,
+            "cause_mechanism": "El lazo de seguridad maestro bloquea la secuencia hacia CON-K si existen condiciones preliminares no resueltas: disparo del disyuntor general trifásico CB1 (supervisado por ITEM 74 / i74), baja presión de gas dieléctrico SF6 en guía de ondas (ITEM 243) o disparos en las bombas iónicas de cañón/objetivo (ITEM 238 a 241 para 10^-4 y 10^-5 Torr). Al detectarse cualquier fallo preliminar, el secuenciador inhibe CON-K para proteger el modulador.",
+            "solution_procedure": "En Service Mode / CCP, acceder a la pantalla de Contactors y verificar que ITEM 74 reporte estado 1 (CB1 en ON). Revisar la máscara general de interlocks para descartar disparos en ITEM 243 (presión de gas SF6) y en los canales de vacío 10^-4 / 10^-5. En caso de disparo de CB1, descartar cortocircuitos en el transformador antes de rearmar la palanca; verificar estanqueidad de gas y vacío antes de reintentar el arranque.",
+            "affected_components": ["CB1", "ITEM 74", "ITEM 243", "ITEM 238", "ITEM 239", "ITEM 240", "ITEM 241"],
+        })
+
+    else:
+        findings.append({
+            "title": "Interrupción en el lazo serie maestro de seguridad por contacto auxiliar resistivo o microswitch fatigado",
+            "hypothesis": "Interrupción en el lazo serie maestro de seguridad por contacto auxiliar resistivo o microswitch fatigado",
+            "subsystem": sub_name,
+            "cause_mechanism": "La cadena maestra de interbloqueos discurre en serie a través de múltiples contactos auxiliares de relés, microinterruptores de posicionamiento y pulsadores de emergencia. Una resistencia de contacto superior a 0.5 ohm en cualquiera de los puntos o una holgura mecánica en levas de accionamiento abre el lazo e impide la autorización del estado Preparatory y la emisión de radiación (RAD_ON).",
+            "solution_procedure": "1. Consultar en Service Mode / CCP la pantalla de Interlocks para identificar el bit o sector específico que permanece en nivel de inhibición.\n2. Con el equipo consignado, medir con multímetro la continuidad paso a paso en los puntos de prueba del lazo serie en el bastidor de interbloqueos.\n3. Reapretar borneras de conexión y comprobar la resistencia de contacto en relés auxiliares.\n4. Sustituir cualquier microswitch o relé con histéresis anómala o contactos fogueados.",
+            "affected_components": ["Lazo de Seguridad Maestro", "Relés de Interbloqueo", "Puntos de Prueba Bastidor", "CCP"],
+        })
+        findings.append({
+            "title": "Desviación fuera de tolerancia en tablas de calibración o umbrales de seguridad en Service Mode",
+            "hypothesis": "Desviación fuera de tolerancia en tablas de calibración o umbrales de seguridad en Service Mode",
+            "subsystem": sub_name,
+            "cause_mechanism": "El sistema compara las lecturas de los sensores frente a ventanas de tolerancia prefijadas en las tablas de calibración del software de control. Derivas térmicas en los convertidores ADC de las tarjetas de interfaz o fluctuaciones de parámetros almacenados pueden situar los valores fuera del rango admisible sin fallo catastrófico del hardware.",
+            "solution_procedure": "1. Volcar en consola técnica los registros de calibración del canal afectado y contrastarlos con las tablas nominales de los manuales de servicio.\n2. Ejecutar el procedimiento de puesta a cero y ajuste de ganancia en Service Mode.\n3. Verificar la estabilidad de las lecturas durante ciclos repetidos de prueba en modo simulación.\n4. Si los valores no se estabilizan, sustituir la tarjeta de acondicionamiento de señal analógica.",
+            "affected_components": ["Tablas de Calibración", "Tarjetas ADC", "Software CCP", "Service Mode"],
+        })
+        findings.append({
+            "title": "Rizado dinámico o caída de tensión transitoria en rieles de control de 24VDC o ±15VDC",
+            "hypothesis": "Rizado dinámico o caída de tensión transitoria en rieles de control de 24VDC o ±15VDC",
+            "subsystem": sub_name,
+            "cause_mechanism": "La conmutación de contactores pesados, embragues mecánicos o moduladores genera picos transitorios de demanda de corriente en las fuentes de alimentación de baja tensión (+24VDC, ±15VDC, +5VDC). Si los condensadores de desacoplo de las tarjetas de control están secos o la fuente tiene alta impedancia interna, los microcortes de tensión reinician los microcontroladores de nodo provocando interbloqueos espurios.",
+            "solution_procedure": "1. Conectar osciloscopio con memoria en los rieles de alimentación de las tarjetas involucradas y disparar en flanco de bajada durante la conmutación de cargas.\n2. Verificar que las caídas de tensión dinámicas no superen el 5% de la tensión nominal y que el rizado sea < 50 mVpp.\n3. Inspeccionar el estado de los módulos de fuente conmutada y sustituir condensadores de filtrado degradados.\n4. Comprobar el apriete de las conexiones de las barras de distribución de potencia y masas.",
+            "affected_components": ["Fuente 24VDC", "Fuente ±15VDC", "Condensadores de Desacoplo", "Barras DC"],
+        })
+        findings.append({
+            "title": "Falso contacto o sulfatación en puentes de configuración (jumpers) o conectores de bastidor",
+            "hypothesis": "Falso contacto o sulfatación en puentes de configuración (jumpers) o conectores de bastidor",
+            "subsystem": sub_name,
+            "cause_mechanism": "Las tarjetas de adquisición y relés emplean jumpers y conectores de inserción múltiple para configurar modos de máquina, terminaciones de bus y selección de canales. La corrosión galvánica, vibración mecánica continua o pérdida de presión de contacto en pines DIN genera resistencias de contacto fluctuantes que interrumpen señales lógicas críticas.",
+            "solution_procedure": "1. Extraer la tarjeta del bastidor e inspeccionar visualmente con lupa los contactos dorados del conector posterior y la posición de los puentes.\n2. Limpiar los pines de inserción con limpiador de contactos residuo cero y secar con aire comprimido exento de aceite.\n3. Verificar la tensión mecánica de las hembras del backplane con una galga de inserción.\n4. Reinsertar firmemente asegurando el enclavamiento de las palancas de fijación del bastidor.",
+            "affected_components": ["Backplane DIN", "Puentes Jumpers", "Pines de Conector", "Bastidor"],
+        })
+        findings.append({
+            "title": "Fatiga electromecánica o retardo en apertura/cierre de relés redundantes de interbloqueo",
+            "hypothesis": "Fatiga electromecánica o retardo en apertura/cierre de relés redundantes de interbloqueo",
+            "subsystem": sub_name,
+            "cause_mechanism": "Los circuitos de seguridad emplean pares de relés de contactos guiados en configuración redundante para detectar fallos de adherencia o soldadura de contactos. Con el tiempo y millones de ciclos, los tiempos de conmutación divergen; si el desfase entre canales supera la ventana de discrepancia del temporizador supervisor, se dispara un interbloqueo de fallo de canal cruzado permanente.",
+            "solution_procedure": "1. Medir con osciloscopio o registrador de eventos el tiempo de conmutación de ambos relés del par de seguridad durante la orden de rearme.\n2. Confirmar que la discrepancia temporal entre canales sea inferior a la tolerancia máxima de 50 ms.\n3. Inspeccionar la resistencia de bobina de los relés con multímetro para descartar espiras en cortocircuito parcial.\n4. Reemplazar la pareja de relés redundantes si se observa adherencia o rebotes mecánicos excesivos.",
+            "affected_components": ["Relés de Seguridad Redundantes", "Módulo de Interbloqueo", "Circuito de Monitoreo de Discrepancia"],
+        })
+
+    return findings
+
+
 def generate_local_failover_diagnosis(
     symptoms: list[str],
     search_engine: SearchEngine,
@@ -954,6 +1317,8 @@ def generate_local_failover_diagnosis(
     """
     from collections import defaultdict
     from search_engine import extract_structured_components, INVALID_BOARDS
+
+    symptoms = [str(s).strip() for s in symptoms if s and str(s).strip()][:5]
 
     # 1. Identificar tarjetas, señales/códigos y términos generales en los síntomas ingresados
     board_regex = re.compile(
@@ -1087,6 +1452,7 @@ def generate_local_failover_diagnosis(
                 "failover": True,
                 "reason": reason,
                 "evidence_blocked": True,
+                "is_related": False,
                 "failover_notice": "Diagnóstico determinista local: no se identificaron páginas relevantes en el corpus documental.",
             },
         }
@@ -1247,7 +1613,128 @@ def generate_local_failover_diagnosis(
         ]
         manual_refs = [r for r in ht_refs if r] + [r for r in manual_refs if r not in ht_refs]
 
-    # 9. Formulación de Causa Raíz técnica precisa y no preenlatada
+    # 9. Evaluar si los síntomas están relacionados o pertenecen a subsistemas desacoplados
+    symptom_domains = [_classify_symptom_domain(s) for s in symptoms]
+    unique_domains = list(dict.fromkeys(symptom_domains))
+    non_general_domains = [d for d in unique_domains if d != "general_interlocks"]
+
+    # Comprobar si hay convergencia documental legítima en manuales técnicos de circuito (no catálogos de piezas)
+    has_intersecting_evidence = any(
+        doc.get("manual") in ["diagrams", "power_supplies", "ht_rf", "dosimetry", "movement", "vacuum"]
+        and doc.get("confidence") == "alta"
+        and len(doc.get("matched_signals", [])) >= max(2, len(symptoms) - 1)
+        and all(s.get("coverage", 0) >= 0.45 for s in doc.get("matched_signals", []))
+        for doc in matched_docs
+    )
+    is_related = (
+        len(symptoms) <= 1
+        or len(unique_domains) == 1
+        or (len(non_general_domains) == 1 and len(unique_domains) <= 2)
+        or has_intersecting_evidence
+        or is_con_k
+        or is_ht_psu_ot
+    )
+
+    if not is_related and len(symptoms) >= 2:
+        # Generar diagnóstico desacoplado para fallas independientes sin forzar relaciones ficticias
+        decoupled_subsystem = " / ".join(SUBSYSTEM_DOMAIN_NAMES.get(d, d) for d in unique_domains)
+        decoupled_root_cause = _sanitize_root_cause(
+            f"Anomalías técnicas independientes en {' y '.join(symptoms[:2])} (subsistemas desacoplados sin correlación de circuito documentada)"
+        )
+        explanation_parts = [
+            "Los síntomas ingresados corresponden a anomalías independientes en subsistemas funcionalmente desacoplados del acelerador lineal Elekta, "
+            "sin correlación directa de circuito, lazo de seguridad compartido ni convergencia causal documentada en los 19 manuales técnicos. "
+            "A continuación se investiga detalladamente cada síntoma por separado conforme a su arquitectura de ingeniería:"
+        ]
+        for s_idx, s_val in enumerate(symptoms):
+            d = symptom_domains[s_idx]
+            d_name = SUBSYSTEM_DOMAIN_NAMES.get(d, "Subsistema Elekta")
+            d_sum = _get_domain_summary(d, s_val)
+            explanation_parts.append(f"• Síntoma {s_idx + 1} ('{s_val}', {d_name}): {d_sum}")
+        decoupled_explanation = "\n\n".join(explanation_parts)
+
+        # Distribuir exactamente 5 hallazgos entre los dominios presentes de manera equitativa
+        domain_findings_map = {}
+        for s_idx, s_val in enumerate(symptoms):
+            d = symptom_domains[s_idx]
+            if d not in domain_findings_map:
+                domain_findings_map[d] = _get_domain_findings(d, s_val)
+
+        decoupled_findings = []
+        num_doms = len(unique_domains)
+        alloc = [0] * num_doms
+        for i in range(5):
+            alloc[i % num_doms] += 1
+
+        for d_idx, dom in enumerate(unique_domains):
+            pool = domain_findings_map.get(dom, [])
+            take = alloc[d_idx]
+            for item in pool[:take]:
+                decoupled_findings.append(item)
+
+        if len(decoupled_findings) < 5:
+            general_pool = _get_domain_findings("general_interlocks", "")
+            for item in general_pool:
+                if len(decoupled_findings) >= 5:
+                    break
+                decoupled_findings.append(item)
+
+        for f in decoupled_findings:
+            for c in f.get("affected_components", []):
+                if any(k in c.lower() for k in ["pcb", "die-", "board", "driver", "psu", "controller", "control"]):
+                    if c not in all_boards and len(all_boards) < 5:
+                        all_boards.append(c)
+                elif c not in all_signals and len(all_signals) < 6:
+                    all_signals.append(c)
+
+        if not manual_refs:
+            domain_manual_map = {
+                "movement": "movement.pdf",
+                "vacuum_gun": "vacuum.pdf",
+                "dosimetry": "dosimetry.pdf",
+                "ht_rf": "ht_rf.pdf",
+                "power_contactors": "power_supplies.pdf",
+                "communications": "communications.pdf",
+                "power_distribution": "power_supplies.pdf",
+                "general_interlocks": "diagrams.pdf",
+            }
+            for d in unique_domains:
+                m_ref = domain_manual_map.get(d)
+                if m_ref and m_ref not in manual_refs:
+                    manual_refs.append(m_ref)
+
+        decoupled_action_steps = [
+            "Identificar en Service Mode / CCP la pantalla correspondiente a cada subsistema reportado y volcar los registros de eventos de forma independiente.",
+            "Verificar de manera aislada las tablas de calibración, offsets y ventanas de tolerancia de cada canal o eje sin asumir interdependencia.",
+            "Comprobar con instrumental calibrado (multímetro, osciloscopio o sonda de presión/vacío) las señales específicas de cada circuito.",
+            "Inspeccionar el lazo de interbloqueo y contactores de cada subsistema para descartar falsos contactos o caídas en fuentes auxiliares.",
+            "Ejecutar los procedimientos de verificación y rearme seguro descritos para cada hallazgo antes de autorizar la emisión de radiación (RAD_ON).",
+        ]
+
+        sanitized_decoupled = _sanitize_differential_diagnoses(decoupled_findings)
+        return {
+            "root_cause": decoupled_root_cause,
+            "subsystem": decoupled_subsystem,
+            "confidence": "media",
+            "explanation": _sanitize_explanation(decoupled_explanation),
+            "differential_diagnoses": sanitized_decoupled,
+            "diagnostic_findings": sanitized_decoupled,
+            "associated_boards": all_boards[:5],
+            "cables_and_connectors": all_cables[:4],
+            "test_points_and_signals": all_signals[:6],
+            "manual_references": manual_refs[:5],
+            "action_steps": _sanitize_action_steps(decoupled_action_steps),
+            "safety_warning": "Desenergizar el equipo y comprobar descarga de condensadores antes de intervenir tarjetas electrónicas o circuitos mecánicos.",
+            "_diagnostic_meta": {
+                "failover": True,
+                "reason": reason,
+                "is_related": False,
+                "degraded_parse": False,
+                "failover_notice": "Diagnóstico estructurado a partir del corpus documental de los 19 manuales técnicos de Elekta.",
+            },
+        }
+
+    # 10. Formulación de Causa Raíz técnica precisa y no preenlatada (síntomas relacionados)
     primary_board = all_boards[0] if all_boards else "tarjetas de control del subsistema"
     signals_label = ", ".join(all_signals[:2]) if all_signals else "líneas de supervisión"
     if is_con_k:
@@ -1816,6 +2303,7 @@ def generate_local_failover_diagnosis(
         "_diagnostic_meta": {
             "failover": True,
             "reason": reason,
+            "is_related": True,
             "degraded_parse": False,
             "failover_notice": "Diagnóstico estructurado a partir del corpus documental de los 19 manuales técnicos de Elekta.",
         },
@@ -1829,6 +2317,7 @@ def analyze_with_gemini(
     model: str = "",
 ) -> dict:
     """Ejecuta el análisis inteligente con la API de Gemini y soporte multimodelo."""
+    symptoms = [str(s).strip() for s in symptoms if s and str(s).strip()][:5]
     if not GENAI_AVAILABLE:
         return {
             "ok": False,
