@@ -911,13 +911,55 @@ Fin del reporte."""
         self.assertNotIn("PCB 72H", boards)
         self.assertNotIn("1024690", boards)
         self.assertNotIn("45133307021", boards)
-        self.assertTrue(any("DIE-HT" in b or "16M" in b or "16N" in b for b in boards))
+        self.assertTrue(any("DIE-ICA" in b or "IRC" in b or "ROC-ICA" in b for b in boards))
 
         # 3. Señales no deben incluir números de plano
         signals = failover["test_points_and_signals"]
         self.assertNotIn("1024690", signals)
         self.assertNotIn("45133307021", signals)
-        self.assertTrue(any("CON-K" in s or "CON_K_MON" in s for s in signals))
+        self.assertTrue(any("CON-K" in s or "ITEM 79" in s for s in signals))
+
+    def test_generate_local_failover_diagnosis_item_79_grounds_correctly(self):
+        """Verifica que el diagnóstico de 'item 79' se asocie con DIE-ICA (Área 72) e IRC-A/B (Área 74), sin DIE-HTB ni Área 16."""
+        docs = [
+            {"manual": "diagrams", "page": 63, "text": "ITEM 79 HT CON K DIE-ICA PCB 72H IRC-A PCB 74A IRC-B PCB 74B ROC-ICA AREA 72 AREA 74."},
+            {"manual": "power_supplies", "page": 73, "text": "i79 CON-K DIE-ICA ICCA RTU A ROC-ICA AREA 72."},
+            {"manual": "power_supplies", "page": 93, "text": "Check input to DIE-ICA PCB area 72 slot H on PL2 pin C7/C8... i79 inhibit."},
+            {"manual": "item part", "page": 77, "text": "i79 Contactor CON-K monitor HT con K."},
+        ]
+        engine = SearchEngine(docs)
+        failover = generate_local_failover_diagnosis(["item 79"], engine)
+
+        # 1. Subsistema de potencia / contactores
+        self.assertIn("Alta Tensión", failover["subsystem"])
+
+        # 2. Boards asociadas: DIE-ICA, IRC-A, IRC-B o ROC-ICA
+        boards = failover["associated_boards"]
+        self.assertTrue(any("DIE-ICA" in b or "IRC" in b or "ROC-ICA" in b for b in boards))
+        # No debe contener DIE-HTB
+        self.assertNotIn("DIE-HTB", boards)
+
+        # 3. Señales: ITEM 79 presente
+        signals = failover["test_points_and_signals"]
+        self.assertTrue(any("79" in s for s in signals))
+
+        # 4. Causa raíz y explicación no deben citar DIE-HTB ni Área 16 para ITEM 79
+        root = failover["root_cause"]
+        expl = failover["explanation"]
+        self.assertNotIn("DIE-HTB", root)
+        self.assertNotIn("DIE-HTB", expl)
+        self.assertNotIn("Área 16", root)
+        self.assertNotIn("Área 16", expl)
+        self.assertIn("DIE-ICA", expl)
+
+        # 5. Genera 5 hallazgos con causas físicas y soluciones
+        findings = failover.get("diagnostic_findings") or failover.get("differential_diagnoses") or []
+        self.assertEqual(len(findings), 5)
+        for f in findings:
+            self.assertTrue(len(f["title"]) > 10)
+            self.assertTrue(len(f["cause_mechanism"]) > 40)
+            self.assertTrue(len(f["solution_procedure"]) > 40)
+            self.assertNotIn("DIE-HTB", f["cause_mechanism"])
 
         # 4. Hallazgos diagnósticos integrados (hasta 5)
         findings = failover.get("diagnostic_findings") or failover.get("differential_diagnoses") or []

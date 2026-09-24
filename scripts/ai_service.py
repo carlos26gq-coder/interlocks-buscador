@@ -112,13 +112,20 @@ Reglas estrictas de precisión e ingeniería biomédica:
 11. ELIMINACIÓN DE SECCIÓN DE PASOS DIVIDIDA: No generes una sección independiente 'action_steps'. Cada hallazgo en 'diagnostic_findings' debe integrar tanto la causa física/electrónica ('cause_mechanism') como su solución/intervención técnica concreta ('solution_procedure').
 12. PROHIBICIÓN DE ENUMERAR MANUALES EN LA EXPLICACIÓN NARRATIVA: NUNCA enumeres archivos ni páginas en el texto del campo 'explanation' (prohibido escribir frases como 'La documentación técnica contrastada en diagrams.pdf (Página 63), item part.pdf...'). Los manuales y páginas se registran exclusivamente a través de 'citation_ids'. La explicación debe dedicarse plenamente a detallar los mecanismos físicos y relacionar los síntomas.
 13. REGLA ESTRICTA DE PLANOS VS SEÑALES: Los números de 7 dígitos (como 1024690, 1024686) y números 12NC de 11-12 dígitos (como 45133307021, 4513 330 7021) son números de planos o dibujos esquemáticos, NUNCA señales funcionales ni causas raíz. No los incluyas en 'test_points_and_signals' ni como nombres de señales.
-14. SECUENCIA DE ALTA TENSIÓN Y CONTACTORES (CON-A, CON-D, CON-J, CON-K):
-    - En Elekta LINACs, errores como 'ht con k', 'con k' o 'contactor k' refieren al contactor CON-K, contactor principal de potencia trifásica de alta tensión que alimenta el tanque HT (Área 17).
-    - Secuencia estricta de energización: CON-A -> CON-D -> CON-J (retardo de 500 ms) -> CON-K.
-    - Controlado y excitado por DIE-HTA (PCB 16M, slot 10) con relé RL4, y supervisado por DIE-HTB (PCB 16N, slot 12) en Área 16 (HTCA) mediante el contacto auxiliar de realimentación (CON_K_MON).
-15. EXIGENCIA DE HARDWARE PROFUNDO EN ALTA TENSIÓN (HT), FUENTES (PSU) Y VMAT:
-    - Tarjetas exactas: DIE-HTB (PCB 16N), DIE-HTA (PCB 16M/16H), PCB 22 / regleta TS22A (Área 22), HT PSU CONTROL PCB (PCB 16R), DRIVER PCB (PCB 17A, PCB 17B), HT ISOLATION PCB (4513 330 7753 con optoacopladores OPTO 1..9), HT CROWBAR DETECTOR PCB.
-    - Diferenciación estricta de ítems: ITEM 251 (i251) es el monitor de inhibición en Service Mode (HT PSU OT), mientras que ITEM 330 (i330) es la consigna DAC analógica de Charge rate (calibrada a 0.00, 20.00 y 40.00 A en TPU1-8 vs TPU1-1).
+14. SECUENCIA DE ALTA TENSIÓN Y CONTACTORES (CON-A, CON-D, CON-J, CON-K / ITEM 79 / i79 'HT con K'):
+    - En Elekta LINACs, la señal ITEM 79 (i79 'HT con K') supervisa el estado del contactor principal de alta tensión CON-K en el armario de potencia y distribución (Área 70/73).
+    - Supervisión y tarjetas reales: ITEM 79 ingresa a la tarjeta DIE-ICA (PCB 72H, slot H en el Área 72 - ICCA) en el conector PL/SK 72L pin C8 (y DIE-ICB pin A7), y a las tarjetas de relés de interbloqueo IRC-A (PCB 74A, Área 74, slot A, pin 6) e IRC-B (PCB 74B, Área 74, slot B, pin 24). PROHIBIDO atribuir ITEM 79 a DIE-HTB o al Área 16.
+    - Ruta de retorno a 0V: Desde el pin C7/C8 de DIE-ICA a través de las tarjetas IRC-74C e IRC-74B hasta el punto de masa CGPB 20.
+    - Alimentación de bobinas: 24V AC procedente del transformador de control T1 (Área 70), protegido por fusible FS73A (5A) y CB9 (2A), conmutado por la tarjeta de salidas ROC-ICA (Área 72, slot J, PCB 72J, relés RL2/RL3) e interruptores de seguridad en serie: colimador primario SW12, filtro secundario SW13 y contactos de puertas de sala (Room Doors ITEM 258/259).
+    - Secuencia de arranque suave: al presionar START, CON-J (i78) y CON-K (i79) enclavan simultáneamente aplicando tensión a través de resistencias de arranque suave; tras el vencimiento del temporizador hardware en IRC-74A, se energiza CON-D (i72). Si CON-K falla o i79 queda en 0, se genera inhibición i79 o i72 e impide entrar en estado Preparatory (i2 parte 4 != 34).
+15. INVESTIGACIÓN Y RAZONAMIENTO PROFUNDO DE TODAS LAS ENTRADAS:
+    - Cuando se ingresen múltiples síntomas o códigos, TODOS son importantes y deben investigarse con rigor equivalente, sin descartar ni relegar ninguno.
+    - No asumas datos por proximidad: básate estrictamente en la evidencia recuperada de los manuales.
+    - Genera hasta 5 hallazgos diagnósticos ordenados del más probable al menos probable (Diagnóstico 1, Diagnóstico 2, Diagnóstico 3, Diagnóstico 4, Diagnóstico 5).
+    - Cada diagnóstico debe abordar una causa física, componente, circuito o calibración diferente sin redundar entre sí (ej. desgaste de contactos auxiliares, caída de tensión en bobinas/transformador T1, microinterruptores en serie en cabezal/puertas, tarjeta de relés de mando y temporizadores, interbloqueos previos en disyuntores o vacío).
+    - Cada diagnóstico debe integrar en su contenido la deducción física/electrónica exacta y el procedimiento concreto de verificación, medición con instrumentos y calibración.
+16. EXIGENCIA DE HARDWARE EN ALTA TENSIÓN (HT), FUENTES (PSU) Y VMAT:
+    - En caso de sobretemperatura HT PSU OT (ITEM 251): lazo serie con interruptor SW1 (disipador TR1/TR2), fuelle SW2 en T4, termostatos TS1/TS2 y regleta TS22A / PCB 22 en Área 22, transmitido por HT ISOLATION PCB (4513 330 7753 con optoacopladores OPTO 3/9) hacia DIE-HTB pin PL2-a3. Diferenciar estrictamente de ITEM 330 (Chargerate analógico DAC en TPU1-8 vs TPU1-1).
 """
 
 
@@ -286,8 +293,10 @@ def _sanitize_root_cause(text: str) -> str:
     if not text:
         return ""
     cleaned = str(text).strip()
-    # Eliminar coordenadas de rejilla (ej: 'PCB 72H')
-    cleaned = re.sub(r"\bPCB\s+(?:72H|\d{2,3}[A-Z])\b", "", cleaned)
+    # Eliminar coordenadas de rejilla de esquemas (ej: 'PCB 72H') preservando PCBs reales (16N, 16R, etc.)
+    cleaned = re.sub(r"\bPCB\s+72H\b", "", cleaned, flags=re.IGNORECASE)
+    # Cero menciones visibles de IA
+    cleaned = re.sub(r"\b(?:Inteligencia\s+Artificial|IA|AI)\b", "", cleaned, flags=re.IGNORECASE)
     # Eliminar planos (ej: '1024690', '45133307021')
     cleaned = re.sub(r"\b(?:1024\d{3}|45\d{2}[\s\-]?\d{3}[\s\-]?\d{4,5})\b", "", cleaned)
     cleaned = re.sub(r"\b(?:planos?|esquemas?|drawings?)\s*[\w\s\-_/]+(?:\(.*?\))?", "", cleaned, flags=re.IGNORECASE)
@@ -352,8 +361,11 @@ def _sanitize_explanation(text: str) -> str:
     )
     # Eliminar números de planos en texto explicativo (ej: (planos 1024686 y 4513 330 7021))
     cleaned = re.sub(r"\((?:planos?|esquemas?|drawings?)[^)]*\)", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\bPCB\s+(?:72H|\d{2,3}[A-Z])\b", "", cleaned, flags=re.IGNORECASE)
+    # Eliminar coordenadas de rejilla específicas preservando PCBs legítimas
+    cleaned = re.sub(r"\bPCB\s+72H\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\b(?:1024\d{3}|45\d{2}[\s\-]?\d{3}[\s\-]?\d{4,5})\b", "", cleaned)
+    # Cero menciones de IA visibles
+    cleaned = re.sub(r"\b(?:Inteligencia\s+Artificial|IA|AI)\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r",\s*,+", ", ", cleaned)
     cleaned = re.sub(r"\(\s*,+\s*", "(", cleaned)
     cleaned = re.sub(r"\s*,+\s*\)", ")", cleaned)
@@ -378,6 +390,8 @@ def _sanitize_action_steps(steps: list[str]) -> list[str]:
         s = re.sub(r"^(?:Probabilidad|Prioridad)\s*\d+[:\-]\s*", "", s, flags=re.IGNORECASE)
         # Eliminar 'Paso X: '
         s = re.sub(r"^Paso\s*\d+[:\-]\s*", "", s, flags=re.IGNORECASE)
+        # Cero menciones de IA visibles
+        s = re.sub(r"\b(?:Inteligencia\s+Artificial|IA|AI)\b", "", s, flags=re.IGNORECASE)
         s = s.strip()
         if s:
             cleaned_steps.append(s)
@@ -398,9 +412,10 @@ def _sanitize_differential_diagnoses(diffs: object) -> list[dict[str, str | list
             continue
         if isinstance(item, dict):
             raw_title = str(item.get("title") or item.get("hypothesis") or "").strip()
-            raw_title = re.sub(r"^(?:Causa|Hipótesis|Hallazgo)\s*\d+[:\-]\s*", "", raw_title, flags=re.IGNORECASE)
+            raw_title = re.sub(r"^(?:Diagnóstico|Diagnostico|Causa|Hipótesis|Hipotesis|Hallazgo|Paso)\s*\d+[:\-]\s*", "", raw_title, flags=re.IGNORECASE)
             raw_title = re.sub(r"^\((?:Probabilidad|Prioridad)\s*[^)]*\)\s*", "", raw_title, flags=re.IGNORECASE)
             raw_title = re.sub(r"^(?:Probabilidad|Prioridad)\s*(?:alta|media|baja)[:\-]\s*", "", raw_title, flags=re.IGNORECASE)
+            raw_title = re.sub(r"\b(?:Inteligencia\s+Artificial|IA|AI)\b", "", raw_title, flags=re.IGNORECASE)
             raw_title = _sanitize_root_cause(raw_title)
             if not raw_title:
                 continue
@@ -438,8 +453,9 @@ def _sanitize_differential_diagnoses(diffs: object) -> list[dict[str, str | list
             })
         elif isinstance(item, str) and item.strip():
             raw_s = _sanitize_root_cause(item.strip())
-            raw_s = re.sub(r"^(?:Causa|Hipótesis|Hallazgo)\s*\d+[:\-]\s*", "", raw_s, flags=re.IGNORECASE)
+            raw_s = re.sub(r"^(?:Diagnóstico|Diagnostico|Causa|Hipótesis|Hipotesis|Hallazgo|Paso)\s*\d+[:\-]\s*", "", raw_s, flags=re.IGNORECASE)
             raw_s = re.sub(r"^\((?:Probabilidad|Prioridad)\s*[^)]*\)\s*", "", raw_s, flags=re.IGNORECASE)
+            raw_s = re.sub(r"\b(?:Inteligencia\s+Artificial|IA|AI)\b", "", raw_s, flags=re.IGNORECASE)
             if raw_s:
                 cleaned_diffs.append({
                     "title": raw_s,
@@ -569,7 +585,7 @@ def extract_keywords_for_retrieval(symptoms: list[str]) -> list[str]:
 
 
 def gather_grounding_context(
-    search_engine: SearchEngine, symptoms: list[str], max_pages: int = 16
+    search_engine: SearchEngine, symptoms: list[str], max_pages: int = 22
 ) -> tuple[str, dict[str, dict[str, object]]]:
     """Busca en los 19 manuales los fragmentos técnicos más relevantes para fundamentar la respuesta.
 
@@ -595,9 +611,14 @@ def gather_grounding_context(
         citation_map[cid] = {"manual": manual, "page": page}
         return cid
 
+    valid_syms = [s.strip() for s in symptoms if s and s.strip()]
+    num_syms = max(len(valid_syms), 1)
+    # Reservar espacio garantizado para la evidencia directa de CADA síntoma
+    relational_limit = max(4, max_pages - (num_syms * 2))
+
     # 1. Diagnóstico relacional: páginas donde convergen los síntomas
     try:
-        diag_res = search_engine.diagnose_symptoms(symptoms, limit=max_pages)
+        diag_res = search_engine.diagnose_symptoms(symptoms, limit=relational_limit)
         for r in diag_res.get("results", []):
             m, p = r.get("manual", ""), r.get("page", 0)
             key = (m, p)
@@ -617,17 +638,39 @@ def gather_grounding_context(
         logger.warning("Error en búsqueda relacional de contexto: %s", d_err)
 
     # Identificar tarjetas mencionadas directamente en los síntomas del usuario
-    for s in symptoms:
+    for s in valid_syms:
         c_s = extract_structured_components(s)
         for b in c_s.get("boards", []):
             if b not in extracted_boards and len(b) >= 3:
                 extracted_boards.insert(0, b)
 
-    # 2. Expansiones técnicas de dominio para interlocks de alta tensión, fuentes y modos dinámicos (VMAT / Contactores)
+    # 2. Garantizar evidencia directa y equitativa para CADA síntoma ingresado (sin relegar secundarios)
+    for sym in valid_syms:
+        try:
+            sym_search = search_engine.search(sym, limit=2)
+            for r in sym_search.get("results", []):
+                m, p = r.get("manual", ""), r.get("page", 0)
+                key = (m, p)
+                if key not in seen_pages and manual_counts[m] <= max_per_manual and len(contexts) < max_pages:
+                    seen_pages.add(key)
+                    manual_counts[m] += 1
+                    cid = _register(m, p)
+                    snip = str(r.get("context", ""))[:1500]
+                    contexts.append(f"--- [{cid}] Manual: {m} (Página {p}) [Síntoma directo: {sym}] ---\n{snip}")
+                    c_data = extract_structured_components(snip)
+                    for b in c_data.get("boards", []):
+                        if b not in extracted_boards and len(b) >= 3:
+                            extracted_boards.append(b)
+        except Exception as e_sym:
+            logger.debug("Búsqueda directa para síntoma '%s' omitida: %s", sym, e_sym)
+
+    # 3. Expansiones técnicas de dominio para interlocks de alta tensión, fuentes y modos dinámicos (VMAT / Contactores)
     sym_blob_search = " ".join(symptoms).lower()
     is_con_k = (
-        any(k in sym_blob_search for k in ["con-k", "con k", "contactor k", "contactork", "con_k", "con_k_mon"])
+        any(k in sym_blob_search for k in ["con-k", "con k", "contactor k", "contactork", "con_k"])
         or ("ht" in sym_blob_search and "con" in sym_blob_search and "k" in sym_blob_search)
+        or any(re.search(r"\b(?:item\s*0*79|i0*79)\b", s, re.I) for s in symptoms)
+        or ("79" in sym_blob_search and any(k in sym_blob_search for k in ["item", "i79", "contactor", "interlock", "inhibit"]))
     )
     is_ht_vmat = (
         any(k in sym_blob_search for k in ["ht psu", "psu ot", "over temp", "overtemp", "vmat", "330", "251"])
@@ -637,13 +680,14 @@ def gather_grounding_context(
         targeted_manual_queries = [
             ("diagrams", "1024690"),
             ("diagrams", "CON K"),
-            ("diagrams", "CON-K"),
-            ("ht_rf", "CON-K"),
-            ("ht_rf", "CON-D"),
-            ("ht_rf", "DIE-HTA"),
-            ("ht_rf", "DIE-HTB"),
+            ("diagrams", "ITEM 79"),
+            ("power_supplies", "i79"),
             ("power_supplies", "CON-K"),
-            ("power_supplies", "16M"),
+            ("power_supplies", "DIE-ICA"),
+            ("power_supplies", "IRC-74"),
+            ("item part", "i79"),
+            ("item part", "CON-K"),
+            ("corrective", "CON-K"),
         ]
         for t_man, t_term in targeted_manual_queries:
             if len(contexts) >= max_pages:
@@ -708,14 +752,20 @@ def gather_grounding_context(
     if is_con_k:
         technical_expansions.extend([
             "CON-K",
-            "CON_K_MON",
-            "DIE-HTA",
-            "DIE-HTB",
-            "RL4",
-            "HTCA",
+            "ITEM 79",
+            "i79",
+            "DIE-ICA",
+            "IRC-A",
+            "IRC-B",
+            "ROC-ICA",
+            "Area 72",
+            "Area 74",
             "CON-A",
             "CON-D",
             "CON-J",
+            "T1",
+            "FS73A",
+            "CB1",
         ])
     if is_ht_vmat:
         technical_expansions.extend([
@@ -821,7 +871,7 @@ def gather_grounding_context(
                 pass
 
     combined = "\n\n".join(contexts) if contexts else "No se encontraron páginas directas con los términos exactos."
-    return combined[:24000], citation_map
+    return combined[:32000], citation_map
 
 
 def _resolve_citations(data: dict, citation_map: dict[str, dict[str, object]]) -> dict:
@@ -1008,15 +1058,17 @@ def generate_local_failover_diagnosis(
                         except Exception:
                             pass
 
-    # 5. Búsqueda directa por cada síntoma si hay pocos resultados
-    if len(matched_docs) < 4:
-        for sym in symptoms:
-            try:
-                s_res = search_engine.search(sym, limit=3)
-                for r in s_res.get("results", []):
-                    _add_doc(r)
-            except Exception as e_search:
-                logger.debug("Búsqueda directa omitida para '%s': %s", sym, e_search)
+    # 5. Búsqueda directa por cada síntoma garantizando equidad entre todas las entradas
+    for sym in symptoms:
+        c_sym = sym.strip()
+        if not c_sym:
+            continue
+        try:
+            s_res = search_engine.search(c_sym, limit=2)
+            for r in s_res.get("results", []):
+                _add_doc(r)
+        except Exception as e_search:
+            logger.debug("Búsqueda directa omitida para '%s': %s", c_sym, e_search)
 
     if not matched_docs:
         return {
@@ -1042,8 +1094,10 @@ def generate_local_failover_diagnosis(
     # 6. Identificación precisa del Subsistema (evaluando síntomas primero, luego evidencia técnica)
     sym_blob = " ".join(symptoms).lower()
     is_con_k = (
-        any(k in sym_blob for k in ["con-k", "con k", "contactor k", "contactork", "con_k", "con_k_mon"])
+        any(k in sym_blob for k in ["con-k", "con k", "contactor k", "contactork", "con_k"])
         or ("ht" in sym_blob and "con" in sym_blob and "k" in sym_blob)
+        or any(re.search(r"\b(?:item\s*0*79|i0*79)\b", s, re.I) for s in symptoms)
+        or ("79" in sym_blob and any(k in sym_blob for k in ["item", "i79", "contactor", "interlock", "inhibit"]))
     )
     is_ht_psu_ot = (
         not is_con_k
@@ -1158,17 +1212,19 @@ def generate_local_failover_diagnosis(
     all_cables = [c for c in all_cables if c and not _is_drawing_or_schematic_number(c)]
 
     if is_con_k:
-        con_k_boards = ["DIE-HTA", "DIE-HTB", "HT PSU CONTROL PCB", "PCB 16M", "PCB 16N", "PCB 22"]
+        con_k_boards = ["DIE-ICA", "IRC-A", "IRC-B", "ROC-ICA", "IRC-C", "DIE-ICB"]
         all_boards = [b for b in con_k_boards if b and not _is_drawing_or_schematic_number(b) and b.upper() not in INVALID_BOARDS]
-        con_k_cables = ["PL2", "SK16R", "PL16M", "PL16N", "RL4", "SK17C"]
+        con_k_cables = ["PL/SK 72L", "PL2", "PL3", "CGPB 20", "FS73A", "CB9"]
         all_cables = [c for c in con_k_cables if c and not _is_drawing_or_schematic_number(c)]
-        con_k_signals = ["CON-K", "CON_K_MON", "CON_K_ON", "CON_J_ON", "CON_D_ON", "RAD_ON"]
+        con_k_signals = ["ITEM 79", "ITEM 78", "CON-K", "CON-J", "CON-D", "ITEM 72", "ITEM 74", "ITEM 258", "ITEM 259"]
         all_signals = [s for s in con_k_signals if s and not _is_drawing_or_schematic_number(s)]
         con_k_refs = [
             "diagrams.pdf (Página 63)",
-            "power_supplies.pdf (Página 78)",
-            "ht_rf.pdf (Página 92)",
-            "corrective.pdf (Página 419)",
+            "power_supplies.pdf (Página 73)",
+            "power_supplies.pdf (Página 93)",
+            "power_supplies.pdf (Página 94)",
+            "item part.pdf (Página 77)",
+            "diagrams.pdf (Página 159)",
         ]
         manual_refs = [r for r in con_k_refs if r]
 
@@ -1196,19 +1252,20 @@ def generate_local_failover_diagnosis(
     signals_label = ", ".join(all_signals[:2]) if all_signals else "líneas de supervisión"
     if is_con_k:
         root_cause = (
-            "Disparo en la secuencia de encendido de Alta Tensión por fallo de accionamiento "
-            "o pérdida de supervisión del contactor principal CON-K (comandado por DIE-HTA vía relé RL4 "
-            "y monitorizado por DIE-HTB mediante la línea CON_K_MON en Área 16 HTCA)"
+            "Fallo en la confirmación de cierre o supervisión del contactor principal de alta tensión CON-K "
+            "(ITEM 79 / i79 'HT con K') en el armario de potencia y distribución (Área 70/73), "
+            "monitoreado por DIE-ICA (Área 72) e IRC-A/B (Área 74)"
         )
         explanation = (
-            "El contactor principal de potencia de alta tensión CON-K constituye la última etapa en la secuencia de "
-            "energización escalonada de HT del acelerador (CON-A -> CON-D -> CON-J -> CON-K). La bobina de CON-K es comandada "
-            "por la tarjeta DIE-HTA (PCB 16M, slot 10 del bastidor HTCA en Área 16) mediante el relé electromecánico de seguridad RL4 "
-            "(alimentado a 24 VDC). El cierre físico de sus contactos es supervisado por la tarjeta DIE-HTB (PCB 16N, slot 12) a través "
-            "de la línea de realimentación lógica CON_K_MON. Si la tarjeta DIE-HTB no detecta la confirmación del monitor auxiliar dentro "
-            "de la ventana de temporización prevista tras la activación previa de CON-J y CON-D, o si se produce una discrepancia en el lazo "
-            "serie de seguridad maestro en Área 17 / Área 22, el sistema aborta la secuencia, desenergiza RL4 e inhibe de inmediato la emisión "
-            "de haz (retirando la señal RAD_ON)."
+            "El contactor principal de potencia de alta tensión CON-K alimenta el primario del transformador de alta tensión (T4). "
+            "En la secuencia de arranque suave de Elekta (CON-A -> CON-D -> CON-J -> CON-K), el procesador CCP comanda el enclavamiento inicial "
+            "de CON-J e inmediatamente CON-K a través de la tarjeta de salida de relés ROC-ICA (Área 72, slot J, PCB 72J). El estado de cierre efectivo "
+            "de CON-K es supervisado por sus contactos auxiliares normalmente abiertos (terminales 13 y 14), cuya señal ingresa como ITEM 79 (i79) "
+            "a la tarjeta DIE-ICA (Área 72, slot H, PCB 72H, conector PL/SK 72L pin C8) y a las tarjetas de relés de interbloqueo IRC-A (Área 74, slot A, PCB 74A) "
+            "e IRC-B (Área 74, slot B, PCB 74B). La tarjeta IRC-74A aloja un circuito temporizador hardware que requiere la confirmación en nivel bajo "
+            "de CON-J (i78) y CON-K (i79) para autorizar la energización de CON-D (i72) y transferir la carga plena sin resistencias de arranque suave. "
+            "Si la línea de ITEM 79 permanece abierta o en nivel alto al solicitar START, el sistema genera una inhibición i79 o i72, impidiendo que el "
+            "acelerador ingrese al estado Preparatory (ítem i2 parte 4 = 34) e inhibiendo la habilitación de radiofrecuencia (PRF) y emisión de haz."
         )
     elif is_ht_psu_ot:
         if is_vmat:
@@ -1317,54 +1374,44 @@ def generate_local_failover_diagnosis(
 
     if is_con_k:
         differential_diagnoses.append({
-            "title": "Fallo o desgaste en el contacto auxiliar de realimentación CON_K_MON hacia DIE-HTB (PCB 16N)",
-            "hypothesis": "Fallo o desgaste en el contacto auxiliar de realimentación CON_K_MON hacia DIE-HTB (PCB 16N)",
+            "title": "Fallo o desgaste en contactos auxiliares 13/14 de CON-K o interrupción en ruta de retorno a 0V hacia DIE-ICA (Área 72) e IRC-A/B (Área 74)",
+            "hypothesis": "Fallo o desgaste en contactos auxiliares 13/14 de CON-K o interrupción en ruta de retorno a 0V hacia DIE-ICA (Área 72) e IRC-A/B (Área 74)",
             "subsystem": subsystem,
-            "likelihood": "alta",
-            "cause_mechanism": "El contactor principal CON-K cierra mecánicamente sus polos de potencia trifásica hacia el transformador T4 en Área 17, pero su bloque de contactos auxiliares (normalmente abierto) presenta carbonización, desgaste mecánico o resistencia de contacto excesiva (> 0.5 ohm). Esto impide que la línea lógica de supervisión CON_K_MON alcance el nivel alto (24 VDC) en el conector PL2 de la tarjeta DIE-HTB (PCB 16N, slot 12 del bastidor HTCA) dentro del margen de temporización del FPGA, interpretándose como un fallo de enclavamiento de contactores.",
-            "rationale": "El contactor principal CON-K cierra mecánicamente sus polos de potencia trifásica hacia el transformador T4 en Área 17, pero su bloque de contactos auxiliares (normalmente abierto) presenta carbonización, desgaste mecánico o resistencia de contacto excesiva (> 0.5 ohm). Esto impide que la línea lógica de supervisión CON_K_MON alcance el nivel alto (24 VDC) en el conector PL2 de la tarjeta DIE-HTB (PCB 16N, slot 12 del bastidor HTCA) dentro del margen de temporización del FPGA, interpretándose como un fallo de enclavamiento de contactores.",
-            "solution_procedure": "1. En Service Mode -> Display Service Pages -> HT Interlocks, verificar el estado del bit de monitor CON_K_MON durante el intento de energización.\n2. Con el equipo desenergizado y consignado, medir con multímetro la continuidad del contacto auxiliar de CON-K al ser accionado manualmente (resistencia debe ser < 0.2 ohm).\n3. Inspeccionar el cableado y pines en el conector PL2 de la tarjeta DIE-HTB y la bornera intermedia del armario de potencia.\n4. Si el contacto auxiliar presenta rebotes o resistencia elevada, sustituir el bloque auxiliar o el contactor CON-K completo.",
-            "affected_components": ["CON-K", "DIE-HTB", "PCB 16N", "PL2", "CON_K_MON"],
+            "cause_mechanism": "La señal ITEM 79 (i79 'HT con K') supervisa el estado lógico del contactor principal de alta tensión CON-K en el armario de distribución y potencia (Área 70/73). Esta señal ingresa a la tarjeta DIE-ICA (PCB 72H, slot H en Área 72 - ICCA) en el conector PL/SK 72L pin C8 y a las tarjetas de relés de interbloqueo IRC-A (PCB 74A, Área 74, slot A, pin 6) e IRC-B (PCB 74B, slot B, pin 24). El desgaste mecánico, carbonización o resistencia de contacto excesiva (> 0.5 ohm) en los terminales auxiliares normalmente abiertos 13 y 14 de CON-K, o una interrupción en la ruta de retorno a 0V que conecta DIE-ICA a través de las placas IRC-74C e IRC-74B hasta el punto de masa CGPB 20, impide que la entrada lógica cierre a masa, reportando i79 = 0 e impidiendo que el LINAC ingrese al estado Preparatory (ítem i2 parte 4 != 34).",
+            "solution_procedure": "Con el equipo desenergizado y consignado en el interruptor principal del armario de interfaz, comprobar con multímetro la continuidad eléctrica entre los bornes auxiliares 13 y 14 de CON-K al accionar manualmente el contactor (resistencia < 0.2 ohm). Verificar la ruta de 0V desde el pin C8/C7 de DIE-ICA a través de las tarjetas IRC-74C e IRC-74B hacia la masa central CGPB 20. Si la resistencia de contacto es fluctuante o existe circuito abierto, sustituir el bloque de contactos auxiliares de CON-K o reparar pistas/conectores en las tarjetas IRC.",
+            "affected_components": ["CON-K", "DIE-ICA", "IRC-A", "IRC-B", "IRC-74C", "CGPB 20", "ITEM 79"],
         })
         differential_diagnoses.append({
-            "title": "Fallo en el circuito de excitación de la bobina de CON-K: relé de seguridad RL4 o salida de driver en DIE-HTA (PCB 16M)",
-            "hypothesis": "Fallo en el circuito de excitación de la bobina de CON-K: relé de seguridad RL4 o salida de driver en DIE-HTA (PCB 16M)",
+            "title": "Caída o ausencia de tensión de excitación de 24V AC en bobina de CON-K procedente del transformador T1 (Área 70)",
+            "hypothesis": "Caída o ausencia de tensión de excitación de 24V AC en bobina de CON-K procedente del transformador T1 (Área 70)",
             "subsystem": subsystem,
-            "likelihood": "alta",
-            "cause_mechanism": "La orden de encendido de alta tensión generada por el control central activa la línea de comando CON_K_ON desde la tarjeta DIE-HTA (PCB 16M, slot 10). Esta señal polariza el driver que pilota la bobina del relé electromecánico de seguridad RL4. Si la bobina de RL4 está abierta, sus contactos están fogueados, o el transistor driver en PCB 16M está dañado, no se transfieren los 24 VDC / 110 VAC hacia la bobina de CON-K, impidiendo su conmutación.",
-            "rationale": "La orden de encendido de alta tensión generada por el control central activa la línea de comando CON_K_ON desde la tarjeta DIE-HTA (PCB 16M, slot 10). Esta señal polariza el driver que pilota la bobina del relé electromecánico de seguridad RL4. Si la bobina de RL4 está abierta, sus contactos están fogueados, o el transistor driver en PCB 16M está dañado, no se transfieren los 24 VDC / 110 VAC hacia la bobina de CON-K, impidiendo su conmutación.",
-            "solution_procedure": "1. Comprobar en DIE-HTA (PCB 16M) la activación del LED indicador de salida de relé RL4 al pulsar HT ON en consola.\n2. Medir con multímetro en bornes de la bobina de CON-K la presencia de tensión de excitación al iniciar la secuencia.\n3. Si hay tensión en la bobina pero el contactor no clava, verificar la impedancia de la bobina contra especificación.\n4. Si no llega tensión a la bobina, verificar el fusible de alimentación de control asociado en el bastidor de potencia y los contactos de conmutación de RL4.",
-            "affected_components": ["DIE-HTA", "PCB 16M", "RL4", "CON-K", "CON_K_ON"],
+            "cause_mechanism": "Las bobinas de los contactores de alta tensión (CON-J, CON-K, CON-D) requieren 24V AC suministrados por el transformador de control T1 (Área 70), protegido por el fusible FS73A (5A) y el disyuntor CB9 (2A). Si la tensión en bornes de la bobina de CON-K cae por debajo del umbral de atracción magnética debido a una derivación incorrecta de tomas en T1 o caída resistiva bajo carga, el contactor no enclava mecánicamente al pulsar START, abortando la secuencia de arranque suave antes de transferir potencia al tanque HT.",
+            "solution_procedure": "Acceder con las debidas precauciones al armario de potencia y medir con voltímetro de CA la tensión en los bornes de la bobina de CON-K durante el intento de arranque en Service Mode. Si la tensión medida es inferior a 24V AC, ajustar la derivación de salida del transformador T1 en Área 70 elevando el tap secundario hasta obtener 24V AC estables bajo excitación de bobina, conforme a la sección 5.8 de Power Supplies (pág. 94). Verificar la continuidad de FS73A (5A) y el disyuntor CB9.",
+            "affected_components": ["CON-K", "T1", "FS73A", "CB9", "Área 70"],
         })
         differential_diagnoses.append({
-            "title": "Descoordinación temporal en la secuencia escalonada de contactores HT (CON-A -> CON-D -> CON-J -> CON-K)",
-            "hypothesis": "Descoordinación temporal en la secuencia escalonada de contactores HT (CON-A -> CON-D -> CON-J -> CON-K)",
-            "subsystem": subsystem,
-            "likelihood": "media",
-            "cause_mechanism": "La lógica de potencia de Elekta requiere una secuencia escalonada estricta: CON-A conecta la precarga, seguido de CON-D y CON-J con un retardo nominal de aproximadamente 500 ms antes de autorizar el cierre definitivo de CON-K. Si CON-D o CON-J presentan retardo en sus contactos auxiliares o caídas de tensión de control durante la conmutación de carga inductiva, la secuencia se aborta antes de que CON-K pueda cerrarse y mantenerse.",
-            "rationale": "La lógica de potencia de Elekta requiere una secuencia escalonada estricta: CON-A conecta la precarga, seguido de CON-D y CON-J con un retardo nominal de aproximadamente 500 ms antes de autorizar el cierre definitivo de CON-K. Si CON-D o CON-J presentan retardo en sus contactos auxiliares o caídas de tensión de control durante la conmutación de carga inductiva, la secuencia se aborta antes de que CON-K pueda cerrarse y mantenerse.",
-            "solution_procedure": "1. Registrar con osciloscopio de almacenamiento o analizador lógico la secuencia de señales CON_A_ON, CON_D_ON, CON_J_ON y CON_K_ON durante el arranque de HT.\n2. Verificar los tiempos de transición entre el cierre de CON-J y la orden de CON-K en los registros de diagnóstico del CCP (debe ser ~500 ms).\n3. Inspeccionar el estado de los contactores previos CON-D y CON-J, limpiando o sustituyendo aquellos con signos de desgaste o arco eléctrico severo.",
-            "affected_components": ["CON-A", "CON-D", "CON-J", "CON-K", "DIE-HTA", "DIE-HTB"],
-        })
-        differential_diagnoses.append({
-            "title": "Interrupción previa en la cadena de interbloqueos serie de seguridad HT (SW1/SW2, TS22A o lazo maestro)",
-            "hypothesis": "Interrupción previa en la cadena de interbloqueos serie de seguridad HT (SW1/SW2, TS22A o lazo maestro)",
+            "title": "Interrupción en la cadena de seguridad en serie: interruptores de cabezal SW12/SW13 y contactos de puertas de sala",
+            "hypothesis": "Interrupción en la cadena de seguridad en serie: interruptores de cabezal SW12/SW13 y contactos de puertas de sala",
             "subsystem": "Sistema General de Interbloqueos y Seguridad (Elekta LINAC)",
-            "likelihood": "media",
-            "cause_mechanism": "El circuito de control que habilita la bobina de CON-K está condicionado en serie por la cadena de seguridad de alta tensión (incluyendo contactos de sobretemperatura SW1/SW2 del modulador en Área 17, presostato de vacío en columna y contactos de seguridad de puertas/setas de emergencia). Una apertura instantánea o microcorte en cualquiera de estos sensores interrumpe la corriente de retención del contactor.",
-            "rationale": "El circuito de control que habilita la bobina de CON-K está condicionado en serie por la cadena de seguridad de alta tensión (incluyendo contactos de sobretemperatura SW1/SW2 del modulador en Área 17, presostato de vacío en columna y contactos de seguridad de puertas/setas de emergencia). Una apertura instantánea o microcorte en cualquiera de estos sensores interrumpe la corriente de retención del contactor.",
-            "solution_procedure": "1. Revisar la máscara general de interlocks en la pantalla Service Mode -> Interlocks Overview para verificar si otro subsistema (Vacuum, Modulator Overtemp o Emergency Chain) presenta un flag de inhibición previo o simultáneo.\n2. Medir la continuidad del lazo serie de seguridad en los terminales de entrada al bastidor HTCA (conectores SK16R / SK17C).\n3. Comprobar que los microinterruptores de las puertas de la sala y del gabinete de modulador cierren firmemente.",
-            "affected_components": ["SK16R", "SK17C", "SW1", "SW2", "TS22A", "DIE-HTB"],
+            "cause_mechanism": "El lazo de control de 24V AC que excita la bobina de CON-K discurre en serie a través del microinterruptor del colimador primario (SW12), microinterruptor de filtros secundarios (SW13) y la cadena de contactos de las puertas de la sala (Room Doors 1 y 2, monitoreados por ITEM 258 e ITEM 259). Un desajuste mecánico en las levas de accionamiento de SW12/SW13 en ciertos ángulos de gantry o energías, o una caída de tensión resistiva en el cableado de puertas de sala, abre la retención de la bobina, impidiendo el accionamiento de CON-K.",
+            "solution_procedure": "Comprobar en Service Mode si el fallo de CON-K se manifiesta según la rotación del gantry o la energía seleccionada. Inspeccionar en el cabezal el conmutado de SW12 (colimador primario) y SW13 (filtro secundario). Medir la resistencia del lazo de contactos de Room Doors 1 y 2 con multímetro (< 1 ohm) y sustituir cualquier microinterruptor con contactos fogueados o resortes fatigados.",
+            "affected_components": ["SW12", "SW13", "Room Doors 1", "Room Doors 2", "ITEM 258", "ITEM 259"],
         })
         differential_diagnoses.append({
-            "title": "Caída de tensión transitoria o rizado dinámico en la línea de control de 24 VDC de contactores",
-            "hypothesis": "Caída de tensión transitoria o rizado dinámico en la línea de control de 24 VDC de contactores",
-            "subsystem": "Distribución de Potencia y Fuentes DC (Power Supplies & Contactors)",
-            "likelihood": "baja",
-            "cause_mechanism": "Al energizarse simultáneamente las bobinas de contactores de potencia o al conmutar cargas en el primario, la fuente de alimentación de control de 24 VDC sufre una caída transitoria de tensión por debajo de 19 VDC si los condensadores electrolíticos de filtrado están degradados. Esta caída provoca el descebe inmediato de CON-K o el reset parcial del FPGA en DIE-HTA/DIE-HTB.",
-            "rationale": "Al energizarse simultáneamente las bobinas de contactores de potencia o al conmutar cargas en el primario, la fuente de alimentación de control de 24 VDC sufre una caída transitoria de tensión por debajo de 19 VDC si los condensadores electrolíticos de filtrado están degradados. Esta caída provoca el descebe inmediato de CON-K o el reset parcial del FPGA en DIE-HTA/DIE-HTB.",
-            "solution_procedure": "1. Conectar osciloscopio en el riel de 24 VDC del bastidor HTCA y capturar la forma de onda durante el intento de encendido de HT.\n2. Confirmar que la caída de tensión no sobrepase el 10% (mínimo 21.6 VDC durante la corriente de inrush de las bobinas).\n3. Medir el rizado AC en la salida de la fuente de 24 VDC (< 50 mVpp).\n4. Ajustar el potenciómetro de calibración de la fuente de 24 VDC o reemplazar el módulo de fuente de alimentación si no sostiene la carga.",
-            "affected_components": ["Power Supply 24VDC", "HTCA Rack", "DIE-HTA", "DIE-HTB", "CON-K"],
+            "title": "Fallo de conmutación en tarjeta de relés de salida ROC-ICA (Área 72, PCB 72J) o temporizador de enclavamiento en IRC-74A (Área 74)",
+            "hypothesis": "Fallo de conmutación en tarjeta de relés de salida ROC-ICA (Área 72, PCB 72J) o temporizador de enclavamiento en IRC-74A (Área 74)",
+            "subsystem": subsystem,
+            "cause_mechanism": "La orden de encendido de contactores generada por el CCP es conmutada por la tarjeta de salidas de relés ROC-ICA (Área 72, slot J, PCB 72J, relés RL2/RL3). A su vez, la tarjeta IRC-A (PCB 74A, Área 74) aloja el circuito temporizador de arranque suave, el cual requiere la confirmación en nivel bajo de CON-J (i78) y CON-K (i79) para autorizar la conmutación de CON-D (i72). Si los relés de ROC-ICA no conmutan o el temporizador en IRC-74A falla, la secuencia de potencia colapsa.",
+            "solution_procedure": "Verificar en la tarjeta ROC-ICA (Área 72, slot J) el encendido del LED indicador D40 (+22V OK / PRF Enable) y la conmutación de los relés de salida RL2/RL3. Si el relé no transfiere el pulso, sustituir la tarjeta ROC-ICA. Si la tarjeta conmuta pero el temporizador en IRC-74A no inicia el conteo tras confirmar CON-J y CON-K, extraer y reemplazar la tarjeta IRC-A (PCB 74A) en el bastidor de interbloqueos de Área 74.",
+            "affected_components": ["ROC-ICA", "PCB 72J", "IRC-A", "PCB 74A", "LED D40", "RL2", "RL3"],
+        })
+        differential_diagnoses.append({
+            "title": "Inhibición previa de seguridad de HT por disparo de disyuntor principal CB1 (ITEM 74), presostato SF6 (ITEM 243) o vacío de guía",
+            "hypothesis": "Inhibición previa de seguridad de HT por disparo de disyuntor principal CB1 (ITEM 74), presostato SF6 (ITEM 243) o vacío de guía",
+            "subsystem": "Sistema General de Interbloqueos y Seguridad (Elekta LINAC)",
+            "cause_mechanism": "El lazo de seguridad maestro bloquea la secuencia hacia CON-K si existen condiciones preliminares no resueltas: disparo del disyuntor general trifásico CB1 (supervisado por ITEM 74 / i74), baja presión de gas dieléctrico SF6 en guía de ondas (ITEM 243) o disparos en las bombas iónicas de cañón/objetivo (ITEM 238 a 241 para 10^-4 y 10^-5 Torr). Al detectarse cualquier fallo preliminar, el secuenciador inhibe CON-K para proteger el modulador.",
+            "solution_procedure": "En Service Mode / CCP, acceder a la pantalla de Contactors y verificar que ITEM 74 reporte estado 1 (CB1 en ON). Revisar la máscara general de interlocks para descartar disparos en ITEM 243 (presión de gas SF6) y en los canales de vacío 10^-4 / 10^-5. En caso de disparo de CB1, descartar cortocircuitos en el transformador antes de rearmar la palanca; verificar estanqueidad de gas y vacío antes de reintentar el arranque.",
+            "affected_components": ["CB1", "ITEM 74", "ITEM 243", "ITEM 238", "ITEM 239", "ITEM 240", "ITEM 241"],
         })
     elif is_ht_psu_ot:
         differential_diagnoses.append({
@@ -1669,12 +1716,12 @@ def generate_local_failover_diagnosis(
 
     if is_con_k:
         action_steps = [
-            "Acceder a Service Mode -> Display Service Pages -> HT Interlocks y comprobar el bit de monitor CON_K_MON durante el intento de arranque de HT.",
-            "Desenergizar el equipo, enclavar consigna de seguridad y medir con multímetro la resistencia de contacto del bloque auxiliar de CON-K (debe ser < 0.2 ohm).",
-            "Verificar en la tarjeta DIE-HTA (PCB 16M) el encendido del LED de salida del relé de seguridad RL4 al pulsar HT ON.",
-            "Medir con voltímetro en bornes A1-A2 de la bobina de CON-K la tensión de excitación (24 VDC / 110 VAC) durante la secuencia de energización.",
-            "Capturar con osciloscopio la secuencia temporal escalonada CON_A_ON, CON_D_ON, CON_J_ON y CON_K_ON, comprobando el retardo nominal de 500 ms.",
-            "Medir con osciloscopio la caída transitoria de tensión en el riel de 24 VDC del bastidor HTCA durante la corriente de inrush de las bobinas de contactores.",
+            "Acceder a Service Mode -> Display Service Pages -> Contactors y verificar el estado del bit de monitor ITEM 79 (HT con K) e ITEM 78 (HT con J) durante la solicitud de START.",
+            "Desenergizar y consignar el equipo en el interruptor principal del armario de interfaz; medir con multímetro la continuidad entre los terminales auxiliares 13 y 14 de CON-K al ser accionado manualmente (resistencia < 0.2 ohm).",
+            "Verificar la ruta de 0V desde el pin C8/C7 de la tarjeta DIE-ICA (Área 72, slot H) a través de las tarjetas IRC-74C e IRC-74B hacia el punto de masa CGPB 20.",
+            "Medir con voltímetro de CA la tensión en los bornes de la bobina de CON-K durante el encendido; si es inferior a 24V AC, ajustar la derivación de salida del transformador T1 en el Área 70 y verificar FS73A (5A) y CB9 (2A).",
+            "Inspeccionar en el Área 72 la activación del LED indicador D40 (+22V OK / PRF Enable) y la conmutación de los relés de salida en la tarjeta ROC-ICA (slot J, PCB 72J).",
+            "Verificar que la cadena serie previa no presente interrupciones: microinterruptores SW12 (colimador primario), SW13 (filtro secundario), contactos de puertas de sala (Room Doors 1/2) y disyuntor CB1 (ITEM 74).",
         ]
         safety_warning = (
             "ALTA TENSIÓN (HT): Peligro de descarga eléctrica mortal. Cortar interruptor principal, verificar ausencia "
@@ -1813,8 +1860,10 @@ def analyze_with_gemini(
 
     default_chain = [
         "gemini-3.1-flash-lite",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest",
         "gemini-flash-latest",
-        "gemini-3.6-flash",
+        "gemini-3.5-flash",
     ]
     for default_m in default_chain:
         if default_m not in models_to_try:
@@ -1935,6 +1984,12 @@ Realiza el diagnóstico de causa raíz y responde en el formato JSON solicitado:
                     s for s in data.get("test_points_and_signals", [])
                     if s and not _is_drawing_or_schematic_number(s)
                 ]
+                data["safety_warning"] = re.sub(
+                    r"\b(?:Inteligencia\s+Artificial|IA|AI)\b",
+                    "",
+                    str(data.get("safety_warning") or ""),
+                    flags=re.IGNORECASE,
+                ).strip()
 
                 if degraded_parse:
                     data.setdefault("_diagnostic_meta", {})["degraded_parse"] = True

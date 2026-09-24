@@ -518,11 +518,11 @@ def search():
 @limiter.limit("300 per hour; 30 per minute")
 def diagnose():
     data = json_body()
-    # New format: {"symptoms": ["...", "...", ...]} — up to 4 free-form symptom strings
+    # New format: {"symptoms": ["...", "...", ...]} — up to 8 free-form symptom strings
     symptoms_raw = data.get("symptoms")
     if symptoms_raw is not None:
-        symptoms = strict_string_list(symptoms_raw, key="symptoms", max_items=4, max_length=300)
-        result = search_engine.diagnose_symptoms(symptoms, limit=3)
+        symptoms = strict_string_list(symptoms_raw, key="symptoms", max_items=8, max_length=300)
+        result = search_engine.diagnose_symptoms(symptoms, limit=5)
     else:
         # Legacy named-fields format (backward compatibility)
         signals = {
@@ -531,7 +531,7 @@ def diagnose():
             "message": bounded_text(data, "message", 300),
             "observations": bounded_text(data, "observations", 500),
         }
-        result = search_engine.diagnose(signals, limit=3)
+        result = search_engine.diagnose(signals, limit=5)
     result["r2_url"] = R2_PUBLIC_URL
     return jsonify(result)
 
@@ -543,7 +543,7 @@ def diagnose_ai():
     try:
         data = json_body()
         symptoms = strict_string_list(
-            data.get("symptoms", []), key="symptoms", max_items=6, max_length=300, required=True
+            data.get("symptoms", []), key="symptoms", max_items=8, max_length=300, required=True
         )
 
         client_key_raw = data.get("api_key", "")

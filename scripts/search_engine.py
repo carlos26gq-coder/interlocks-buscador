@@ -143,11 +143,23 @@ def _context(text: str, query: str, before: int = 160, after: int = 320) -> str:
     start = max(0, position - before)
     end = min(len(cleaned), position + max(match_len, 1) + after)
     snippet = cleaned[start:end].strip()
+    snippet = _clean_text_no_ai(snippet)
     if start > 0:
         snippet = "... " + snippet
     if end < len(cleaned):
         snippet += " ..."
     return snippet
+
+
+def _clean_text_no_ai(text: str) -> str:
+    """Elimina menciones de IA/AI preservando tarjetas legítimas de Entrada Analógica (AI12, AI8)."""
+    if not text:
+        return ""
+    # Si es una tarjeta de Entrada Analógica tipo 'AI 12' o 'AI 8', normalizar a 'AI12' (sin espacio)
+    s = re.sub(r"\bAI\s*(\d+[A-Za-z\-]*)\b", r"AI\1", text)
+    # Reemplazar menciones sueltas de IA / AI / Inteligencia Artificial
+    s = re.sub(r"\b(?:Inteligencia\s+Artificial|IA|AI)\b", "", s, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def _best_line(text: str, signal_tokens: set[str]) -> str:
@@ -158,14 +170,55 @@ def _best_line(text: str, signal_tokens: set[str]) -> str:
     if not lines:
         return "Evidencia relacionada"
 
-    def line_score(line: str) -> tuple[int, int]:
-        line_tokens = set(tokens(line))
-        return len(signal_tokens & line_tokens), -len(line)
+    expanded_tokens: set[str] = set()
+    for tok in signal_tokens:
+        expanded_tokens.add(tok.lower())
+        for sub in tokens(tok):
+            expanded_tokens.add(sub.lower())
+
+    generic_stops = {"the", "a", "an", "of", "in", "to", "and", "or", "for", "with", "from", "at", "on", "by", "is", "it", "as", "de", "la", "el", "en"}
+    expanded_tokens -= generic_stops
+
+    tech_words = {
+        "interlock", "inhibit", "contactor", "relay", "rele", "fault", "error", "switch",
+        "sensor", "transformer", "circuit", "board", "pcb", "fuse", "power", "supply",
+        "monitor", "safety", "voltage", "current", "trips", "limits", "dose", "rate", "vacuum", "rf"
+    }
+
+    def line_score(line: str) -> tuple[int, float, int]:
+        norm_l = line.lower()
+        line_toks = set(tokens(norm_l))
+        hits = len((expanded_tokens & line_toks) - generic_stops)
+        phrase_hits = sum(1 for tok in signal_tokens if len(tok) >= 3 and tok.lower() in norm_l)
+        total_hits = hits + phrase_hits * 2
+
+        if total_hits == 0:
+            return (0, -100.0, -len(line))
+
+        # Penalizar fuertemente números puros, códigos de dibujo, encabezados de tabla o líneas con puntos suspensivos (TOC)
+        is_heading_noise = bool(re.match(r"^(?:table|tabla|figure|figura|section|secci[oó]n|\d+[\.\d]*)\b", norm_l, re.I)) and len(line) < 32
+        is_pure_id = bool(re.fullmatch(r"[\d\s\-_/.]+", line))
+        has_dot_leader = bool(re.search(r"(?:\.\s*){4,}", line))
+        penalty = -45.0 if has_dot_leader else (-25.0 if (is_heading_noise or is_pure_id) else 0.0)
+
+        # Bonificación por contexto técnico y longitud de oración informativa
+        tech_bonus = min(len(line_toks & tech_words) * 2.5, 8.0)
+        len_score = 5.0 if 30 <= len(line) <= 110 else (3.0 if 15 <= len(line) < 30 else 1.0)
+
+        total_qual = penalty + tech_bonus + len_score
+        return (total_hits, total_qual, len(line))
 
     best = max(lines, key=line_score)
     if line_score(best)[0] == 0:
-        best = lines[0]
-    return best[:140]
+        candidates = [
+            l for l in lines
+            if not re.match(r"^(?:[0-9\.\-_/]+|copyright.*|©.*)$", l.lower()) and len(l) >= 15
+        ]
+        best = candidates[0] if candidates else lines[0]
+    clean_best = re.sub(r"(?:\s*\.){3,}.*$", "", best).strip()
+    if len(clean_best) >= 10:
+        best = clean_best
+    return _clean_text_no_ai(best)[:140]
 
 
 INVALID_BOARDS = {
@@ -349,9 +402,11 @@ def _extract_associated_components(text: str, signal_tokens: set[str] | None = N
 
 def _is_noise_page(document_normalized: str) -> bool:
     """Detecta páginas que son solo índice o tablas de contenido vacías de contenido técnico."""
-    if "table of contents" in document_normalized[:400] and len(document_normalized) < 400:
+    if "table of contents" in document_normalized[:400] and len(document_normalized) < 500:
         return True
-    if document_normalized[:300].count(". . .") >= 5:
+    if document_normalized[:500].count(". . .") >= 3 or document_normalized.count(". . .") >= 8:
+        return True
+    if ("list of figures" in document_normalized[:500] or "list of tables" in document_normalized[:500]) and document_normalized.count(". . .") >= 3:
         return True
     return False
 
@@ -624,21 +679,21 @@ class SearchEngine:
 
     # ─── DIAGNÓSTICO POR SÍNTOMAS / SEÑALES (RELACIONAR TAB) ─────────────────
 
-    def diagnose_symptoms(self, symptoms: list[str], limit: int = 3) -> dict:
+    def diagnose_symptoms(self, symptoms: list[str], limit: int = 5) -> dict:
         """Diagnóstico relacional: busca dónde se conectan y convergen los síntomas ingresados."""
-        weights_by_position = [1.4, 1.3, 1.2, 1.1, 1.0, 1.0]
         prepared = []
         all_signal_tokens: set[str] = set()
         candidate_ids: set[int] = set()
         total_docs = len(self.documents)
 
-        for i, raw_value in enumerate(symptoms[:6]):
+        for i, raw_value in enumerate(symptoms[:8]):
             value = str(raw_value or "").strip()
             if not value:
                 continue
+            norm_val = normalize(value)
             value_tokens = set(_query_tokens(value))
             if not value_tokens:
-                continue
+                value_tokens = set(tokens(value))
 
             # Priorizar tokens específicos (no stopwords ni palabras ultracomunes)
             specific_tokens = {
@@ -646,9 +701,23 @@ class SearchEngine:
                 if _token_specificity(t, self.postings, total_docs) > 0.0 or t.isdigit()
             }
             if not specific_tokens:
-                specific_tokens = value_tokens
+                specific_tokens = set(value_tokens)
 
-            weight = weights_by_position[i] if i < len(weights_by_position) else 1.0
+            # Si el valor completo o normalizado con guión existe en postings (ej: con-k, con-a, die-hta, fs73a)
+            if norm_val in self.postings:
+                specific_tokens.add(norm_val)
+                value_tokens.add(norm_val)
+            norm_val_dash = norm_val.replace(" ", "-").replace("_", "-")
+            if norm_val_dash in self.postings:
+                specific_tokens.add(norm_val_dash)
+                value_tokens.add(norm_val_dash)
+            norm_val_compact = norm_val.replace(" ", "").replace("-", "").replace("_", "")
+            if norm_val_compact in self.postings:
+                specific_tokens.add(norm_val_compact)
+                value_tokens.add(norm_val_compact)
+
+            # Todas las informaciones y síntomas ingresados tienen prioridad equitativa y alta
+            weight = 1.0
             label = f"symptom_{i + 1}"
             
             # Precompilar expresiones regulares y expandir códigos numéricos
@@ -666,7 +735,6 @@ class SearchEngine:
                     code_regexes.append(re.compile(rf"\b(?:{labels})\b[\W_]{{0,30}}\b{code_pattern}\b"))
                     code_regexes.append(re.compile(rf"\b{code_pattern}\b[\W_]{{0,30}}\b(?:{labels})\b"))
 
-            norm_val = normalize(value)
             if "ht psu" in norm_val or "psu ot" in norm_val or "over temp" in norm_val or "overtemp" in norm_val:
                 specific_tokens.update(["ot", "psu", "ht", "overtemp"])
             if "vmat" in norm_val:
@@ -680,16 +748,26 @@ class SearchEngine:
             if "ts1" in norm_val or "ts2" in norm_val or "sw1" in norm_val or "sw2" in norm_val:
                 specific_tokens.update(["ts1", "ts2", "sw1", "sw2"])
             if re.search(r"\b(?:ht[\s\-_]+)?(?:con[\s\-_]*k|contactor[\s\-_]*k)\b", norm_val) or norm_val in ("con k", "con-k", "ht con k", "ht con-k", "contactor k"):
-                specific_tokens.update(["con-k", "conk", "con_k", "contactor", "die-hta", "die-htb", "htca", "pcb16m", "pcb16n", "con_k_mon", "con_k_on", "rl4"])
+                specific_tokens.update(["con-k", "conk", "con_k", "contactor", "die-ica", "dieica", "irc-a", "irc-b", "roc-ica", "1024690", "t1", "fs73a"])
+                value_tokens.add("con-k")
+            if "79" in numeric_codes or re.search(r"\b(?:item\s*0*79|i0*79)\b", norm_val):
+                specific_tokens.update(["i79", "con-k", "conk", "con_k", "die-ica", "dieica", "irc-a", "irc-b", "roc-ica", "area72", "area74"])
             if "con-a" in norm_val or "con a" in norm_val or "contactor a" in norm_val:
                 specific_tokens.update(["con-a", "cona"])
+                value_tokens.add("con-a")
             if "con-d" in norm_val or "con d" in norm_val or "contactor d" in norm_val:
                 specific_tokens.update(["con-d", "cond"])
+                value_tokens.add("con-d")
             if "con-j" in norm_val or "con j" in norm_val or "contactor j" in norm_val:
                 specific_tokens.update(["con-j", "conj"])
+                value_tokens.add("con-j")
 
-            prepared.append((label, value, normalize(value), value_tokens, specific_tokens, weight, code_regexes))
+            if not specific_tokens and not value_tokens:
+                continue
+
+            prepared.append((label, value, norm_val, value_tokens, specific_tokens, weight, code_regexes))
             all_signal_tokens.update(specific_tokens)
+            all_signal_tokens.update(value_tokens)
 
             for token in specific_tokens:
                 candidate_ids.update(self.postings.get(token, set()))

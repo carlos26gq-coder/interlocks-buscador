@@ -201,22 +201,12 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .diag-diff-pill.baja{background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.3)}
 .diag-diff-subsystem{background:rgba(0,212,255,.08);color:var(--accent);border:1px solid rgba(0,212,255,.25);padding:2px 7px;border-radius:10px;font-size:.62rem;font-family:var(--mono)}
 .diag-diff-rationale{font-size:.76rem;line-height:1.48;color:#cbd5e1;margin-top:2px}
-.diag-findings-list{display:flex;flex-direction:column;gap:12px;margin:8px 0 14px;width:100%}
-.diag-finding-card{background:rgba(15,23,42,.75);border:1px solid rgba(168,85,247,.3);border-left:4px solid #a855f7;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;transition:border-color .15s;width:100%;box-sizing:border-box}
-.diag-finding-card:hover{border-color:rgba(168,85,247,.55);background:rgba(20,27,55,.85)}
-.diag-finding-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.diag-finding-badge{display:inline-flex;align-items:center;background:rgba(168,85,247,.22);color:#d8b4fe;border:1px solid rgba(168,85,247,.45);padding:3px 9px;border-radius:6px;font-size:.66rem;font-family:var(--mono);font-weight:700;letter-spacing:.04em;text-transform:uppercase}
-.diag-finding-title{font-size:.92rem;font-weight:700;color:#f8fafc;line-height:1.35;flex:1}
-.diag-finding-subsystem{background:rgba(0,212,255,.09);color:var(--accent);border:1px solid rgba(0,212,255,.3);padding:2px 8px;border-radius:10px;font-size:.65rem;font-family:var(--mono);white-space:nowrap}
-.diag-finding-components{display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 2px}
-.diag-finding-comp-chip{background:rgba(100,116,139,.18);border:1px solid rgba(148,163,184,.3);color:#cbd5e1;font-size:.68rem;font-family:var(--mono);padding:2px 7px;border-radius:4px}
-.diag-finding-block{border-radius:0 6px 6px 0;padding:10px 12px;margin:2px 0}
-.diag-finding-block.cause{background:rgba(30,27,75,.4);border-left:3px solid #818cf8}
-.diag-finding-block.solution{background:rgba(16,185,129,.08);border-left:3px solid #10b981}
-.diag-finding-label{display:flex;align-items:center;gap:5px;font-size:.65rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:5px}
-.diag-finding-block.cause .diag-finding-label{color:#a5b4fc}
-.diag-finding-block.solution .diag-finding-label{color:#34d399}
-.diag-finding-text{font-size:.82rem;line-height:1.55;color:#e2e8f0;white-space:pre-line}
+.diag-findings-list{display:flex;flex-direction:column;gap:14px;margin:10px 0 16px;width:100%}
+.diag-finding-entry{background:rgba(15,23,42,.75);border:1px solid rgba(168,85,247,.3);border-left:4px solid #a855f7;border-radius:10px;padding:14px 16px;transition:border-color .15s;width:100%;box-sizing:border-box}
+.diag-finding-entry:hover{border-color:rgba(168,85,247,.55);background:rgba(20,27,55,.85)}
+.diag-finding-title{font-size:.92rem;font-weight:700;color:#f8fafc;line-height:1.4;margin-bottom:8px}
+.diag-finding-title strong{color:#c084fc;font-family:var(--mono);text-transform:uppercase;font-size:.82rem;margin-right:6px}
+.diag-finding-text{font-size:.83rem;line-height:1.6;color:#cbd5e1;white-space:pre-line}
 
 
 
@@ -339,17 +329,17 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
     <div class="symptom-row" data-index="0">
       <span class="symptom-num">①</span>
         <input type="text" class="symptom-input" aria-label="Síntoma o código 1" maxlength="250" placeholder="Ej: Interlock 283 o descripción de falla" autocomplete="off" autocorrect="off" autocapitalize="off">
-      <button class="sym-del-btn" onclick="quitarSintoma(this)" aria-label="Eliminar" style="display:none">✕</button>
+      <button type="button" class="sym-del-btn" data-action="quitar-sintoma" onclick="quitarSintoma(this)" aria-label="Eliminar">✕</button>
     </div>
     <div class="symptom-row" data-index="1">
       <span class="symptom-num">②</span>
         <input type="text" class="symptom-input" aria-label="Síntoma o código 2" maxlength="250" placeholder="Ej: ITEM 409 o Error 66" autocomplete="off" autocorrect="off" autocapitalize="off">
-      <button class="sym-del-btn" onclick="quitarSintoma(this)" aria-label="Eliminar" style="display:none">✕</button>
+      <button type="button" class="sym-del-btn" data-action="quitar-sintoma" onclick="quitarSintoma(this)" aria-label="Eliminar">✕</button>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
     <button id="btnAddSym" class="btn btn-ghost btn-sm" onclick="agregarSintoma()">+ Síntoma</button>
-    <span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Máx. 4 síntomas</span>
+    <span style="font-size:.65rem;color:var(--muted);font-family:var(--mono)">Máx. 8 síntomas</span>
   </div>
 
   <div class="diag-tools-explainer" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:0.75rem;line-height:1.5;">
@@ -376,7 +366,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button id="btnDiagnose" class="btn btn-ghost" onclick="analizarDiagnostico()" title="Buscar correlaciones documentadas en los 19 manuales técnicos de Elekta">🔍 Relacionar en Manuales (Documental)</button>
       <button id="btnDiagnoseAi" class="btn btn-ai" onclick="analizarDiagnosticoAi()" title="Razonamiento causal de fallas y análisis de ingeniería">🧠 Diagnóstico Causal Avanzado</button>
-      <button id="btnTransferToReport" class="btn" style="display:none" onclick="transferToReport()" title="Transferir al Informe Técnico">📄 Transferir a Informe</button>
+      <button id="btnTransferToReport" class="btn" style="display:none" data-action="transfer-to-report" onclick="transferToReport()" title="Transferir al Informe Técnico">📄 Transferir a Informe</button>
     </div>
     <span id="diagMeta">Modo documental: correlación de evidencia en los manuales indexados.</span>
   </div>

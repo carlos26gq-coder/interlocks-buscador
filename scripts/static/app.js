@@ -902,12 +902,16 @@ async function cargarCatalogoManuales() {
 }
 
 // ─── GESTIÓN DE SÍNTOMAS (PESTAÑA RELACIONAR) ────────────
-const SYMPTOM_NUMS = ["①","②","③","④"];
+const SYMPTOM_NUMS = ["①","②","③","④","⑤","⑥","⑦","⑧"];
 const SYMPTOM_HINTS = [
     "Ej: Interlock 283",
     "Ej: Error 66",
+    "Ej: ITEM 409",
     "Ej: Leaf missing",
-    "Ej: Gantry movement issue"
+    "Ej: D_RATE 1",
+    "Ej: PCB 16N",
+    "Ej: Area 70",
+    "Ej: CON-K"
 ];
 
 function _setupSymptomEnter(input) {
@@ -919,7 +923,7 @@ function _setupSymptomEnter(input) {
 function agregarSintoma() {
     const container = document.getElementById("symptomsContainer");
     const rows = container.querySelectorAll(".symptom-row");
-    if (rows.length >= 4) { toast("Máximo 4 síntomas", "err"); return; }
+    if (rows.length >= 8) { toast("Máximo 8 síntomas", "err"); return; }
     const idx = rows.length;
     const row = document.createElement("div");
     row.className = "symptom-row";
@@ -927,20 +931,20 @@ function agregarSintoma() {
     row.innerHTML =
         '<span class="symptom-num">' + SYMPTOM_NUMS[idx] + '</span>' +
         '<input type="text" class="symptom-input" maxlength="200" placeholder="' + SYMPTOM_HINTS[idx] + '" autocomplete="off" autocorrect="off" autocapitalize="off">' +
-        '<button type="button" class="sym-del-btn" data-action="quitar-sintoma" aria-label="Eliminar">✕</button>';
+        '<button type="button" class="sym-del-btn" data-action="quitar-sintoma" onclick="quitarSintoma(this)" aria-label="Eliminar">✕</button>';
     container.appendChild(row);
-    // Show delete buttons on all rows now that there are more than 2
+    // Show delete buttons on all rows now that there are more than 1
     container.querySelectorAll(".sym-del-btn").forEach(b => b.style.display = "");
     _setupSymptomEnter(row.querySelector(".symptom-input"));
     row.querySelector(".symptom-input").focus();
-    if (container.querySelectorAll(".symptom-row").length >= 4) {
+    if (container.querySelectorAll(".symptom-row").length >= 8) {
         document.getElementById("btnAddSym").style.display = "none";
     }
 }
 
 function quitarSintoma(btn) {
     const container = document.getElementById("symptomsContainer");
-    if (container.querySelectorAll(".symptom-row").length <= 2) return;
+    if (container.querySelectorAll(".symptom-row").length <= 1) return;
     btn.closest(".symptom-row").remove();
     // Renumber
     container.querySelectorAll(".symptom-row").forEach((row, i) => {
@@ -948,7 +952,7 @@ function quitarSintoma(btn) {
         row.querySelector(".symptom-num").textContent = SYMPTOM_NUMS[i];
     });
     document.getElementById("btnAddSym").style.display = "";
-    if (container.querySelectorAll(".symptom-row").length <= 2) {
+    if (container.querySelectorAll(".symptom-row").length <= 1) {
         container.querySelectorAll(".sym-del-btn").forEach(b => b.style.display = "none");
     }
 }
@@ -966,7 +970,7 @@ function renderDiagrama(results, symptoms) {
     const main   = results[0];
     const others = results.slice(1, 3);
 
-    const symsHtml = symptoms.slice(0, 4).map(s =>
+    const symsHtml = symptoms.slice(0, 8).map(s =>
         '<div class="diag-sym-node" title="' + esc(s) + '">' +
         esc(s.length > 24 ? s.slice(0, 22) + "…" : s) + '</div>'
     ).join("");
@@ -1004,6 +1008,42 @@ function renderDiagrama(results, symptoms) {
                 : "") +
         '</div>';
     container.style.display = "block";
+}
+
+// ─── UTILIDADES DE SANITIZACIÓN DE DIAGNÓSTICO (REGLA 1: CERO IA) ───────
+function sanitizeUiExplanation(text) {
+    if (!text) return "";
+    let s = String(text).trim();
+    s = s.replace(/^Contexto\s+Operativo:\s*En\s+la\s+arquitectura\s+del\s+acelerador\s+lineal\s+Elekta[^\.\n]*[\.\n]\s*/i, "");
+    s = s.replace(/Contexto\s+Operativo:\s*En\s+la\s+arquitectura\s+del\s+acelerador\s+lineal\s+Elekta,\s*las\s+se[ñn]ales\s+analizadas\s+forman\s+parte\s+integral\s+del\s+Sistema\s+General\s+de\s+Interbloqueos\s+y\s+Seguridad\s*\(Elekta\s+LINAC\)\.?\s*/i, "");
+    s = s.replace(/^En\s+la\s+arquitectura\s+del\s+acelerador\s+lineal\s+Elekta,\s*las\s+se[ñn]ales\s+analizadas\s+forman\s+parte\s+integral\s+del\s+Sistema\s+General\s+de\s+Interbloqueos\s+y\s+Seguridad\s*\(Elekta\s+LINAC\)\.?\s*/i, "");
+    s = s.replace(/^Contexto\s+Operativo:\s*/i, "");
+    s = s.replace(/^Análisis\s+documental\s+de\s+[^:]+:\s*/i, "");
+    s = s.replace(/(?:La\s+documentaci[oó]n\s+(?:t[eé]cnica\s+)?(?:contrastada\s+)?en\s+[\w\s\-_,\.\(\)]*?(?:\.pdf|\(P[aá]gina\s*\d+\))[\w\s\-_,\.\(\)]*?\s*evidencia\s+que\s*)/gi, "El análisis del sistema evidencia que ");
+    s = s.replace(/\s*(?:documentado\s+en|seg[uú]n|registrado\s+en|contrastada\s+en|conforme\s+a)\s+[a-z0-9_\-\s]+(?:\.pdf)?\s*(?:\(P[aá]gina\s*\d+\))?/gi, "");
+    s = s.replace(/\b[a-z0-9_\-]+\.pdf\s*(?:\(P[aá]gina\s*\d+\))?/gi, "");
+    s = s.replace(/\((?:planos?|esquemas?|drawings?)[^)]*\)/gi, "");
+    s = s.replace(/\bPCB\s+72H\b/gi, "");
+    s = s.replace(/\b(?:1024\d{3}|45\d{2}[\s\-]?\d{3}[\s\-]?\d{4,5})\b/g, "");
+    s = s.replace(/\bAI\s*(\d+[A-Za-z\-]*)\b/gi, "AI$1");
+    s = s.replace(/\b(?:Inteligencia\s+Artificial|IA|AI)\b/gi, "análisis técnico");
+    s = s.replace(/,\s*,+/g, ", ");
+    s = s.replace(/\(\s*,+\s*/g, "(");
+    s = s.replace(/\s*,+\s*\)/g, ")");
+    s = s.replace(/\(\s*\)/g, "");
+    s = s.replace(/\bde\s*,\s*/g, "de ");
+    s = s.replace(/\s+/g, " ");
+    return s.trim();
+}
+
+function sanitizeUiStep(step) {
+    if (!step) return "";
+    let s = String(step).trim();
+    s = s.replace(/^Diagn[oó]stico\s*\d+[:\-.]\s*/i, "");
+    s = s.replace(/^(?:Paso\s*\d+\s*)?\((?:Probabilidad|Prioridad)\s*\d+[^)]*\):\s*/i, "");
+    s = s.replace(/^(?:Probabilidad|Prioridad)\s*\d+[:\-]\s*/i, "");
+    s = s.replace(/^Paso\s*\d+[:\-]\s*/i, "");
+    return s.trim();
 }
 
 // ─── RENDER DIAGNÓSTICO ───────────────────────────────────
@@ -1046,7 +1086,7 @@ function renderDiagnostico(data, mode, symptoms) {
     const confColors = { alta: "var(--green)", media: "var(--warn)", baja: "var(--muted)" };
     const confLabels = { alta: "⬤ Alta probabilidad", media: "⬤ Probabilidad media", baja: "⬤ Baja probabilidad" };
 
-    results.slice(0, 3).forEach((result, index) => {
+    results.slice(0, 5).forEach((result, index) => {
         const conf     = result.confidence || "media";
         const confColor = confColors[conf] || "var(--muted)";
         const confLabel = confLabels[conf] || "Probabilidad media";
@@ -1054,14 +1094,13 @@ function renderDiagnostico(data, mode, symptoms) {
         const card = document.createElement("article");
         card.className = "diagnostic-card" + (conf === "baja" ? " diag-card-low" : "");
 
-        const matches = (result.matched_signals || []).map(item =>
-            '<span class="diag-chip">' + esc(item.value) + " · " + Math.round((item.coverage || 0) * 100) + "%</span>"
-        ).join("");
-
-        const componentHtml = result.associated_component
-            ? '<div class="diag-component-box"><span class="diag-comp-label">📍 Detalle Técnico Documentado</span>' +
-              esc(result.associated_component) + '</div>'
-            : "";
+        let bodyText = "";
+        if (result.associated_component) {
+            bodyText += "Detalle técnico documentado: " + sanitizeUiExplanation(result.associated_component) + "\n\n";
+        }
+        if (result.context) {
+            bodyText += sanitizeUiExplanation(result.context);
+        }
 
         const pdfButton = (result.manual && result.page)
             ? '<div style="display:flex;justify-content:flex-end;margin-top:10px">' +
@@ -1071,17 +1110,15 @@ function renderDiagnostico(data, mode, symptoms) {
 
         card.innerHTML =
             '<div class="diag-rank">' +
-                '<span>📘 REFERENCIA DOCUMENTAL ' + (index + 1) + '</span>' +
+                '<span>⚡ DIAGNÓSTICO ' + (index + 1) + '</span>' +
                 '<span style="color:' + confColor + ';font-size:.65rem">' + confLabel + '</span>' +
                 '<b>' + Number(result.relative_match || 0) + "% · " + Number(result.matched_count || 0) + "/" + Number(result.signal_count || 0) + " términos</b>" +
             "</div>" +
-            "<h3>" + esc(result.title || "Conexión técnica documentada") + "</h3>" +
+            "<h3><strong>Diagnóstico " + (index + 1) + ":</strong> " + esc(sanitizeUiExplanation(result.title) || "Conexión técnica documentada") + "</h3>" +
             '<div class="card-header"><span class="card-manual manual-badge">📄 ' + esc(result.manual) + (result.page ? ' · Pág. ' + Number(result.page) : '') + "</span></div>" +
-            '<div class="diag-chips">' + matches + "</div>" +
-            componentHtml +
-            '<div class="card-ctx" style="background:rgba(0,0,0,0.25);padding:10px;border-radius:6px;border-left:3px solid var(--border);margin:8px 0;font-size:.8rem;line-height:1.5;">' +
-                '<span style="font-size:.65rem;font-family:var(--mono);color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;">Fragmento del manual de servicio:</span>' +
-                esc(result.context) +
+            '<div class="card-ctx" style="background:rgba(0,0,0,0.25);padding:10px;border-radius:6px;border-left:3px solid var(--border);margin:8px 0;font-size:.8rem;line-height:1.5;white-space:pre-line;">' +
+                '<span style="font-size:.65rem;font-family:var(--mono);color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;">Detalle técnico y evidencia documental:</span>' +
+                esc(bodyText) +
             '</div>' +
             pdfButton;
 
@@ -1093,7 +1130,7 @@ function renderDiagramaAi(aiData, symptoms) {
     const container = document.getElementById("diagDiagram");
     if (!aiData || !symptoms.length) { container.style.display = "none"; return; }
 
-    const symsHtml = symptoms.slice(0, 4).map(s =>
+    const symsHtml = symptoms.slice(0, 8).map(s =>
         '<div class="diag-sym-node" style="border-color:rgba(168,85,247,.4);color:#d8b4fe;background:rgba(168,85,247,.08)" title="' + esc(s) + '">' +
         esc(s.length > 24 ? s.slice(0, 22) + "…" : s) + '</div>'
     ).join("");
@@ -1127,58 +1164,10 @@ function renderDiagnosticoAi(aiData, symptoms) {
     if (meta) meta.textContent = "";
     if (notice) notice.style.display = "none";
 
-    const sanitizeUiExplanation = (text) => {
-        if (!text) return "";
-        let s = String(text).trim();
-        s = s.replace(/^Contexto\s+Operativo:\s*En\s+la\s+arquitectura\s+del\s+acelerador\s+lineal\s+Elekta[^\.\n]*[\.\n]\s*/i, "");
-        s = s.replace(/Contexto\s+Operativo:\s*En\s+la\s+arquitectura\s+del\s+acelerador\s+lineal\s+Elekta,\s*las\s+se[ñn]ales\s+analizadas\s+forman\s+parte\s+integral\s+del\s+Sistema\s+General\s+de\s+Interbloqueos\s+y\s+Seguridad\s*\(Elekta\s+LINAC\)\.?\s*/i, "");
-        s = s.replace(/^En\s+la\s+arquitectura\s+del\s+acelerador\s+lineal\s+Elekta,\s*las\s+se[ñn]ales\s+analizadas\s+forman\s+parte\s+integral\s+del\s+Sistema\s+General\s+de\s+Interbloqueos\s+y\s+Seguridad\s*\(Elekta\s+LINAC\)\.?\s*/i, "");
-        s = s.replace(/^Contexto\s+Operativo:\s*/i, "");
-        s = s.replace(/^Análisis\s+documental\s+de\s+[^:]+:\s*/i, "");
-        s = s.replace(/(?:La\s+documentaci[oó]n\s+(?:t[eé]cnica\s+)?(?:contrastada\s+)?en\s+[\w\s\-_,\.\(\)]*?(?:\.pdf|\(P[aá]gina\s*\d+\))[\w\s\-_,\.\(\)]*?\s*evidencia\s+que\s*)/gi, "El análisis del sistema evidencia que ");
-        s = s.replace(/\s*(?:documentado\s+en|seg[uú]n|registrado\s+en|contrastada\s+en|conforme\s+a)\s+[a-z0-9_\-\s]+(?:\.pdf)?\s*(?:\(P[aá]gina\s*\d+\))?/gi, "");
-        s = s.replace(/\b[a-z0-9_\-]+\.pdf\s*(?:\(P[aá]gina\s*\d+\))?/gi, "");
-        s = s.replace(/\((?:planos?|esquemas?|drawings?)[^)]*\)/gi, "");
-        s = s.replace(/\bPCB\s+(?:72H|\d{2,3}[A-Z])\b/gi, "");
-        s = s.replace(/\b(?:1024\d{3}|45\d{2}[\s\-]?\d{3}[\s\-]?\d{4,5})\b/g, "");
-        s = s.replace(/,\s*,+/g, ", ");
-        s = s.replace(/\(\s*,+\s*/g, "(");
-        s = s.replace(/\s*,+\s*\)/g, ")");
-        s = s.replace(/\(\s*\)/g, "");
-        s = s.replace(/\bde\s*,\s*/g, "de ");
-        s = s.replace(/\s+/g, " ");
-        return s.trim();
-    };
-
-    const sanitizeUiStep = (step) => {
-        if (!step) return "";
-        let s = String(step).trim();
-        s = s.replace(/^(?:Paso\s*\d+\s*)?\((?:Probabilidad|Prioridad)\s*\d+[^)]*\):\s*/i, "");
-        s = s.replace(/^(?:Probabilidad|Prioridad)\s*\d+[:\-]\s*/i, "");
-        s = s.replace(/^Paso\s*\d+[:\-]\s*/i, "");
-        return s.trim();
-    };
-
     const card = document.createElement("article");
     card.className = "diag-ai-card";
 
-    // 1. Tarjetas PCB y Módulos
-    const boardsChips = (aiData.associated_boards || []).map(b =>
-        '<span class="diag-chip" style="background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.35);color:#d8b4fe">📍 ' + esc(b) + "</span>"
-    ).join("");
-
-    // 2. Cables, Arneses y Conectores
-    const cablesChips = (aiData.cables_and_connectors || []).map(c =>
-        '<span class="diag-chip" style="background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.35);color:#93c5fd">🔌 ' + esc(c) + "</span>"
-    ).join("");
-
-    // 3. Señales y puntos de comprobación citados por la evidencia recuperada.
-    const signalsChips = (aiData.test_points_and_signals || []).map(t => {
-        const tpCode = String(t || "").trim();
-        return '<span class="diag-chip" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047">⚡ ' + esc(t) + '</span>';
-    }).join("");
-
-    // 4. Manuales con botón de apertura directa
+    // Manuales con botón de apertura directa
     const symsKw = symptoms.join(" ");
     const manualsChips = (aiData.manual_references || []).map(m => {
         const mStr = String(m || "").trim();
@@ -1210,7 +1199,7 @@ function renderDiagnosticoAi(aiData, symptoms) {
         }
     }
 
-    // Hallazgos diagnósticos y soluciones técnicas integradas (hasta 5)
+    // Hallazgos diagnósticos estructurados en bloque unificado (Diagnóstico 1..N, de mayor a menor probabilidad)
     const rawFindings = (Array.isArray(aiData.diagnostic_findings) && aiData.diagnostic_findings.length > 0)
         ? aiData.diagnostic_findings
         : (Array.isArray(aiData.differential_diagnoses) ? aiData.differential_diagnoses : []);
@@ -1218,56 +1207,33 @@ function renderDiagnosticoAi(aiData, symptoms) {
 
     let findingsHtml = "";
     if (findings.length > 0) {
-        const findingCards = findings.map((d, idx) => {
+        const findingEntries = findings.map((d, idx) => {
             const isObj = d && typeof d === "object";
-            const titleText = isObj ? (d.title || d.hypothesis || "") : String(d || "");
-            const title = esc(titleText || ("Hallazgo Diagnóstico " + (idx + 1)));
-            const sub = (isObj && d.subsystem)
-                ? '<span class="diag-finding-subsystem">' + esc(d.subsystem) + '</span>'
-                : '';
-
-            // Componentes involucrados
-            const comps = (isObj && Array.isArray(d.affected_components)) ? d.affected_components : [];
-            const compsHtml = comps.length > 0
-                ? '<div class="diag-finding-components">' +
-                    comps.map(c => '<span class="diag-finding-comp-chip">⚙️ ' + esc(c) + '</span>').join('') +
-                  '</div>'
-                : '';
-
-            // Mecanismo y Causa Física / Eléctrica
+            const rawTitle = isObj ? (d.title || d.hypothesis || "") : String(d || "");
+            const titleClean = sanitizeUiStep(rawTitle);
             const causeText = isObj ? (d.cause_mechanism || d.rationale || "") : "";
-            const causeBlock = causeText
-                ? '<div class="diag-finding-block cause">' +
-                    '<div class="diag-finding-label">🔬 Mecanismo y Causa Física / Eléctrica:</div>' +
-                    '<div class="diag-finding-text">' + esc(causeText) + '</div>' +
-                  '</div>'
-                : '';
-
-            // Procedimiento de Solución e Intervención Técnica
             const solText = isObj ? (d.solution_procedure || d.solution || "") : "";
-            const solBlock = solText
-                ? '<div class="diag-finding-block solution">' +
-                    '<div class="diag-finding-label">🛠️ Procedimiento de Solución e Intervención:</div>' +
-                    '<div class="diag-finding-text">' + esc(solText) + '</div>' +
-                  '</div>'
-                : '';
 
-            return '<div class="diag-finding-card">' +
-                '<div class="diag-finding-header">' +
-                    '<span class="diag-finding-badge">HALLAZGO ' + (idx + 1) + '</span>' +
-                    '<div class="diag-finding-title">' + title + '</div>' +
-                    sub +
+            let fullText = "";
+            if (causeText && solText) {
+                fullText = causeText.trim() + "\n\nProcedimiento de Solución e Intervención:\n" + solText.trim();
+            } else {
+                fullText = (causeText || solText || String(d || "")).trim();
+            }
+            fullText = sanitizeUiExplanation(fullText);
+
+            return '<div class="diag-finding-entry">' +
+                '<div class="diag-finding-title">' +
+                    '<strong>Diagnóstico ' + (idx + 1) + ':</strong> ' + esc(titleClean) +
                 '</div>' +
-                compsHtml +
-                causeBlock +
-                solBlock +
+                '<div class="diag-finding-text">' + esc(fullText) + '</div>' +
             '</div>';
         }).join("");
 
         findingsHtml =
             '<div class="diag-ai-section">' +
-                '<div class="diag-ai-sectit">🧭 Hallazgos Diagnósticos y Soluciones Técnicas</div>' +
-                '<div class="diag-findings-list">' + findingCards + '</div>' +
+                '<div class="diag-ai-sectit">🧭 Hallazgos Diagnósticos</div>' +
+                '<div class="diag-findings-list">' + findingEntries + '</div>' +
             '</div>';
     }
 
@@ -1282,9 +1248,6 @@ function renderDiagnosticoAi(aiData, symptoms) {
         metaNoticeHtml +
         subsystemHtml +
         '<div class="diag-ai-root">' + esc(aiData.root_cause || "Causa no identificada") + '</div>' +
-        (boardsChips ? '<div class="diag-chips" style="margin-bottom:8px">' + boardsChips + '</div>' : '') +
-        (cablesChips ? '<div class="diag-chips" style="margin-bottom:8px">' + cablesChips + '</div>' : '') +
-        (signalsChips ? '<div class="diag-chips" style="margin-bottom:12px">' + signalsChips + '</div>' : '') +
         '<div class="diag-ai-section">' +
             '<div class="diag-ai-sectit">🔬 Análisis y Deducción Causal Fundamentada</div>' +
             '<div class="diag-ai-body">' + esc(cleanExplanation) + '</div>' +
@@ -1292,7 +1255,7 @@ function renderDiagnosticoAi(aiData, symptoms) {
         findingsHtml +
         (manualsChips ?
             '<div class="diag-ai-section">' +
-        '<div class="diag-ai-sectit">📖 Manuales de Referencia (Clic para abrir)</div>' +
+                '<div class="diag-ai-sectit">📖 Manuales de Referencia (Clic para abrir)</div>' +
                 '<div class="diag-chips" style="gap:8px">' + manualsChips + '</div>' +
             '</div>'
         : '') +
@@ -1449,6 +1412,25 @@ async function analizarDiagnosticoAi() {
         if (btnTrans && list && list.innerHTML.trim() !== "") { btnTrans.style.display = "block"; }
     }
 }
+function transferToReport() {
+    const diagOut = document.getElementById("diagResults") || document.getElementById("diagnosticoContent");
+    if (!diagOut) return;
+    const target = document.getElementById("reportDiagnosis");
+    if (target) {
+        target.value = (diagOut.innerText || "").trim();
+    }
+    const symptoms = diagnosticoSymptoms();
+    const incTarget = document.getElementById("reportIncident");
+    if (incTarget && !incTarget.value.trim() && symptoms.length > 0) {
+        incTarget.value = "Falla técnica analizada con síntomas:\n- " + symptoms.join("\n- ");
+    }
+    if (typeof irA === "function") {
+        irA("Reports");
+    }
+    toast("Diagnóstico transferido al informe técnico", "ok");
+}
+window.transferToReport = transferToReport;
+
 function guardarYReintentarAi() {
     toast("Configura la variable GEMINI_API_KEY en el servidor", "warn");
     analizarDiagnostico();
@@ -1559,6 +1541,9 @@ document.addEventListener("DOMContentLoaded", async function() {
         } else if (action === "diagnostico-local") {
             event.preventDefault();
             analizarDiagnostico();
+        } else if (action === "transfer-to-report") {
+            event.preventDefault();
+            transferToReport();
         } else if (action === "report-add-part") {
             event.preventDefault();
             addReportPart();
