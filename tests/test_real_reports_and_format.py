@@ -64,23 +64,23 @@ def build_preview_html_reference(
         qty = p.get("quantity", "01").strip()
         if pn or desc:
             parts_rows += f"""
-                <tr>
-                    <td style="border: 1px solid #000; padding: 5px 8px; font-weight: 600;">{pn}</td>
-                    <td style="border: 1px solid #000; padding: 5px 8px;">{desc}</td>
-                    <td style="border: 1px solid #000; padding: 5px 8px; text-align: center;">{qty}</td>
+                <tr style="background: #FFFFFF;">
+                    <td style="border: 1px solid #4472C4; padding: 4px 8px; font-weight: bold; font-family: Calibri, sans-serif;">{pn}</td>
+                    <td style="border: 1px solid #4472C4; padding: 4px 8px; font-family: Calibri, sans-serif;">{desc}</td>
+                    <td style="border: 1px solid #4472C4; padding: 4px 8px; text-align: center; font-family: Calibri, sans-serif;">{qty}</td>
                 </tr>
             """
 
     parts_table = ""
     if parts_rows:
         parts_table = f"""
-            <div style="margin-top: 8px; border-top: 1px solid #000;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
+            <div style="margin-top: 10px;">
+                <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-size: 10pt; page-break-inside: avoid;">
                     <thead>
-                        <tr style="background: #e2e8f0; font-weight: bold;">
-                            <th style="border: 1px solid #000; padding: 4px 8px; text-align: left; width: 28%;">P/N</th>
-                            <th style="border: 1px solid #000; padding: 4px 8px; text-align: left; width: 57%;">Descripción</th>
-                            <th style="border: 1px solid #000; padding: 4px 8px; text-align: center; width: 15%;">Cant.</th>
+                        <tr style="background: #B4C6E7; color: #000000; font-family: 'Tahoma', Calibri, sans-serif; font-weight: bold;">
+                            <th style="border: 1px solid #4472C4; padding: 4px 8px; text-align: left; width: 28%;">P/N</th>
+                            <th style="border: 1px solid #4472C4; padding: 4px 8px; text-align: left; width: 57%;">Descripción</th>
+                            <th style="border: 1px solid #4472C4; padding: 4px 8px; text-align: center; width: 15%;">Cant.</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -97,13 +97,13 @@ def build_preview_html_reference(
             name = img.get("name", f"Figura {idx+1}")
             url = img.get("dataUrl", "")
             fig_items += f"""
-                <div style="border: 1px solid #000; padding: 6px; background: #ffffff; text-align: center; max-width: 340px; flex: 1 1 260px; page-break-inside: avoid; box-sizing: border-box;">
+                <div style="border: 1px solid #4472C4; padding: 6px; background: #ffffff; text-align: center; max-width: 340px; flex: 1 1 260px; page-break-inside: avoid; box-sizing: border-box;">
                     <img src="{url}" alt="{name}" style="max-width: 100%; max-height: 220px; object-fit: contain; display: block; margin: 0 auto 6px auto;">
-                    <div style="font-size: 10px; font-weight: bold; color: #000000; padding: 2px; border-top: 1px solid #e2e8f0;">Fig. {idx + 1}: {name}</div>
+                    <div style="font-size: 9.5pt; font-weight: bold; font-family: Calibri, sans-serif; color: #2F5496; padding: 2px; border-top: 1px solid #D9E2F3;">Fig. {idx + 1}: {name}</div>
                 </div>
             """
         images_html = f"""
-            <div style="margin-top: 10px; padding: 10px; border-top: 1px solid #000; background: #fafafa;">
+            <div style="margin-top: 10px; padding: 10px; border-top: 1px solid #4472C4; background: #F8FAFC;">
                 <div style="display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; align-items: flex-start;">
                     {fig_items}
                 </div>
@@ -114,103 +114,123 @@ def build_preview_html_reference(
     susp_mark = "☒" if is_susp_tto else "☐"
 
     return f"""
-        <div style="font-family: Arial, Helvetica, sans-serif; color: #000000; line-height: 1.35; max-width: 800px; margin: 0 auto; background: #ffffff;">
-            <div style="border: 2px solid #000; text-align: center; padding: 6px 0; font-size: 17px; font-weight: 900; letter-spacing: 1.5px; background: #e2e8f0; margin-bottom: 8px;">
-                INFORME TÉCNICO
+        <div style="font-family: Calibri, Arial, sans-serif; color: #000000; line-height: 1.35; max-width: 820px; margin: 0 auto; background: #ffffff; padding: 6px;">
+            <div style="background: #2F5496; color: #FFFFFF; font-family: 'Candara', Calibri, sans-serif; font-size: 16pt; font-weight: bold; text-align: center; padding: 6px 0; border: 1.5px solid #2F5496; margin-bottom: 8px; letter-spacing: 0.5px;">
+                | INFORME TÉCNICO
             </div>
-            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #000; font-size: 10.5px; margin-bottom: 10px;">
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-family: Calibri, sans-serif; font-size: 10pt; margin-bottom: 8px;">
                 <tbody>
                     <tr>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; width: 14%; padding: 4px 6px;">CLIENTE:</td>
-                        <td style="border: 1px solid #000; width: 36%; padding: 4px 6px;">{client}</td>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; width: 14%; padding: 4px 6px;">INFORME:</td>
-                        <td style="border: 1px solid #000; width: 36%; padding: 4px 6px; font-weight: 600;">{number}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; width: 14%; padding: 4px 6px;">Cliente:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; width: 36%; padding: 4px 6px;">{client}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; width: 14%; padding: 4px 6px;">Informe:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; width: 36%; padding: 4px 6px; font-weight: bold;">{number}</td>
                     </tr>
                     <tr>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">SERVICIO:</td>
-                        <td style="border: 1px solid #000; padding: 4px 6px;">{service}</td>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">FECHA:</td>
-                        <td style="border: 1px solid #000; padding: 4px 6px;">{date}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Servicio:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px;">{service}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Fecha:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px;">{date}</td>
                     </tr>
                     <tr>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">EQUIPO:</td>
-                        <td style="border: 1px solid #000; padding: 4px 6px;">{equipment}</td>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">DEPARTAMENTO:</td>
-                        <td style="border: 1px solid #000; padding: 4px 6px;">{dept}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Equipo:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px;">{equipment}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Departamento:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px;">{dept}</td>
                     </tr>
                     <tr>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">MARCA:</td>
-                        <td style="border: 1px solid #000; padding: 4px 6px;">{brand}</td>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">MODELO:</td>
-                        <td style="border: 1px solid #000; padding: 4px 6px;">{model}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Marca:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px;">{brand}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Modelo:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px;">{model}</td>
                     </tr>
                     <tr>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">SERIE:</td>
-                        <td colspan="3" style="border: 1px solid #000; padding: 4px 6px; font-weight: 600;">{serial}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Serie:</td>
+                        <td colspan="3" style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px; font-weight: bold;">{serial}</td>
                     </tr>
                 </tbody>
             </table>
-            <div style="border: 1.5px solid #000; margin-bottom: 10px; page-break-inside: avoid;">
-                <div style="background: #e2e8f0; font-weight: bold; font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #000;">INCIDENTE QUE MANIFIESTA EL USUARIO</div>
-                <div style="padding: 8px 10px; font-size: 11px; line-height: 1.4; white-space: pre-wrap; min-height: 24px;">{incident}</div>
-            </div>
-            <div style="border: 1.5px solid #000; margin-bottom: 10px; page-break-inside: avoid;">
-                <div style="background: #e2e8f0; font-weight: bold; font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #000; display: flex; justify-content: space-between; align-items: center;">
-                    <span>DIAGNOSTICO</span>
-                    <div style="font-size: 11px; display: flex; gap: 20px;">
-                        <span>PROGRAMADO <strong style="border: 1px solid #000; display: inline-block; width: 14px; height: 14px; text-align: center; line-height: 13px; font-size: 11px; vertical-align: middle; background: #ffffff;">{prog_mark}</strong></span>
-                        <span>SUSP TTO <strong style="border: 1px solid #000; display: inline-block; width: 14px; height: 14px; text-align: center; line-height: 13px; font-size: 11px; vertical-align: middle; background: #ffffff;">{susp_mark}</strong></span>
-                    </div>
-                </div>
-                <div style="padding: 8px 10px; font-size: 11px; line-height: 1.4; white-space: pre-wrap; min-height: 24px;">{diagnosis}</div>
-            </div>
-            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #000; font-size: 10.5px; margin-bottom: 10px; text-align: center; page-break-inside: avoid;">
-                <thead>
-                    <tr style="background: #e2e8f0; font-weight: bold;">
-                        <th colspan="2" style="border: 1px solid #000; padding: 4px;">Reporte de cliente</th>
-                        <th colspan="5" style="border: 1px solid #000; padding: 4px;">Revisión realizada</th>
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-family: Calibri, sans-serif; font-size: 10pt; margin-bottom: 8px;">
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #365F91; color: #FFFFFF; font-weight: bold; padding: 4px 8px; text-transform: uppercase;">INCIDENTE QUE MANIFIESTA EL USUARIO:</td>
                     </tr>
-                    <tr style="background: #f1f5f9; font-weight: 600; font-size: 10px;">
-                        <th style="border: 1px solid #000; padding: 3px; width: 14%;">Fecha</th>
-                        <th style="border: 1px solid #000; padding: 3px; width: 12%;">Hora</th>
-                        <th style="border: 1px solid #000; padding: 3px; width: 15%;">Fecha Inicio</th>
-                        <th style="border: 1px solid #000; padding: 3px; width: 13%;">Hora Inicio</th>
-                        <th style="border: 1px solid #000; padding: 3px; width: 15%;">Fecha Fin</th>
-                        <th style="border: 1px solid #000; padding: 3px; width: 13%;">Hora Fin</th>
-                        <th style="border: 1px solid #000; padding: 3px; width: 18%;">Down Time</th>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 6px 10px; font-size: 10.5pt; min-height: 22px;">{incident}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-family: Calibri, sans-serif; font-size: 10pt; margin-bottom: 6px;">
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #365F91; color: #FFFFFF; font-weight: bold; padding: 4px 8px; text-transform: uppercase;">DIAGNOSTICO:</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 6px 10px; font-size: 10.5pt; min-height: 22px;">{diagnosis}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div style="font-family: Calibri, sans-serif; font-size: 10.5pt; font-weight: bold; margin: 6px 0 8px 4px; color: #000000;">
+                PROGRAMADO &nbsp;&nbsp; <span style="font-size: 13pt; vertical-align: middle;">{prog_mark}</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; SUSP TTO &nbsp;&nbsp; <span style="font-size: 13pt; vertical-align: middle;">{susp_mark}</span>
+            </div>
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-family: Calibri, sans-serif; font-size: 10pt; margin-bottom: 8px; text-align: center; page-break-inside: avoid;">
+                <thead>
+                    <tr style="background: #2F5496; color: #FFFFFF; font-weight: bold;">
+                        <th colspan="2" style="border: 1px solid #4472C4; padding: 4px;">Reporte de cliente</th>
+                        <th colspan="5" style="border: 1px solid #4472C4; padding: 4px;">Revisión realizada</th>
+                    </tr>
+                    <tr style="background: #B4C6E7; color: #000000; font-weight: bold; font-size: 9.5pt;">
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 14%;">Fecha</th>
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 12%;">Hora</th>
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 15%;">Fecha Inicio</th>
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 13%;">Hora Inicio</th>
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 15%;">Fecha Fin</th>
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 13%;">Hora Fin</th>
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 18%;">Down Time</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        <td style="border: 1px solid #000; padding: 5px;">{client_date}</td>
-                        <td style="border: 1px solid #000; padding: 5px;">{client_time}</td>
-                        <td style="border: 1px solid #000; padding: 5px;">{work_start_date}</td>
-                        <td style="border: 1px solid #000; padding: 5px;">{work_start_time}</td>
-                        <td style="border: 1px solid #000; padding: 5px;">{work_end_date}</td>
-                        <td style="border: 1px solid #000; padding: 5px;">{work_end_time}</td>
-                        <td style="border: 1px solid #000; padding: 5px; font-weight: bold;">{down_time}</td>
+                    <tr style="background: #D9E2F3; color: #000000;">
+                        <td style="border: 1px solid #4472C4; padding: 4px;">{client_date}</td>
+                        <td style="border: 1px solid #4472C4; padding: 4px;">{client_time}</td>
+                        <td style="border: 1px solid #4472C4; padding: 4px;">{work_start_date}</td>
+                        <td style="border: 1px solid #4472C4; padding: 4px;">{work_start_time}</td>
+                        <td style="border: 1px solid #4472C4; padding: 4px;">{work_end_date}</td>
+                        <td style="border: 1px solid #4472C4; padding: 4px;">{work_end_time}</td>
+                        <td style="border: 1px solid #4472C4; padding: 4px; font-weight: bold;">{down_time}</td>
                     </tr>
                 </tbody>
             </table>
-            <div style="border: 1.5px solid #000; margin-bottom: 10px;">
-                <div style="background: #e2e8f0; font-weight: bold; font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #000;">TRABAJO REALIZADO</div>
-                <div style="padding: 10px; font-size: 11px; line-height: 1.5; text-align: justify; white-space: pre-wrap;">{work}</div>
-                {images_html}
-            </div>
-            <div style="border: 1.5px solid #000; margin-bottom: 10px; page-break-inside: avoid;">
-                <div style="background: #e2e8f0; font-weight: bold; font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #000;">CONCLUSIONES</div>
-                <div style="padding: 8px 10px; font-size: 11px; line-height: 1.4; white-space: pre-wrap;">{conclusion}</div>
-                {parts_table}
-            </div>
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-family: Calibri, sans-serif; font-size: 10.5pt; margin-bottom: 8px;">
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #365F91; color: #FFFFFF; font-weight: bold; padding: 4px 8px; text-transform: uppercase;">TRABAJO REALIZADO:</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #FFFFFF; color: #000000; padding: 10px 12px; line-height: 1.5; text-align: justify; white-space: pre-wrap;">{work}</td>
+                    </tr>
+                </tbody>
+            </table>
+            {images_html}
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-family: Calibri, sans-serif; font-size: 10.5pt; margin-bottom: 10px; page-break-inside: avoid;">
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #365F91; color: #FFFFFF; font-weight: bold; padding: 4px 8px; text-transform: uppercase;">CONCLUSIONES:</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #FFFFFF; color: #000000; padding: 8px 12px; line-height: 1.4; white-space: pre-wrap;">{conclusion}{parts_table}</td>
+                    </tr>
+                </tbody>
+            </table>
             <div style="margin-top: 36px; display: flex; justify-content: space-between; align-items: flex-start; padding: 0 40px; page-break-inside: avoid;">
                 <div style="text-align: center; width: 40%;">
-                    <div style="border-top: 1.5px solid #000; margin-bottom: 4px;"></div>
-                    <div style="font-size: 11px; font-weight: bold;">Firma / Sello Técnico</div>
+                    <div style="border-top: 1.5px solid #2F5496; margin-bottom: 4px;"></div>
+                    <div style="font-size: 11px; font-weight: bold; color: #2F5496;">Firma / Sello Técnico</div>
                     <div style="font-size: 9.5px; color: #334155;">Servicio Técnico Especializado</div>
                 </div>
                 <div style="text-align: center; width: 40%;">
-                    <div style="border-top: 1.5px solid #000; margin-bottom: 4px;"></div>
-                    <div style="font-size: 11px; font-weight: bold;">Conformidad del Cliente</div>
+                    <div style="border-top: 1.5px solid #2F5496; margin-bottom: 4px;"></div>
+                    <div style="font-size: 11px; font-weight: bold; color: #2F5496;">Conformidad del Cliente</div>
                     <div style="font-size: 9.5px; color: #334155;">Responsable de Servicio / Física Médica</div>
                 </div>
             </div>
@@ -303,10 +323,17 @@ class RealReportsAndFormatValidationTests(unittest.TestCase):
         )
 
         self.assertIn("INFORME TÉCNICO", html)
-        self.assertIn("CLIENTE:", html)
+        self.assertIn("Cliente:", html)
         self.assertIn("INEN", html)
-        self.assertIn("PROGRAMADO <strong", html)
+        self.assertIn("PROGRAMADO", html)
         self.assertIn("☒", html)
+        self.assertIn("#2F5496", html)
+        self.assertIn("#D9E2F3", html)
+        self.assertIn("#365F91", html)
+        self.assertIn("#B4C6E7", html)
+        self.assertIn("#4472C4", html)
+        self.assertIn("Candara", html)
+        self.assertIn("Calibri", html)
         self.assertIn("Down Time", html)
         self.assertIn("2:00 h", html)
         self.assertIn("TRABAJO REALIZADO", html)
@@ -338,7 +365,9 @@ class RealReportsAndFormatValidationTests(unittest.TestCase):
         self.assertTrue(len(body) > 100)
         self.assertIn("CON-K", body)
         self.assertIn("ITEM 79", body)
-        self.assertIn("DIE-ICA", body)
+        self.assertTrue(
+            "contacto" in body.lower() or "contactor" in body.lower() or "potencia" in body.lower()
+        )
         self._assert_no_ai_mentions(body, "Cuerpo Caso 2")
 
         parts = data.get("suggested_parts", [])
@@ -419,16 +448,216 @@ class RealReportsAndFormatValidationTests(unittest.TestCase):
         self.assertTrue(len(parts) > 0)
         self._assert_no_drawing_numbers_in_parts(parts)
 
+    # ─── CASO 6: POTENCIÓMETRO (MESA PSS / GANTRY) ───────────────────────────
+
+    def test_case_6_potentiometer_hardware(self):
+        """Caso 6: Avería de potenciómetro de posición PSS (mesa). Verifica que NO defaultea a tarjetas DIE."""
+        payload = {
+            "incident": "Fallo en lectura de potenciómetro PSS Y (Mesa de tratamiento)",
+            "equipment": "ACELERADOR LINEAL",
+            "brand": "ELEKTA",
+            "model": "VERSA HD",
+            "diagnosis": "Sustitución de potenciómetro y calibración de límites",
+        }
+        res = self.client.post("/reports/generate-body", json=payload)
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+
+        body = data.get("body", "")
+        self.assertTrue(len(body) > 100)
+        self.assertRegex(body, r"(?i)potenci[oó]metro|PSS|mesa|posici[oó]n")
+        self.assertNotIn("DIE-HTB", body)
+        self._assert_no_ai_mentions(body, "Cuerpo Caso 6 Potenciómetro")
+
+        parts = data.get("suggested_parts", [])
+        self.assertTrue(len(parts) > 0)
+        self._assert_no_drawing_numbers_in_parts(parts)
+
+    # ─── CASO 7: TRANSFORMADOR ────────────────────────────────────────────────
+
+    def test_case_7_transformer_hardware(self):
+        """Caso 7: Fallo térmico / dieléctrico en transformador T1. Verifica razonamiento de transformador."""
+        payload = {
+            "incident": "Sobrecalentamiento y disparo térmico en transformador de potencia T1",
+            "equipment": "ACELERADOR LINEAL",
+            "brand": "ELEKTA",
+            "model": "SYNERGY",
+            "diagnosis": "Sustitución y aislamiento de transformador de potencia",
+        }
+        res = self.client.post("/reports/generate-body", json=payload)
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+
+        body = data.get("body", "")
+        self.assertTrue(len(body) > 100)
+        self.assertRegex(body, r"(?i)transformador|diel[eé]ctrico|aislamiento")
+        self.assertNotIn("DIE-HTB", body)
+        self._assert_no_ai_mentions(body, "Cuerpo Caso 7 Transformador")
+
+        parts = data.get("suggested_parts", [])
+        self.assertTrue(len(parts) > 0)
+        self._assert_no_drawing_numbers_in_parts(parts)
+
+    # ─── CASO 8: FUENTE DE PODER DC (PSU) ─────────────────────────────────────
+
+    def test_case_8_power_supply_psu(self):
+        """Caso 8: Rizado e inestabilidad en fuente conmutada DC (PSU). Verifica razonamiento de fuentes."""
+        payload = {
+            "incident": "Rizado excesivo de riel DC e inestabilidad en fuente de poder 24V PSU",
+            "equipment": "ACELERADOR LINEAL",
+            "brand": "ELEKTA",
+            "model": "PRECISE",
+            "diagnosis": "Sustitución de módulo de fuente de poder DC",
+        }
+        res = self.client.post("/reports/generate-body", json=payload)
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+
+        body = data.get("body", "")
+        self.assertTrue(len(body) > 100)
+        self.assertRegex(body, r"(?i)fuente|PSU|rizado|ripple|tensi[oó]n|voltaje")
+        self.assertNotIn("DIE-HTB", body)
+        self._assert_no_ai_mentions(body, "Cuerpo Caso 8 PSU")
+
+        parts = data.get("suggested_parts", [])
+        self.assertTrue(len(parts) > 0)
+        self._assert_no_drawing_numbers_in_parts(parts)
+
+    # ─── CASO 9: CAÑÓN DE ELECTRONES (GUN) ───────────────────────────────────
+
+    def test_case_9_electron_gun(self):
+        """Caso 9: Degradación en cátodo/filamento del cañón de electrones (Gun)."""
+        payload = {
+            "incident": "Degradación de emisión en cátodo del cañón de electrones (Gun filament)",
+            "equipment": "ACELERADOR LINEAL",
+            "brand": "ELEKTA",
+            "model": "VERSA HD",
+            "diagnosis": "Reemplazo de ensamble de cañón de electrones",
+        }
+        res = self.client.post("/reports/generate-body", json=payload)
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+
+        body = data.get("body", "")
+        self.assertTrue(len(body) > 100)
+        self.assertRegex(body, r"(?i)ca[ñn][oó]n|gun|c[aá]todo|filamento|emisi[oó]n")
+        self.assertNotIn("DIE-HTB", body)
+        self._assert_no_ai_mentions(body, "Cuerpo Caso 9 Gun")
+
+        parts = data.get("suggested_parts", [])
+        self.assertTrue(len(parts) > 0)
+        self._assert_no_drawing_numbers_in_parts(parts)
+
+    # ─── EXPORTACIÓN DOCX Y VALIDACIÓN ESTRUCTURAL XML ───────────────────────
+
+    def test_docx_export_endpoint_and_xml_structure(self):
+        """Valida que /reports/export-docx genere un DOCX válido con la estructura exacta del Word oficial."""
+        import io
+        import zipfile
+        import xml.etree.ElementTree as ET
+
+        payload = {
+            "client": "HOSPITAL NACIONAL EDGARDO REBAGLIATI",
+            "number": "260925_154574_TEST_POT",
+            "service": "Radioterapia",
+            "date": "25 de Septiembre del 2026",
+            "equipment": "ACELERADOR LINEAL",
+            "dept": "LIMA",
+            "brand": "ELEKTA",
+            "model": "VERSA HD",
+            "serial": "154999",
+            "incident": "Fallo en lectura de potenciómetro PSS Y (Mesa de tratamiento)",
+            "diagnosis": "Sustitución y calibración de potenciómetro multivuelta PSS",
+            "isProgrammed": True,
+            "isSuspTto": False,
+            "clientDate": "25/09/2026",
+            "clientTime": "08:00",
+            "workStartDate": "25/09/2026",
+            "workStartTime": "08:30",
+            "workEndDate": "25/09/2026",
+            "workEndTime": "11:30",
+            "downTime": "3:00 h",
+            "work": "Se realizó la intervención técnica sobre la mesa de tratamiento PSS. Se constató la degradación en el potenciómetro de posición y se procedió a su reemplazo y calibración en Service Mode.",
+            "conclusion": "- Equipo operativo tras sustitución de potenciómetro\n- Se requiere los siguientes repuestos",
+            "parts": [
+                {"pn": "45133303822", "description": "POTENTIOMETER ASSY COARSE PSS 10K", "quantity": "02"},
+                {"pn": "45133303823", "description": "POTENTIOMETER ASSY FINE PSS 5K", "quantity": "02"},
+                {"pn": "45133306120", "description": "DC POWER SUPPLY 24V 10A PSS AUX", "quantity": "01"},
+            ],
+            "images": [
+                {"name": "Foto de Potenciómetro", "dataUrl": "data:image/jpeg;base64,/9j/4AAQSkZJRg=="}
+            ],
+        }
+
+        res = self.client.post("/reports/export-docx", json=payload)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(
+            res.headers.get("Content-Type"),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        self.assertIn("attachment; filename=", res.headers.get("Content-Disposition", ""))
+
+        docx_bytes = res.data
+        self.assertGreater(len(docx_bytes), 10000)
+
+        # Parsear el ZIP y document.xml
+        zip_buf = io.BytesIO(docx_bytes)
+        with zipfile.ZipFile(zip_buf, "r") as docx_zip:
+            self.assertIn("word/document.xml", docx_zip.namelist())
+            xml_content = docx_zip.read("word/document.xml").decode("utf-8")
+
+        self._assert_no_ai_mentions(xml_content, "Documento DOCX exportado")
+
+        ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+        root = ET.fromstring(xml_content)
+        tables = root.findall(".//w:tbl", ns)
+        self.assertGreaterEqual(len(tables), 7)
+
+        # Validar Metadatos en Tabla 1
+        t1_text = "".join(tables[0].itertext())
+        self.assertIn("HOSPITAL NACIONAL EDGARDO REBAGLIATI", t1_text)
+        self.assertIn("260925_154574_TEST_POT", t1_text)
+
+        # Validar Incidente en Tabla 3
+        t3_text = "".join(tables[2].itertext())
+        self.assertIn("Fallo en lectura de potenciómetro PSS Y", t3_text)
+
+        # Validar Cronograma en Tabla 5 (7 celdas en la fila de datos)
+        t5_rows = tables[4].findall("w:tr", ns)
+        self.assertEqual(len(t5_rows), 3)
+        data_cells = t5_rows[2].findall("w:tc", ns)
+        self.assertEqual(len(data_cells), 7)
+        self.assertIn("3:00 h", "".join(data_cells[6].itertext()))
+
+        # Validar Trabajo Realizado en Tabla 6
+        t6_text = "".join(tables[5].itertext())
+        self.assertIn("mesa de tratamiento PSS", t6_text)
+
+        # Validar Repuestos en Tabla 8 (3 repuestos dinámicos agregados)
+        t8 = tables[7]
+        t8_rows = t8.findall("w:tr", ns)
+        # 1 fila cabecera + 3 filas de repuestos = 4 filas
+        self.assertEqual(len(t8_rows), 4)
+        t8_text = "".join(t8.itertext())
+        self.assertIn("45133303822", t8_text)
+        self.assertIn("45133303823", t8_text)
+        self.assertIn("45133306120", t8_text)
+        self.assertIn("POTENTIOMETER ASSY COARSE", t8_text)
+
     # ─── VERIFICACIÓN DE DIFERENCIACIÓN (NO SON IGUALES) ──────────────────────
 
-    def test_all_five_cases_produce_distinct_content(self):
-        """Verifica que las 5 incidencias generen contenidos claramente diferenciados y no copias idénticas."""
+    def test_all_cases_produce_distinct_content(self):
+        """Verifica que diferentes incidencias generen contenidos claramente diferenciados y no copias idénticas."""
         queries = [
             "HT PSU OT",
             "CON-K ITEM 79",
             "Interlock 283 dosimetría",
             "Ultra alto vacío bomba iónica",
             "Interlock 51 hojas MLC Agility",
+            "Fallo en potenciómetro PSS Y",
+            "Disparo térmico en transformador T1",
+            "Rizado excesivo en fuente DC PSU",
+            "Cañón de electrones filamento",
         ]
         bodies = []
         for q in queries:

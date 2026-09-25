@@ -22,7 +22,7 @@ except ImportError:
     pass
 
 from ai_service import analyze_with_gemini
-from report_service import generate_report_body_hybrid
+from report_service import generate_report_body_hybrid, generate_report_docx
 from flask import (
     Flask,
     jsonify,
@@ -637,6 +637,36 @@ def reports_generate_body():
             "ok": False,
             "error": "server_error",
             "message": f"Error al generar la propuesta de informe: {clean_err[:120]}",
+        }), 500
+
+
+@app.route("/reports/export-docx", methods=["POST"])
+@app.route("/api/reports/export-docx", methods=["POST"])
+@limiter.limit("60 per minute")
+def reports_export_docx():
+    try:
+        data = json_body()
+        docx_bytes = generate_report_docx(data)
+
+        report_number = str(data.get("number") or "INFORME_TECNICO").strip()
+        clean_name = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", report_number) or "INFORME_TECNICO"
+        filename = f"{clean_name}.docx"
+
+        response = make_response(docx_bytes)
+        response.headers["Content-Type"] = (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+    except ValidationError as val_err:
+        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        clean_err = _sanitize_error_message(exc)
+        app.logger.error("Error en endpoint /reports/export-docx: %s", clean_err)
+        return jsonify({
+            "ok": False,
+            "error": "server_error",
+            "message": f"Error al generar el documento Word: {clean_err[:120]}",
         }), 500
 
 

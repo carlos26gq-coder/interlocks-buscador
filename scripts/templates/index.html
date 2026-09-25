@@ -61,6 +61,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .btn-primary:active{opacity:.75}
 .btn-primary:disabled{opacity:.6;pointer-events:none}
 .btn-danger{background:var(--danger);color:#fff}
+.btn-success{background:#2F5496;color:#ffffff;border:1px solid #4472C4}
+.btn-success:active{opacity:.8}
 .btn-ghost{background:var(--s2);color:var(--text);border:1px solid var(--border)}
 .btn-sm{font-size:.7rem;padding:4px 10px;border-radius:6px}
 .btn-pdf{display:inline-flex;align-items:center;gap:4px;font-size:.7rem;padding:4px 9px;border-radius:6px;border:1px solid rgba(0,212,255,.3);background:rgba(0,212,255,.07);color:var(--accent);cursor:pointer;font-family:var(--mono);touch-action:manipulation;-webkit-tap-highlight-color:transparent}
@@ -681,6 +683,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
     <!-- 8. Acciones -->
     <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
       <button type="button" class="btn" onclick="previewInforme()">👁️ Vista Previa</button>
+      <button type="button" class="btn btn-success" onclick="exportDocx()">📄 Descargar Word (.docx)</button>
       <button type="button" class="btn btn-primary" onclick="exportInforme()">🖨️ Exportar a PDF / Imprimir</button>
       <button type="button" class="btn btn-ghost" onclick="resetReportForm()">Limpiar Formulario</button>
     </div>
@@ -693,6 +696,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
       <span style="font-weight:bold; font-size:14px; color:#334155;">Vista Previa del Informe Técnico</span>
       <div style="display:flex; gap:10px;">
         <button type="button" class="btn" onclick="closeReportPreview()">Cerrar</button>
+        <button type="button" class="btn btn-success" onclick="exportDocx()">📄 Descargar Word (.docx)</button>
         <button type="button" class="btn btn-primary" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
       </div>
     </div>

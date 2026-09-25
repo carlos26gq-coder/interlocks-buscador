@@ -2384,68 +2384,106 @@ async function redactarTrabajoRealizado() {
     }
 }
 
-function previewInforme() {
+function getReportFormData() {
     const getVal = (id) => (document.getElementById(id)?.value || "").trim();
     const isChecked = (id) => Boolean(document.getElementById(id)?.checked);
 
-    const client = escapeHtml(getVal("reportClient"));
-    const number = escapeHtml(getVal("reportNumber"));
-    const service = escapeHtml(getVal("reportService"));
-    const date = escapeHtml(getVal("reportDate"));
-    const equipment = escapeHtml(getVal("reportEquipment"));
-    const dept = escapeHtml(getVal("reportDept"));
-    const brand = escapeHtml(getVal("reportBrand"));
-    const model = escapeHtml(getVal("reportModel"));
-    const serial = escapeHtml(getVal("reportSerial"));
-
-    const incident = escapeHtml(getVal("reportIncident"));
-    const diagnosis = escapeHtml(getVal("reportDiagnosis"));
-    const isProgrammed = isChecked("reportProgrammed");
-    const isSuspTto = isChecked("reportSuspTto");
-
-    const clientDate = escapeHtml(getVal("reportClientDate"));
-    const clientTime = escapeHtml(getVal("reportClientTime"));
-    const workStartDate = escapeHtml(getVal("reportWorkStartDate"));
-    const workStartTime = escapeHtml(getVal("reportWorkStartTime"));
-    const workEndDate = escapeHtml(getVal("reportWorkEndDate"));
-    const workEndTime = escapeHtml(getVal("reportWorkEndTime"));
-    const downTime = escapeHtml(getVal("reportDownTime"));
-
-    const work = escapeHtml(getVal("reportWork"));
-    const conclusion = escapeHtml(getVal("reportConclusion"));
-
-    // Repuestos
     const pns = document.querySelectorAll("#reportParts .part-pn");
     const descs = document.querySelectorAll("#reportParts .part-desc");
     const qtys = document.querySelectorAll("#reportParts .part-qty");
-    let partsRowsHtml = "";
-    let partsCount = 0;
+    const parts = [];
     for (let i = 0; i < pns.length; i++) {
-        const pnVal = (pns[i]?.value || "").trim();
-        const descVal = (descs[i]?.value || "").trim();
-        const qtyVal = (qtys[i]?.value || "01").trim();
-        if (pnVal || descVal) {
-            partsCount++;
-            partsRowsHtml += `
-                <tr>
-                    <td style="border: 1px solid #000; padding: 5px 8px; font-weight: 600;">${escapeHtml(pnVal)}</td>
-                    <td style="border: 1px solid #000; padding: 5px 8px;">${escapeHtml(descVal)}</td>
-                    <td style="border: 1px solid #000; padding: 5px 8px; text-align: center;">${escapeHtml(qtyVal)}</td>
-                </tr>
-            `;
+        const pn = (pns[i]?.value || "").trim();
+        const desc = (descs[i]?.value || "").trim();
+        const qty = (qtys[i]?.value || "01").trim();
+        if (pn || desc) {
+            parts.push({ pn, description: desc, quantity: qty });
         }
     }
 
+    return {
+        client: getVal("reportClient"),
+        number: getVal("reportNumber"),
+        service: getVal("reportService"),
+        date: getVal("reportDate"),
+        equipment: getVal("reportEquipment"),
+        dept: getVal("reportDept"),
+        brand: getVal("reportBrand"),
+        model: getVal("reportModel"),
+        serial: getVal("reportSerial"),
+        incident: getVal("reportIncident"),
+        diagnosis: getVal("reportDiagnosis"),
+        isProgrammed: isChecked("reportProgrammed"),
+        isSuspTto: isChecked("reportSuspTto"),
+        clientDate: getVal("reportClientDate"),
+        clientTime: getVal("reportClientTime"),
+        workStartDate: getVal("reportWorkStartDate"),
+        workStartTime: getVal("reportWorkStartTime"),
+        workEndDate: getVal("reportWorkEndDate"),
+        workEndTime: getVal("reportWorkEndTime"),
+        downTime: getVal("reportDownTime"),
+        work: getVal("reportWork"),
+        conclusion: getVal("reportConclusion"),
+        parts,
+        images: _reportImages.map((img) => ({
+            name: img.name,
+            dataUrl: img.dataUrl,
+        })),
+    };
+}
+
+function previewInforme() {
+    const data = getReportFormData();
+
+    const client = escapeHtml(data.client);
+    const number = escapeHtml(data.number);
+    const service = escapeHtml(data.service);
+    const date = escapeHtml(data.date);
+    const equipment = escapeHtml(data.equipment);
+    const dept = escapeHtml(data.dept);
+    const brand = escapeHtml(data.brand);
+    const model = escapeHtml(data.model);
+    const serial = escapeHtml(data.serial);
+
+    const incident = escapeHtml(data.incident);
+    const diagnosis = escapeHtml(data.diagnosis);
+    const isProgrammed = data.isProgrammed;
+    const isSuspTto = data.isSuspTto;
+
+    const clientDate = escapeHtml(data.clientDate);
+    const clientTime = escapeHtml(data.clientTime);
+    const workStartDate = escapeHtml(data.workStartDate);
+    const workStartTime = escapeHtml(data.workStartTime);
+    const workEndDate = escapeHtml(data.workEndDate);
+    const workEndTime = escapeHtml(data.workEndTime);
+    const downTime = escapeHtml(data.downTime);
+
+    const work = escapeHtml(data.work);
+    const conclusion = escapeHtml(data.conclusion);
+
+    // Repuestos con formato Word oficial
+    let partsRowsHtml = "";
+    for (let i = 0; i < data.parts.length; i++) {
+        const p = data.parts[i];
+        partsRowsHtml += `
+            <tr style="background: #FFFFFF;">
+                <td style="border: 1px solid #4472C4; padding: 4px 8px; font-weight: bold; font-family: Calibri, sans-serif;">${escapeHtml(p.pn)}</td>
+                <td style="border: 1px solid #4472C4; padding: 4px 8px; font-family: Calibri, sans-serif;">${escapeHtml(p.description)}</td>
+                <td style="border: 1px solid #4472C4; padding: 4px 8px; text-align: center; font-family: Calibri, sans-serif;">${escapeHtml(p.quantity)}</td>
+            </tr>
+        `;
+    }
+
     let partsTableHtml = "";
-    if (partsCount > 0) {
+    if (data.parts.length > 0) {
         partsTableHtml = `
-            <div style="margin-top: 8px; border-top: 1px solid #000;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
+            <div style="margin-top: 10px;">
+                <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-size: 10pt; page-break-inside: avoid;">
                     <thead>
-                        <tr style="background: #e2e8f0; font-weight: bold;">
-                            <th style="border: 1px solid #000; padding: 4px 8px; text-align: left; width: 28%;">P/N</th>
-                            <th style="border: 1px solid #000; padding: 4px 8px; text-align: left; width: 57%;">Descripción</th>
-                            <th style="border: 1px solid #000; padding: 4px 8px; text-align: center; width: 15%;">Cant.</th>
+                        <tr style="background: #B4C6E7; color: #000000; font-family: 'Tahoma', Calibri, sans-serif; font-weight: bold;">
+                            <th style="border: 1px solid #4472C4; padding: 4px 8px; text-align: left; width: 28%;">P/N</th>
+                            <th style="border: 1px solid #4472C4; padding: 4px 8px; text-align: left; width: 57%;">Descripción</th>
+                            <th style="border: 1px solid #4472C4; padding: 4px 8px; text-align: center; width: 15%;">Cant.</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -2460,12 +2498,12 @@ function previewInforme() {
     let imagesHtml = "";
     if (_reportImages.length > 0) {
         imagesHtml = `
-            <div style="margin-top: 10px; padding: 10px; border-top: 1px solid #000; background: #fafafa;">
+            <div style="margin-top: 10px; padding: 10px; border-top: 1px solid #4472C4; background: #F8FAFC;">
                 <div style="display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; align-items: flex-start;">
                     ${_reportImages.map((img, idx) => `
-                        <div style="border: 1px solid #000; padding: 6px; background: #ffffff; text-align: center; max-width: 340px; flex: 1 1 260px; page-break-inside: avoid; box-sizing: border-box;">
+                        <div style="border: 1px solid #4472C4; padding: 6px; background: #ffffff; text-align: center; max-width: 340px; flex: 1 1 260px; page-break-inside: avoid; box-sizing: border-box;">
                             <img src="${img.dataUrl}" alt="${escapeHtml(img.name)}" style="max-width: 100%; max-height: 220px; object-fit: contain; display: block; margin: 0 auto 6px auto;">
-                            <div style="font-size: 10px; font-weight: bold; color: #000000; padding: 2px; border-top: 1px solid #e2e8f0;">Fig. ${idx + 1}: ${escapeHtml(img.name)}</div>
+                            <div style="font-size: 9.5pt; font-weight: bold; font-family: Calibri, sans-serif; color: #2F5496; padding: 2px; border-top: 1px solid #D9E2F3;">Fig. ${idx + 1}: ${escapeHtml(img.name)}</div>
                         </div>
                     `).join("")}
                 </div>
@@ -2474,118 +2512,140 @@ function previewInforme() {
     }
 
     const docHtml = `
-        <div style="font-family: Arial, Helvetica, sans-serif; color: #000000; line-height: 1.35; max-width: 800px; margin: 0 auto; background: #ffffff;">
-            <!-- Encabezado / Banner Superior -->
-            <div style="border: 2px solid #000; text-align: center; padding: 6px 0; font-size: 17px; font-weight: 900; letter-spacing: 1.5px; background: #e2e8f0; margin-bottom: 8px;">
-                INFORME TÉCNICO
+        <div style="font-family: Calibri, Arial, sans-serif; color: #000000; line-height: 1.35; max-width: 820px; margin: 0 auto; background: #ffffff; padding: 6px;">
+            <!-- Encabezado / Banner Superior Estilo Word -->
+            <div style="background: #2F5496; color: #FFFFFF; font-family: 'Candara', Calibri, sans-serif; font-size: 16pt; font-weight: bold; text-align: center; padding: 6px 0; border: 1.5px solid #2F5496; margin-bottom: 8px; letter-spacing: 0.5px;">
+                | INFORME TÉCNICO
             </div>
 
-            <!-- Tabla de Metadatos -->
-            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #000; font-size: 10.5px; margin-bottom: 10px;">
+            <!-- Tabla 1 y 2: Metadatos -->
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-family: Calibri, sans-serif; font-size: 10pt; margin-bottom: 8px;">
                 <tbody>
                     <tr>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; width: 14%; padding: 4px 6px;">CLIENTE:</td>
-                        <td style="border: 1px solid #000; width: 36%; padding: 4px 6px;">${client}</td>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; width: 14%; padding: 4px 6px;">INFORME:</td>
-                        <td style="border: 1px solid #000; width: 36%; padding: 4px 6px; font-weight: 600;">${number}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; width: 14%; padding: 4px 6px;">Cliente:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; width: 36%; padding: 4px 6px;">${client}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; width: 14%; padding: 4px 6px;">Informe:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; width: 36%; padding: 4px 6px; font-weight: bold;">${number}</td>
                     </tr>
                     <tr>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">SERVICIO:</td>
-                        <td style="border: 1px solid #000; padding: 4px 6px;">${service}</td>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">FECHA:</td>
-                        <td style="border: 1px solid #000; padding: 4px 6px;">${date}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Servicio:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px;">${service}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Fecha:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px;">${date}</td>
                     </tr>
                     <tr>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">EQUIPO:</td>
-                        <td style="border: 1px solid #000; padding: 4px 6px;">${equipment}</td>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">DEPARTAMENTO:</td>
-                        <td style="border: 1px solid #000; padding: 4px 6px;">${dept}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Equipo:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px;">${equipment}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Departamento:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px;">${dept}</td>
                     </tr>
                     <tr>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">MARCA:</td>
-                        <td style="border: 1px solid #000; padding: 4px 6px;">${brand}</td>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">MODELO:</td>
-                        <td style="border: 1px solid #000; padding: 4px 6px;">${model}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Marca:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px;">${brand}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Modelo:</td>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px;">${model}</td>
                     </tr>
                     <tr>
-                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">SERIE:</td>
-                        <td colspan="3" style="border: 1px solid #000; padding: 4px 6px; font-weight: 600;">${serial}</td>
+                        <td style="border: 1px solid #4472C4; background: #2F5496; color: #FFFFFF; font-weight: bold; padding: 4px 6px;">Serie:</td>
+                        <td colspan="3" style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 4px 6px; font-weight: bold;">${serial}</td>
                     </tr>
                 </tbody>
             </table>
 
-            <!-- 1. Incidente -->
-            <div style="border: 1.5px solid #000; margin-bottom: 10px; page-break-inside: avoid;">
-                <div style="background: #e2e8f0; font-weight: bold; font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #000;">INCIDENTE QUE MANIFIESTA EL USUARIO</div>
-                <div style="padding: 8px 10px; font-size: 11px; line-height: 1.4; white-space: pre-wrap; min-height: 24px;">${incident || "-"}</div>
-            </div>
-
-            <!-- 2. Diagnóstico con Casillas -->
-            <div style="border: 1.5px solid #000; margin-bottom: 10px; page-break-inside: avoid;">
-                <div style="background: #e2e8f0; font-weight: bold; font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #000; display: flex; justify-content: space-between; align-items: center;">
-                    <span>DIAGNOSTICO</span>
-                    <div style="font-size: 11px; display: flex; gap: 20px;">
-                        <span>PROGRAMADO <strong style="border: 1px solid #000; display: inline-block; width: 14px; height: 14px; text-align: center; line-height: 13px; font-size: 11px; vertical-align: middle; background: #ffffff;">${isProgrammed ? '☒' : '☐'}</strong></span>
-                        <span>SUSP TTO <strong style="border: 1px solid #000; display: inline-block; width: 14px; height: 14px; text-align: center; line-height: 13px; font-size: 11px; vertical-align: middle; background: #ffffff;">${isSuspTto ? '☒' : '☐'}</strong></span>
-                    </div>
-                </div>
-                <div style="padding: 8px 10px; font-size: 11px; line-height: 1.4; white-space: pre-wrap; min-height: 24px;">${diagnosis || "-"}</div>
-            </div>
-
-            <!-- 3. Cronograma de Atención -->
-            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #000; font-size: 10.5px; margin-bottom: 10px; text-align: center; page-break-inside: avoid;">
-                <thead>
-                    <tr style="background: #e2e8f0; font-weight: bold;">
-                        <th colspan="2" style="border: 1px solid #000; padding: 4px;">Reporte de cliente</th>
-                        <th colspan="5" style="border: 1px solid #000; padding: 4px;">Revisión realizada</th>
+            <!-- Tabla 3: Incidente -->
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-family: Calibri, sans-serif; font-size: 10pt; margin-bottom: 8px;">
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #365F91; color: #FFFFFF; font-weight: bold; padding: 4px 8px; text-transform: uppercase;">INCIDENTE QUE MANIFIESTA EL USUARIO:</td>
                     </tr>
-                    <tr style="background: #f1f5f9; font-weight: 600; font-size: 10px;">
-                        <th style="border: 1px solid #000; padding: 3px; width: 14%;">Fecha</th>
-                        <th style="border: 1px solid #000; padding: 3px; width: 12%;">Hora</th>
-                        <th style="border: 1px solid #000; padding: 3px; width: 15%;">Fecha Inicio</th>
-                        <th style="border: 1px solid #000; padding: 3px; width: 13%;">Hora Inicio</th>
-                        <th style="border: 1px solid #000; padding: 3px; width: 15%;">Fecha Fin</th>
-                        <th style="border: 1px solid #000; padding: 3px; width: 13%;">Hora Fin</th>
-                        <th style="border: 1px solid #000; padding: 3px; width: 18%;">Down Time</th>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 6px 10px; font-size: 10.5pt; min-height: 22px;">${incident || "-"}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- Tabla 4: Diagnóstico -->
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-family: Calibri, sans-serif; font-size: 10pt; margin-bottom: 6px;">
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #365F91; color: #FFFFFF; font-weight: bold; padding: 4px 8px; text-transform: uppercase;">DIAGNOSTICO:</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #D9E2F3; color: #000000; padding: 6px 10px; font-size: 10.5pt; min-height: 22px;">${diagnosis || "-"}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- Casillas de Verificación Estilo Word -->
+            <div style="font-family: Calibri, sans-serif; font-size: 10.5pt; font-weight: bold; margin: 6px 0 8px 4px; color: #000000;">
+                PROGRAMADO &nbsp;&nbsp; <span style="font-size: 13pt; vertical-align: middle;">${isProgrammed ? '☒' : '☐'}</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; SUSP TTO &nbsp;&nbsp; <span style="font-size: 13pt; vertical-align: middle;">${isSuspTto ? '☒' : '☐'}</span>
+            </div>
+
+            <!-- Tabla 5: Cronograma de Atención -->
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-family: Calibri, sans-serif; font-size: 10pt; margin-bottom: 8px; text-align: center; page-break-inside: avoid;">
+                <thead>
+                    <tr style="background: #2F5496; color: #FFFFFF; font-weight: bold;">
+                        <th colspan="2" style="border: 1px solid #4472C4; padding: 4px;">Reporte de cliente</th>
+                        <th colspan="5" style="border: 1px solid #4472C4; padding: 4px;">Revisión realizada</th>
+                    </tr>
+                    <tr style="background: #B4C6E7; color: #000000; font-weight: bold; font-size: 9.5pt;">
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 14%;">Fecha</th>
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 12%;">Hora</th>
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 15%;">Fecha Inicio</th>
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 13%;">Hora Inicio</th>
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 15%;">Fecha Fin</th>
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 13%;">Hora Fin</th>
+                        <th style="border: 1px solid #4472C4; padding: 3px; width: 18%;">Down Time</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        <td style="border: 1px solid #000; padding: 5px;">${clientDate || "-"}</td>
-                        <td style="border: 1px solid #000; padding: 5px;">${clientTime || "-"}</td>
-                        <td style="border: 1px solid #000; padding: 5px;">${workStartDate || "-"}</td>
-                        <td style="border: 1px solid #000; padding: 5px;">${workStartTime || "-"}</td>
-                        <td style="border: 1px solid #000; padding: 5px;">${workEndDate || "-"}</td>
-                        <td style="border: 1px solid #000; padding: 5px;">${workEndTime || "-"}</td>
-                        <td style="border: 1px solid #000; padding: 5px; font-weight: bold;">${downTime || "-"}</td>
+                    <tr style="background: #D9E2F3; color: #000000;">
+                        <td style="border: 1px solid #4472C4; padding: 4px;">${clientDate || "-"}</td>
+                        <td style="border: 1px solid #4472C4; padding: 4px;">${clientTime || "-"}</td>
+                        <td style="border: 1px solid #4472C4; padding: 4px;">${workStartDate || "-"}</td>
+                        <td style="border: 1px solid #4472C4; padding: 4px;">${workStartTime || "-"}</td>
+                        <td style="border: 1px solid #4472C4; padding: 4px;">${workEndDate || "-"}</td>
+                        <td style="border: 1px solid #4472C4; padding: 4px;">${workEndTime || "-"}</td>
+                        <td style="border: 1px solid #4472C4; padding: 4px; font-weight: bold;">${downTime || "-"}</td>
                     </tr>
                 </tbody>
             </table>
 
-            <!-- 4. Trabajo Realizado -->
-            <div style="border: 1.5px solid #000; margin-bottom: 10px;">
-                <div style="background: #e2e8f0; font-weight: bold; font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #000;">TRABAJO REALIZADO</div>
-                <div style="padding: 10px; font-size: 11px; line-height: 1.5; text-align: justify; white-space: pre-wrap;">${work || "No se ha ingresado el detalle del trabajo realizado."}</div>
-                ${imagesHtml}
-            </div>
+            <!-- Tabla 6: Trabajo Realizado -->
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-family: Calibri, sans-serif; font-size: 10.5pt; margin-bottom: 8px;">
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #365F91; color: #FFFFFF; font-weight: bold; padding: 4px 8px; text-transform: uppercase;">TRABAJO REALIZADO:</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #FFFFFF; color: #000000; padding: 10px 12px; line-height: 1.5; text-align: justify; white-space: pre-wrap;">${work || "No se ha ingresado el detalle del trabajo realizado."}</td>
+                    </tr>
+                </tbody>
+            </table>
+            ${imagesHtml}
 
-            <!-- 5. Conclusiones y Repuestos Requeridos -->
-            <div style="border: 1.5px solid #000; margin-bottom: 10px; page-break-inside: avoid;">
-                <div style="background: #e2e8f0; font-weight: bold; font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #000;">CONCLUSIONES</div>
-                <div style="padding: 8px 10px; font-size: 11px; line-height: 1.4; white-space: pre-wrap;">${conclusion || "-"}</div>
-                ${partsTableHtml}
-            </div>
+            <!-- Tabla 7 y 8: Conclusiones y Repuestos Requeridos -->
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #4472C4; font-family: Calibri, sans-serif; font-size: 10.5pt; margin-bottom: 10px; page-break-inside: avoid;">
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #365F91; color: #FFFFFF; font-weight: bold; padding: 4px 8px; text-transform: uppercase;">CONCLUSIONES:</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #4472C4; background: #FFFFFF; color: #000000; padding: 8px 12px; line-height: 1.4; white-space: pre-wrap;">${conclusion || "-"}${partsTableHtml}</td>
+                    </tr>
+                </tbody>
+            </table>
 
-            <!-- 6. Firmas y Sellos -->
+            <!-- Firmas y Sellos Institucionales -->
             <div style="margin-top: 36px; display: flex; justify-content: space-between; align-items: flex-start; padding: 0 40px; page-break-inside: avoid;">
                 <div style="text-align: center; width: 40%;">
-                    <div style="border-top: 1.5px solid #000; margin-bottom: 4px;"></div>
-                    <div style="font-size: 11px; font-weight: bold;">Firma / Sello Técnico</div>
+                    <div style="border-top: 1.5px solid #2F5496; margin-bottom: 4px;"></div>
+                    <div style="font-size: 11px; font-weight: bold; color: #2F5496;">Firma / Sello Técnico</div>
                     <div style="font-size: 9.5px; color: #334155;">Servicio Técnico Especializado</div>
                 </div>
                 <div style="text-align: center; width: 40%;">
-                    <div style="border-top: 1.5px solid #000; margin-bottom: 4px;"></div>
-                    <div style="font-size: 11px; font-weight: bold;">Conformidad del Cliente</div>
+                    <div style="border-top: 1.5px solid #2F5496; margin-bottom: 4px;"></div>
+                    <div style="font-size: 11px; font-weight: bold; color: #2F5496;">Conformidad del Cliente</div>
                     <div style="font-size: 9.5px; color: #334155;">Responsable de Servicio / Física Médica</div>
                 </div>
             </div>
@@ -2601,6 +2661,40 @@ function previewInforme() {
 function closeReportPreview() {
     const modal = document.getElementById("informePreviewModal");
     if (modal) modal.style.display = "none";
+}
+
+async function exportDocx() {
+    const data = getReportFormData();
+    try {
+        toast("Generando documento Word (.docx) idéntico a la plantilla...", "info");
+        const resp = await fetch("/reports/export-docx", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(data),
+        });
+        if (!resp.ok) {
+            const errJson = await resp.json().catch(() => ({}));
+            throw new Error(errJson.message || `Error ${resp.status} al exportar DOCX`);
+        }
+        const blob = await resp.blob();
+        const cleanNumber = (data.number || "INFORME_TECNICO").replace(/[^a-zA-Z0-9_\-\.]/g, "_") || "INFORME_TECNICO";
+        const filename = `${cleanNumber}.docx`;
+
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        toast("Documento Word (.docx) descargado exitosamente", "ok");
+    } catch (err) {
+        console.error("Error exportando DOCX:", err);
+        toast("No se pudo exportar el documento Word: " + (err.message || err), "err");
+    }
 }
 
 function exportInforme() {
@@ -2753,6 +2847,7 @@ window.isOnline = isOnline;
 window.addReportPart = addReportPart;
 window.previewInforme = previewInforme;
 window.exportInforme = exportInforme;
+window.exportDocx = exportDocx;
 window.closeReportPreview = closeReportPreview;
 window.redactarTrabajoRealizado = redactarTrabajoRealizado;
 window.handleReportImagesChange = handleReportImagesChange;
