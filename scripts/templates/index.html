@@ -366,7 +366,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button id="btnDiagnose" class="btn btn-ghost" onclick="analizarDiagnostico()" title="Buscar correlaciones documentadas en los 19 manuales técnicos de Elekta">🔍 Relacionar en Manuales (Documental)</button>
       <button id="btnDiagnoseAi" class="btn btn-ai" onclick="analizarDiagnosticoAi()" title="Razonamiento causal de fallas y análisis de ingeniería">🧠 Diagnóstico Causal Avanzado</button>
-      <button id="btnTransferToReport" class="btn" style="display:none" data-action="transfer-to-report" onclick="transferToReport()" title="Transferir al Informe Técnico">📄 Transferir a Informe</button>
+      <button id="btnTransferToReport" class="btn" style="display:none" data-action="transfer-to-report" title="Transferir al Informe Técnico">📄 Transferir a Informe</button>
     </div>
     <span id="diagMeta">Modo documental: correlación de evidencia en los manuales indexados.</span>
   </div>
@@ -509,162 +509,256 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 </div>
 
 <div id="screenReports" class="screen">
-  <div class="diagnostic-intro"><h2>📄 Informe técnico</h2><p>Complete y revise todos los campos antes de emitir el informe. El diagnóstico es una propuesta documental editable.</p></div>
+  <div class="diagnostic-intro">
+    <h2>📄 Informe técnico de servicio</h2>
+    <p>Emisión y edición de informes de servicio técnico. La sección de trabajo realizado se redacta con base en los 19 manuales de Elekta y todos los datos son editables.</p>
+  </div>
   <div class="note-form" id="informeForm">
-    <div class="field"><label for="reportClient">Cliente</label><input id="reportClient" maxlength="160"></div>
-    <div class="field"><label for="reportService">Servicio</label><input id="reportService" maxlength="160"></div>
-    <div class="field"><label for="reportEquipment">Equipo</label><input id="reportEquipment" maxlength="160"></div>
-    <div class="field"><label for="reportIncident">Incidente que manifiesta el usuario</label><textarea id="reportIncident" maxlength="4000"></textarea></div>
-    <div class="field"><label for="reportDiagnosis">Diagnóstico</label><textarea id="reportDiagnosis" maxlength="8000"></textarea></div>
-    <div class="field"><label for="reportWork">Revisión realizada y trabajo realizado</label><textarea id="reportWork" maxlength="12000"></textarea></div>
-    <div class="field"><label for="reportConclusion">Conclusiones</label><textarea id="reportConclusion" maxlength="4000"></textarea></div>
-    <div class="field"><label for="reportImages">Imágenes de respaldo</label><input id="reportImages" type="file" accept="image/*" multiple></div>
-    <h3>Repuestos</h3><div id="reportParts"></div><button type="button" class="btn btn-ghost btn-sm" data-action="report-add-part" onclick="addReportPart()">+ Repuesto</button>
-    <div style="margin-top:20px; display:flex; gap:10px;">
-      <button type="button" class="btn" onclick="previewInforme()">Vista Previa</button>
-      <button type="button" class="btn btn-primary" onclick="exportInforme()">Exportar a PDF</button>
+    <!-- 1. Datos Generales -->
+    <div class="report-form-card">
+      <div class="report-form-card-title">📋 Datos del Equipo y Servicio</div>
+      <div class="report-grid-3">
+        <div class="field">
+          <label for="reportClient">Cliente</label>
+          <input id="reportClient" maxlength="160" value="INEN" placeholder="Ej: INEN">
+        </div>
+        <div class="field">
+          <label for="reportNumber">Informe</label>
+          <input id="reportNumber" maxlength="160" value="260915_154574_ CG HT PSU OT" placeholder="Ej: 260915_154574_ CG HT PSU OT">
+        </div>
+        <div class="field">
+          <label for="reportService">Servicio</label>
+          <input id="reportService" maxlength="160" value="Radioterapia" placeholder="Ej: Radioterapia">
+        </div>
+        <div class="field">
+          <label for="reportDate">Fecha</label>
+          <input id="reportDate" maxlength="160" value="15 de Septiembre del 2026" placeholder="Ej: 15 de Septiembre del 2026">
+        </div>
+        <div class="field">
+          <label for="reportEquipment">Equipo</label>
+          <input id="reportEquipment" maxlength="160" value="ACELERADOR LINEAL" placeholder="Ej: ACELERADOR LINEAL">
+        </div>
+        <div class="field">
+          <label for="reportDept">Departamento</label>
+          <input id="reportDept" maxlength="160" value="LIMA" placeholder="Ej: LIMA">
+        </div>
+        <div class="field">
+          <label for="reportBrand">Marca</label>
+          <input id="reportBrand" maxlength="160" value="ELEKTA" placeholder="Ej: ELEKTA">
+        </div>
+        <div class="field">
+          <label for="reportModel">Modelo</label>
+          <input id="reportModel" maxlength="160" value="SYNERGY FULL" placeholder="Ej: SYNERGY FULL">
+        </div>
+        <div class="field">
+          <label for="reportSerial">Serie</label>
+          <input id="reportSerial" maxlength="160" value="154574" placeholder="Ej: 154574">
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Incidente y Diagnóstico -->
+    <div class="report-form-card">
+      <div class="report-form-card-title">⚠️ Incidente y Diagnóstico</div>
+      <div class="field">
+        <label for="reportIncident">Incidente que manifiesta el usuario</label>
+        <textarea id="reportIncident" rows="2" maxlength="4000" placeholder="Ej: HT PSU OT">HT PSU OT</textarea>
+      </div>
+      <div class="field">
+        <label for="reportDiagnosis">Diagnóstico</label>
+        <textarea id="reportDiagnosis" rows="2" maxlength="8000" placeholder="Ej: Reemplazo de Switch Assembly y DIE HTB">Reemplazo de Switch Assembly y DIE HTB</textarea>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label style="font-weight:600; display:block; margin-bottom:6px;">Estado del Servicio:</label>
+        <div style="display:flex; gap:24px; align-items:center;">
+          <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="reportProgrammed" checked style="width:18px; height:18px;">
+            <span style="font-weight:600;">PROGRAMADO</span>
+          </label>
+          <label class="checkbox-label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="reportSuspTto" style="width:18px; height:18px;">
+            <span style="font-weight:600;">SUSP TTO</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Tiempos -->
+    <div class="report-form-card">
+      <div class="report-form-card-title">⏱️ Registro de Tiempos y Horarios</div>
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
+        <div style="border:1px solid var(--border); border-radius:4px; padding:12px;">
+          <h4 style="margin:0 0 10px 0; font-size:0.9rem; color:var(--text-bright);">Reporte de cliente</h4>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+            <div class="field" style="margin:0;">
+              <label for="reportClientDate">Fecha</label>
+              <input id="reportClientDate" value="15/09/2026" placeholder="DD/MM/AAAA" maxlength="30">
+            </div>
+            <div class="field" style="margin:0;">
+              <label for="reportClientTime">Hora</label>
+              <input id="reportClientTime" value="19:00" placeholder="HH:MM" maxlength="20">
+            </div>
+          </div>
+        </div>
+        <div style="border:1px solid var(--border); border-radius:4px; padding:12px;">
+          <h4 style="margin:0 0 10px 0; font-size:0.9rem; color:var(--text-bright);">Revisión realizada</h4>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap:8px;">
+            <div class="field" style="margin:0;">
+              <label for="reportWorkStartDate">Fecha Inicio</label>
+              <input id="reportWorkStartDate" value="15/09/2026" placeholder="DD/MM/AAAA" maxlength="30" onchange="calcularDownTimeInforme()">
+            </div>
+            <div class="field" style="margin:0;">
+              <label for="reportWorkStartTime">Hora Inicio</label>
+              <input id="reportWorkStartTime" value="19:00" placeholder="HH:MM" maxlength="20" onchange="calcularDownTimeInforme()">
+            </div>
+            <div class="field" style="margin:0;">
+              <label for="reportWorkEndDate">Fecha Fin</label>
+              <input id="reportWorkEndDate" value="15/09/2026" placeholder="DD/MM/AAAA" maxlength="30" onchange="calcularDownTimeInforme()">
+            </div>
+            <div class="field" style="margin:0;">
+              <label for="reportWorkEndTime">Hora Fin</label>
+              <input id="reportWorkEndTime" value="21:00 h" placeholder="HH:MM h" maxlength="20" onchange="calcularDownTimeInforme()">
+            </div>
+            <div class="field" style="margin:0;">
+              <label for="reportDownTime">Down Time</label>
+              <input id="reportDownTime" value="2:00 h" placeholder="Ej: 2:00 h" maxlength="30">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Trabajo Realizado -->
+    <div class="report-form-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
+        <div class="report-form-card-title" style="margin:0;">🛠️ Trabajo Realizado (Cuerpo Técnico)</div>
+        <button type="button" class="btn btn-secondary btn-sm" id="btnDraftReportBody" onclick="redactarTrabajoRealizado()">✍️ Redactar Trabajo Realizado</button>
+      </div>
+      <p style="font-size:0.8rem; color:var(--muted); margin:0 0 8px 0;">Redacción técnica fundamentada en los 19 manuales de Elekta, identificando sensores, tarjetas, pines y la justificación de repuestos.</p>
+      <div id="reportWorkSpinner" style="display:none; color:var(--accent); font-size:0.85rem; padding:6px 0;">
+        <span class="spinner" style="display:inline-block; width:14px; height:14px; vertical-align:middle; margin-right:6px;"></span>Consultando manuales y redactando propuesta técnica...
+      </div>
+      <div class="field">
+        <textarea id="reportWork" rows="9" maxlength="20000" placeholder="Detalle técnico de la revisión realizada, componentes inspeccionados, holguras o fallas detectadas y justificación de repuestos...">Durante tratamientos se presenta el interlock HT PSU OT (High Tension Power Supply Over-Temperature), lo que impide la continuidad de los tratamientos clínicos. El conjunto Switch Assembly actúa como el sensor electromecánico OVERTEMP SW2 montado en el transformador de alta tensión. Sus contactos están conectados en serie dentro del lazo térmico que monitorea la tarjeta HTPSU Isolation Unit. Durante la revisión, este presenta holgura mecánica severa, oscilación o falso contacto en su montaje sobre el vástago del fuelle, por lo tanto, el interruptor abre erráticamente este circuito cerrado, activando la transmisión óptica hacia el Área 16 y disparando de inmediato el interlock. Asimismo, de acuerdo con los diagramas la señal de sobretemperatura del chasis de alta tensión ingresa directamente a través del pin A3 de la tarjeta DIE-HTB en el Área 16 (HTCA), la cual es la encargada de procesar este lazo térmico y emitir el enclavamiento hacia la lógica central del equipo. Dado que la tarjeta DIE-HTB es el núcleo lógico por donde transita esta señal de enclavamiento y no logra estabilizar la lectura pese a las verificaciones de reposo, tiene indicios que ha sufrido una degradación en sus circuitos lógicos a causa de las fallas y rebotes eléctricos del interruptor defectuoso. [IMÁGENES ADJUNTAS: FOTO DEL INTERRUPTOR Y DIAGRAMA DE ESQUEMA DIE-HTB PIN A3]. Por lo expuesto, se solicita el conjunto Switch Assembly - 45133308377 para corregir el accionamiento mecánico y del módulo DIE-HTB - 1573801 para restablecer la correcta recepción del lazo de seguridad, permitiendo la normalización del sistema HT y la operatividad del acelerador lineal.</textarea>
+      </div>
+    </div>
+
+    <!-- 5. Imágenes Adjuntas -->
+    <div class="report-form-card">
+      <div class="report-form-card-title">📷 Imágenes Adjuntas (Fotos de Componentes y Diagramas)</div>
+      <p style="font-size:0.8rem; color:var(--muted); margin:0 0 10px 0;">Seleccione o arrastre fotos del componente inspeccionado y diagramas esquemáticos. También puede pegar capturas directamente con <strong>Ctrl + V</strong>.</p>
+      <div id="reportImagesDropZone" style="border: 2px dashed var(--border, #334155); border-radius: 6px; padding: 16px; text-align: center; margin-bottom: 10px; background: rgba(0,0,0,0.15); transition: border-color 0.2s;">
+        <input id="reportImages" type="file" accept="image/*" multiple onchange="handleReportImagesChange(event)" style="display:none;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('reportImages').click()">📁 Seleccionar Archivos de Imagen</button>
+        <span style="font-size:0.75rem; color:var(--muted); margin-left:10px;">o arrastre archivos aquí / pegue con Ctrl + V</span>
+      </div>
+      <div id="reportImagesList" style="display:flex; flex-wrap:wrap; gap:12px; margin-top:10px;"></div>
+    </div>
+
+    <!-- 6. Conclusiones -->
+    <div class="report-form-card">
+      <div class="report-form-card-title">📝 Conclusiones</div>
+      <div class="field">
+        <textarea id="reportConclusion" rows="3" maxlength="4000" placeholder="Ej: - Equipo operativo&#10;- Se requiere los siguientes repuestos">- Equipo operativo&#10;- Se requiere los siguientes repuestos</textarea>
+      </div>
+    </div>
+
+    <!-- 7. Repuestos -->
+    <div class="report-form-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div class="report-form-card-title" style="margin:0;">⚙️ Repuestos Requeridos</div>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="report-add-part">+ Repuesto</button>
+      </div>
+      <div class="parts-headers" style="display:grid; grid-template-columns: 1fr 2fr 80px 36px; gap:6px; font-size:0.8rem; font-weight:600; color:var(--muted); margin-bottom:4px; padding:0 2px;">
+        <div>P/N</div>
+        <div>Descripción</div>
+        <div>Cant.</div>
+        <div></div>
+      </div>
+      <div id="reportParts"></div>
+    </div>
+
+    <!-- 8. Acciones -->
+    <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
+      <button type="button" class="btn" onclick="previewInforme()">👁️ Vista Previa</button>
+      <button type="button" class="btn btn-primary" onclick="exportInforme()">🖨️ Exportar a PDF / Imprimir</button>
+      <button type="button" class="btn btn-ghost" onclick="resetReportForm()">Limpiar Formulario</button>
     </div>
   </div>
 </div>
 
-<div id="informePreviewModal" class="modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; overflow-y:auto; padding:20px;">
-  <div class="modal-content printable" style="background:white; color:black; max-width:800px; margin:0 auto; padding:40px; border-radius:4px;">
-    <div style="text-align:right; margin-bottom:20px;" class="no-print">
-      <button type="button" class="btn" onclick="document.getElementById('informePreviewModal').style.display='none'">Cerrar</button>
-      <button type="button" class="btn btn-primary" onclick="window.print()">Imprimir / Guardar PDF</button>
+<div id="informePreviewModal" class="modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; overflow-y:auto; padding:20px 10px;">
+  <div class="modal-content printable" style="background:#ffffff; color:#000000; max-width:850px; margin:0 auto; padding:30px; border-radius:4px; box-shadow:0 12px 35px rgba(0,0,0,0.7);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; padding-bottom:10px; border-bottom:1px solid #e2e8f0;" class="no-print">
+      <span style="font-weight:bold; font-size:14px; color:#334155;">Vista Previa del Informe Técnico</span>
+      <div style="display:flex; gap:10px;">
+        <button type="button" class="btn" onclick="closeReportPreview()">Cerrar</button>
+        <button type="button" class="btn btn-primary" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+      </div>
     </div>
     <div id="informePreviewContent"></div>
   </div>
 </div>
 
 <style>
+.report-form-card {
+  background: var(--surface, #1e293b);
+  border: 1px solid var(--border, #334155);
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.report-form-card-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-bright, #f8fafc);
+  margin-bottom: 12px;
+}
+.report-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.report-img-card {
+  border: 1px solid var(--border, #334155);
+  border-radius: 4px;
+  padding: 8px;
+  background: var(--bg-alt, #0f172a);
+  width: 140px;
+  text-align: center;
+}
+.report-img-card img {
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 2px;
+  margin-bottom: 6px;
+}
+.report-img-card input {
+  font-size: 0.75rem;
+  padding: 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 @media print {
-  body * { visibility: hidden; }
-  .printable, .printable * { visibility: visible; }
-  .printable { position: absolute; left: 0; top: 0; width: 100%; }
+  body * { visibility: hidden !important; }
+  .printable, .printable * { visibility: visible !important; }
+  .printable {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
   .no-print { display: none !important; }
 }
 </style>
-
-<script>
-function addReportPart() {
-  const container = document.getElementById('reportParts');
-  const div = document.createElement('div');
-  div.style.display = 'flex';
-  div.style.gap = '10px';
-  div.style.marginBottom = '10px';
-  div.innerHTML = `
-    <input type="text" placeholder="P/N" class="part-pn" style="flex:1">
-    <input type="text" placeholder="Descripción" class="part-desc" style="flex:2">
-    <input type="number" placeholder="Cant." class="part-qty" style="flex:1; max-width:80px;">
-    <button type="button" class="btn btn-ghost btn-sm" onclick="this.parentElement.remove()">X</button>
-  `;
-  container.appendChild(div);
-}
-
-
-function escapeHtml(unsafe) {
-    return (unsafe || '').toString()
-         .replace(/&/g, "&amp;")
-         .replace(/</g, "&lt;")
-         .replace(/>/g, "&gt;")
-         .replace(/"/g, "&quot;")
-         .replace(/'/g, "&#039;");
-}
-
-function previewInforme() {
-  const getVal = id => escapeHtml(document.getElementById(id).value);
-  let partsHtml = '';
-  const pns = document.querySelectorAll('.part-pn');
-  const descs = document.querySelectorAll('.part-desc');
-  const qtys = document.querySelectorAll('.part-qty');
-  if (pns.length > 0) {
-    partsHtml += '<table style="width:100%; border-collapse: collapse; margin-top:20px;">';
-    partsHtml += '<thead><tr><th style="border:1px solid #000; padding:8px; text-align:left; background:#e0e0e0;">P/N</th><th style="border:1px solid #000; padding:8px; text-align:left; background:#e0e0e0;">Descripción</th><th style="border:1px solid #000; padding:8px; text-align:left; background:#e0e0e0;">Cant.</th></tr></thead><tbody>';
-    for (let i=0; i<pns.length; i++) {
-      if (pns[i].value || descs[i].value) {
-        partsHtml += `<tr><td style="border:1px solid #000; padding:8px;">${escapeHtml(pns[i].value)}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(descs[i].value)}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(qtys[i].value)}</td></tr>`;
-      }
-    }
-    partsHtml += '</tbody></table>';
-  }
-
-  const imageInput = document.getElementById('reportImages');
-  let imagesHtml = '';
-
-  const finalizePreview = (imgHtml) => {
-      const d = new Date();
-      const dateStr = d.toLocaleDateString();
-      const html = `
-        <div style="border-bottom: 2px solid #333; margin-bottom: 20px; padding-bottom: 10px;">
-          <h1 style="margin:0; font-size: 22px; text-align:center;">INFORME DE SERVICIO TÉCNICO</h1>
-        </div>
-        <table style="width:100%; margin-bottom: 20px;">
-          <tr><td><strong>Fecha:</strong> ${dateStr}</td><td><strong>Cliente:</strong> ${getVal('reportClient')}</td></tr>
-          <tr><td><strong>Servicio:</strong> ${getVal('reportService')}</td><td><strong>Equipo/Modelo:</strong> ${getVal('reportEquipment')}</td></tr>
-          <tr><td colspan="2"><strong>Serie:</strong> ${getVal('reportSerial')}</td></tr>
-        </table>
-
-        <h3>1. Incidente Notificado</h3>
-        <p style="white-space: pre-wrap;">${getVal('reportIncident')}</p>
-
-        <h3>2. Diagnóstico Técnico Documental</h3>
-        <p style="white-space: pre-wrap;">${getVal('reportDiagnosis')}</p>
-
-        <h3>3. Revisión y Pruebas Realizadas</h3>
-        <p style="white-space: pre-wrap;">${getVal('reportWork')}</p>
-
-        <h3>4. Conclusiones y Recomendaciones</h3>
-        <p style="white-space: pre-wrap;">${getVal('reportConclusion')}</p>
-
-        ${partsHtml}
-
-        ${imgHtml ? `<div style="margin-top:20px; border:1px solid #000; padding:10px;"><h4 style="margin-top:0;">Imágenes</h4>${imgHtml}</div>` : ''}
-
-        <div style="margin-top:50px; display:flex; justify-content:space-between;">
-          <div style="text-align:center; width:45%;"><hr style="border:1px solid #000;">Ingeniero de Servicio</div>
-          <div style="text-align:center; width:45%;"><hr style="border:1px solid #000;">Responsable del Centro</div>
-        </div>
-      `;
-      document.getElementById('informePreviewContent').innerHTML = html;
-      document.getElementById('informePreviewModal').style.display = 'block';
-  };
-
-  if (imageInput.files && imageInput.files.length > 0) {
-      let loaded = 0;
-      imagesHtml += '<h3 style="margin-top:20px;">Imágenes de respaldo</h3><div style="display:flex; flex-wrap:wrap; gap:10px;">';
-
-      for (let i = 0; i < imageInput.files.length; i++) {
-          const reader = new FileReader();
-          reader.onload = function(e) {
-              imagesHtml += `<img src="${e.target.result}" style="max-width:300px; max-height:300px; border:1px solid #ccc; border-radius:4px;">`;
-              loaded++;
-              if (loaded === imageInput.files.length) {
-                  imagesHtml += '</div>';
-                  finalizePreview(imagesHtml);
-              }
-          };
-          reader.readAsDataURL(imageInput.files[i]);
-      }
-  } else {
-      finalizePreview('');
-  }
-}
-
-function exportInforme() {
-  previewInforme();
-  setTimeout(() => window.print(), 500);
-}
-
-function transferToReport() {
-    const diagOut = document.getElementById('diagResults') || document.getElementById('diagnosticoContent');
-    if (!diagOut) return;
-    const target = document.getElementById('reportDiagnosis');
-    if (target) target.value = (diagOut.innerText || "").trim();
-    irA('Reports');
-}
-
-</script>
 
 <nav class="bottom-nav">
   <button class="nav-btn active" id="navS" onclick="irA('Search')"><span class="icon">🔍</span>Buscar</button>

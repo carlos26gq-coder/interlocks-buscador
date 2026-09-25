@@ -78,11 +78,12 @@ class APITests(unittest.TestCase):
 
 
     def test_diagnose_ai_endpoint_without_key_returns_400(self):
-        res = self.client.post("/diagnose/ai", json={"symptoms": ["falla de gantry"]})
-        # Sin key debe devolver 400 con error invalid_api_key o no_api_key
-        self.assertEqual(res.status_code, 400)
-        data = res.get_json()
-        self.assertFalse(data.get("ok"))
+        with patch.dict("os.environ", {"GEMINI_API_KEY": ""}, clear=False):
+            res = self.client.post("/diagnose/ai", json={"symptoms": ["falla de gantry"], "api_key": ""})
+            # Sin key debe devolver 400 con error invalid_api_key o no_api_key
+            self.assertEqual(res.status_code, 400)
+            data = res.get_json()
+            self.assertFalse(data.get("ok"))
 
     @patch("api.analyze_with_gemini")
     def test_diagnose_ai_endpoint_success(self, mock_analyze):

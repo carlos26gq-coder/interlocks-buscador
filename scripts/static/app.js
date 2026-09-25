@@ -1322,6 +1322,7 @@ async function analizarDiagnosticoAi() {
         });
 
         if (res && res.ok && res.data) {
+            window._lastAiDiagnosis = res.data;
             renderDiagnosticoAi(res.data, symptoms);
         } else {
             throw new Error((res && (res.message || res.error)) || "Inconveniente al procesar el análisis causal.");
@@ -1416,18 +1417,53 @@ async function analizarDiagnosticoAi() {
 function transferToReport() {
     const diagOut = document.getElementById("diagResults") || document.getElementById("diagnosticoContent");
     if (!diagOut) return;
-    const target = document.getElementById("reportDiagnosis");
-    if (target) {
-        target.value = (diagOut.innerText || "").trim();
-    }
-    const symptoms = diagnosticoSymptoms();
+
+    const symptoms = typeof diagnosticoSymptoms === "function" ? diagnosticoSymptoms() : [];
+    const incidentStr = symptoms.length > 0 ? symptoms.join(", ") : "";
+
     const incTarget = document.getElementById("reportIncident");
-    if (incTarget && !incTarget.value.trim() && symptoms.length > 0) {
-        incTarget.value = "Falla técnica analizada con síntomas:\n- " + symptoms.join("\n- ");
+    if (incTarget && incidentStr) {
+        incTarget.value = incidentStr;
     }
+
+    const diagTarget = document.getElementById("reportDiagnosis");
+    let diagText = "";
+
+    if (window._lastAiDiagnosis) {
+        const d = window._lastAiDiagnosis;
+        const firstFinding = (Array.isArray(d.diagnostic_findings) && d.diagnostic_findings[0]) ||
+                             (Array.isArray(d.differential_diagnoses) && d.differential_diagnoses[0]);
+        if (firstFinding) {
+            diagText = (firstFinding.title || firstFinding.hypothesis || "").trim();
+        }
+        if (!diagText && d.root_cause) {
+            diagText = d.root_cause.trim();
+        }
+    }
+
+    if (!diagText && diagOut) {
+        const rootEl = diagOut.querySelector(".diag-ai-root, .diag-finding-title strong, .diagnostic-card h3");
+        if (rootEl) {
+            diagText = rootEl.textContent.trim().replace(/^Diagnóstico\s*\d+:\s*/i, "");
+        }
+    }
+
+    if (!diagText && incidentStr) {
+        diagText = "Revisión técnica e inspección de " + incidentStr;
+    }
+
+    if (diagTarget && diagText) {
+        diagTarget.value = diagText;
+    }
+
     if (typeof irA === "function") {
         irA("Reports");
     }
+
+    if (typeof redactarTrabajoRealizado === "function" && incidentStr) {
+        redactarTrabajoRealizado();
+    }
+
     toast("Diagnóstico transferido al informe técnico", "ok");
 }
 window.transferToReport = transferToReport;
@@ -2162,6 +2198,532 @@ async function cargarListaManuales() {
     } catch(e) { div.innerHTML='<p style="color:var(--danger)">Error: '+esc(e.message)+'</p>'; }
 }
 
+// ─── MÓDULO DE INFORMES TÉCNICOS DE SERVICIO ─────────────────────────────────
+
+function escapeHtml(unsafe) {
+    return esc(unsafe);
+}
+
+function addReportPart(pn = "", desc = "", qty = "01") {
+    const container = document.getElementById("reportParts");
+    if (!container) return;
+    const row = document.createElement("div");
+    row.className = "report-part-row";
+    row.style.cssText = "display:grid; grid-template-columns: 1fr 2fr 80px 36px; gap:6px; margin-bottom:6px; align-items:center;";
+    row.innerHTML = `
+        <input type="text" placeholder="P/N" class="part-pn" aria-label="P/N" value="${escapeHtml(pn)}" maxlength="60">
+        <input type="text" placeholder="Descripción" class="part-desc" aria-label="Descripción" value="${escapeHtml(desc)}" maxlength="160">
+        <input type="text" placeholder="Cant." class="part-qty" aria-label="Cantidad" value="${escapeHtml(qty)}" maxlength="20" style="text-align:center;">
+        <button type="button" class="btn btn-ghost btn-sm" aria-label="Eliminar repuesto" title="Eliminar repuesto" onclick="this.closest('.report-part-row').remove()" style="padding:4px 8px; color:var(--danger, #ef4444); font-size:16px; font-weight:bold; cursor:pointer;">×</button>
+    `;
+    container.appendChild(row);
+}
+
+let _reportImages = [];
+let _reportImgSeq = 0;
+
+function handleReportImagesChange(event) {
+    const files = event?.target?.files || document.getElementById("reportImages")?.files;
+    if (!files || files.length === 0) return;
+
+    const readPromises = Array.from(files).map((file) => {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                resolve({
+                    id: "img_" + (++_reportImgSeq),
+                    name: file.name.replace(/\.[^/.]+$/, "").substring(0, 80),
+                    dataUrl: e.target.result
+                });
+            };
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(file);
+        });
+    });
+
+    Promise.all(readPromises).then((results) => {
+        for (const item of results) {
+            if (item) _reportImages.push(item);
+        }
+        renderReportImagesList();
+        if (event?.target) event.target.value = "";
+    });
+}
+
+function renderReportImagesList() {
+    const container = document.getElementById("reportImagesList");
+    if (!container) return;
+    if (_reportImages.length === 0) {
+        container.innerHTML = '<span style="font-size:0.8rem; color:var(--muted);">No hay imágenes adjuntas actualmente.</span>';
+        return;
+    }
+    container.innerHTML = _reportImages.map((img) => `
+        <div class="report-img-card" id="${img.id}">
+            <img src="${img.dataUrl}" alt="${escapeHtml(img.name)}" title="${escapeHtml(img.name)}">
+            <input type="text" value="${escapeHtml(img.name)}" placeholder="Pie de foto" aria-label="Pie de imagen" onchange="actualizarNombreImagenReporte('${img.id}', this.value)">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="eliminarImagenReporte('${img.id}')" style="font-size:0.75rem; padding:2px 6px; width:100%; color:var(--danger, #ef4444); margin-top:4px;">✕ Quitar</button>
+        </div>
+    `).join("");
+}
+
+function actualizarNombreImagenReporte(id, newName) {
+    const img = _reportImages.find(x => x.id === id);
+    if (img) {
+        img.name = (newName || "").trim() || "Imagen adjunta";
+    }
+}
+
+function eliminarImagenReporte(id) {
+    _reportImages = _reportImages.filter(x => x.id !== id);
+    renderReportImagesList();
+    toast("Imagen eliminada del informe");
+}
+
+function calcularDownTimeInforme() {
+    const sDate = document.getElementById("reportWorkStartDate")?.value?.trim();
+    const sTime = document.getElementById("reportWorkStartTime")?.value?.trim();
+    const eDate = document.getElementById("reportWorkEndDate")?.value?.trim();
+    const eTime = document.getElementById("reportWorkEndTime")?.value?.trim();
+    const out = document.getElementById("reportDownTime");
+    if (!out || !sTime || !eTime) return;
+
+    const parseTime = (t) => {
+        const m = t.match(/(\d{1,2}):(\d{2})/);
+        return m ? { h: parseInt(m[1], 10), min: parseInt(m[2], 10) } : null;
+    };
+    const tStart = parseTime(sTime);
+    const tEnd = parseTime(eTime);
+    if (!tStart || !tEnd) return;
+
+    let diffMinutes = (tEnd.h * 60 + tEnd.min) - (tStart.h * 60 + tStart.min);
+    if (sDate && eDate && sDate !== eDate) {
+        const pDate = (d) => {
+            const parts = d.split("/");
+            return parts.length === 3 ? new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10)) : null;
+        };
+        const dStart = pDate(sDate);
+        const dEnd = pDate(eDate);
+        if (dStart && dEnd) {
+            const dayDiff = Math.round((dEnd - dStart) / (1000 * 60 * 60 * 24));
+            diffMinutes += dayDiff * 24 * 60;
+        }
+    }
+    if (diffMinutes >= 0) {
+        const hrs = Math.floor(diffMinutes / 60);
+        const mins = diffMinutes % 60;
+        out.value = `${hrs}:${mins < 10 ? '0' : ''}${mins} h`;
+    }
+}
+
+async function redactarTrabajoRealizado() {
+    const incident = (document.getElementById("reportIncident")?.value || "").trim();
+    if (!incident) {
+        toast("Ingresa el incidente para redactar el informe", "warn");
+        return;
+    }
+    const equipment = (document.getElementById("reportEquipment")?.value || "").trim() || "ACELERADOR LINEAL";
+    const brand = (document.getElementById("reportBrand")?.value || "").trim() || "ELEKTA";
+    const model = (document.getElementById("reportModel")?.value || "").trim() || "SYNERGY FULL";
+    const diagnosis = (document.getElementById("reportDiagnosis")?.value || "").trim();
+    const imageDescriptions = _reportImages.map(img => img.name);
+    const apiKey = safeLocalStorageGet("geminiApiKey", "");
+
+    const spinner = document.getElementById("reportWorkSpinner");
+    const btn = document.getElementById("btnDraftReportBody");
+    if (spinner) spinner.style.display = "block";
+    if (btn) btn.disabled = true;
+
+    try {
+        const res = await apiRequest("/reports/generate-body", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                incident,
+                equipment,
+                brand,
+                model,
+                diagnosis,
+                image_descriptions: imageDescriptions,
+                api_key: apiKey
+            })
+        });
+
+        if (res && res.body) {
+            const workEl = document.getElementById("reportWork");
+            if (workEl) workEl.value = res.body;
+
+            const diagEl = document.getElementById("reportDiagnosis");
+            if (diagEl && res.suggested_diagnosis && (!diagEl.value.trim() || diagEl.value.trim() === "Reemplazo de Switch Assembly y DIE HTB")) {
+                diagEl.value = res.suggested_diagnosis;
+            }
+
+            const concEl = document.getElementById("reportConclusion");
+            if (concEl && res.suggested_conclusions) {
+                concEl.value = res.suggested_conclusions;
+            }
+
+            if (Array.isArray(res.suggested_parts) && res.suggested_parts.length > 0) {
+                const partsContainer = document.getElementById("reportParts");
+                if (partsContainer) {
+                    partsContainer.innerHTML = "";
+                    for (const p of res.suggested_parts) {
+                        addReportPart(p.pn || "", p.description || "", p.quantity || "01");
+                    }
+                }
+            }
+
+            toast("Propuesta técnica redactada con base en manuales", "ok");
+        } else {
+            toast("No se pudo obtener la redacción técnica", "warn");
+        }
+    } catch (err) {
+        toast("Error al generar propuesta técnica: " + (err.message || err), "err");
+    } finally {
+        if (spinner) spinner.style.display = "none";
+        if (btn) btn.disabled = false;
+    }
+}
+
+function previewInforme() {
+    const getVal = (id) => (document.getElementById(id)?.value || "").trim();
+    const isChecked = (id) => Boolean(document.getElementById(id)?.checked);
+
+    const client = escapeHtml(getVal("reportClient"));
+    const number = escapeHtml(getVal("reportNumber"));
+    const service = escapeHtml(getVal("reportService"));
+    const date = escapeHtml(getVal("reportDate"));
+    const equipment = escapeHtml(getVal("reportEquipment"));
+    const dept = escapeHtml(getVal("reportDept"));
+    const brand = escapeHtml(getVal("reportBrand"));
+    const model = escapeHtml(getVal("reportModel"));
+    const serial = escapeHtml(getVal("reportSerial"));
+
+    const incident = escapeHtml(getVal("reportIncident"));
+    const diagnosis = escapeHtml(getVal("reportDiagnosis"));
+    const isProgrammed = isChecked("reportProgrammed");
+    const isSuspTto = isChecked("reportSuspTto");
+
+    const clientDate = escapeHtml(getVal("reportClientDate"));
+    const clientTime = escapeHtml(getVal("reportClientTime"));
+    const workStartDate = escapeHtml(getVal("reportWorkStartDate"));
+    const workStartTime = escapeHtml(getVal("reportWorkStartTime"));
+    const workEndDate = escapeHtml(getVal("reportWorkEndDate"));
+    const workEndTime = escapeHtml(getVal("reportWorkEndTime"));
+    const downTime = escapeHtml(getVal("reportDownTime"));
+
+    const work = escapeHtml(getVal("reportWork"));
+    const conclusion = escapeHtml(getVal("reportConclusion"));
+
+    // Repuestos
+    const pns = document.querySelectorAll("#reportParts .part-pn");
+    const descs = document.querySelectorAll("#reportParts .part-desc");
+    const qtys = document.querySelectorAll("#reportParts .part-qty");
+    let partsRowsHtml = "";
+    let partsCount = 0;
+    for (let i = 0; i < pns.length; i++) {
+        const pnVal = (pns[i]?.value || "").trim();
+        const descVal = (descs[i]?.value || "").trim();
+        const qtyVal = (qtys[i]?.value || "01").trim();
+        if (pnVal || descVal) {
+            partsCount++;
+            partsRowsHtml += `
+                <tr>
+                    <td style="border: 1px solid #000; padding: 5px 8px; font-weight: 600;">${escapeHtml(pnVal)}</td>
+                    <td style="border: 1px solid #000; padding: 5px 8px;">${escapeHtml(descVal)}</td>
+                    <td style="border: 1px solid #000; padding: 5px 8px; text-align: center;">${escapeHtml(qtyVal)}</td>
+                </tr>
+            `;
+        }
+    }
+
+    let partsTableHtml = "";
+    if (partsCount > 0) {
+        partsTableHtml = `
+            <div style="margin-top: 8px; border-top: 1px solid #000;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
+                    <thead>
+                        <tr style="background: #e2e8f0; font-weight: bold;">
+                            <th style="border: 1px solid #000; padding: 4px 8px; text-align: left; width: 28%;">P/N</th>
+                            <th style="border: 1px solid #000; padding: 4px 8px; text-align: left; width: 57%;">Descripción</th>
+                            <th style="border: 1px solid #000; padding: 4px 8px; text-align: center; width: 15%;">Cant.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${partsRowsHtml}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    // Imágenes adjuntas
+    let imagesHtml = "";
+    if (_reportImages.length > 0) {
+        imagesHtml = `
+            <div style="margin-top: 10px; padding: 10px; border-top: 1px solid #000; background: #fafafa;">
+                <div style="display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; align-items: flex-start;">
+                    ${_reportImages.map((img, idx) => `
+                        <div style="border: 1px solid #000; padding: 6px; background: #ffffff; text-align: center; max-width: 340px; flex: 1 1 260px; page-break-inside: avoid; box-sizing: border-box;">
+                            <img src="${img.dataUrl}" alt="${escapeHtml(img.name)}" style="max-width: 100%; max-height: 220px; object-fit: contain; display: block; margin: 0 auto 6px auto;">
+                            <div style="font-size: 10px; font-weight: bold; color: #000000; padding: 2px; border-top: 1px solid #e2e8f0;">Fig. ${idx + 1}: ${escapeHtml(img.name)}</div>
+                        </div>
+                    `).join("")}
+                </div>
+            </div>
+        `;
+    }
+
+    const docHtml = `
+        <div style="font-family: Arial, Helvetica, sans-serif; color: #000000; line-height: 1.35; max-width: 800px; margin: 0 auto; background: #ffffff;">
+            <!-- Encabezado / Banner Superior -->
+            <div style="border: 2px solid #000; text-align: center; padding: 6px 0; font-size: 17px; font-weight: 900; letter-spacing: 1.5px; background: #e2e8f0; margin-bottom: 8px;">
+                INFORME TÉCNICO
+            </div>
+
+            <!-- Tabla de Metadatos -->
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #000; font-size: 10.5px; margin-bottom: 10px;">
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; width: 14%; padding: 4px 6px;">CLIENTE:</td>
+                        <td style="border: 1px solid #000; width: 36%; padding: 4px 6px;">${client}</td>
+                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; width: 14%; padding: 4px 6px;">INFORME:</td>
+                        <td style="border: 1px solid #000; width: 36%; padding: 4px 6px; font-weight: 600;">${number}</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">SERVICIO:</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px;">${service}</td>
+                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">FECHA:</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px;">${date}</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">EQUIPO:</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px;">${equipment}</td>
+                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">DEPARTAMENTO:</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px;">${dept}</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">MARCA:</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px;">${brand}</td>
+                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">MODELO:</td>
+                        <td style="border: 1px solid #000; padding: 4px 6px;">${model}</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #000; background: #e2e8f0; font-weight: bold; padding: 4px 6px;">SERIE:</td>
+                        <td colspan="3" style="border: 1px solid #000; padding: 4px 6px; font-weight: 600;">${serial}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- 1. Incidente -->
+            <div style="border: 1.5px solid #000; margin-bottom: 10px; page-break-inside: avoid;">
+                <div style="background: #e2e8f0; font-weight: bold; font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #000;">INCIDENTE QUE MANIFIESTA EL USUARIO</div>
+                <div style="padding: 8px 10px; font-size: 11px; line-height: 1.4; white-space: pre-wrap; min-height: 24px;">${incident || "-"}</div>
+            </div>
+
+            <!-- 2. Diagnóstico con Casillas -->
+            <div style="border: 1.5px solid #000; margin-bottom: 10px; page-break-inside: avoid;">
+                <div style="background: #e2e8f0; font-weight: bold; font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #000; display: flex; justify-content: space-between; align-items: center;">
+                    <span>DIAGNOSTICO</span>
+                    <div style="font-size: 11px; display: flex; gap: 20px;">
+                        <span>PROGRAMADO <strong style="border: 1px solid #000; display: inline-block; width: 14px; height: 14px; text-align: center; line-height: 13px; font-size: 11px; vertical-align: middle; background: #ffffff;">${isProgrammed ? '☒' : '☐'}</strong></span>
+                        <span>SUSP TTO <strong style="border: 1px solid #000; display: inline-block; width: 14px; height: 14px; text-align: center; line-height: 13px; font-size: 11px; vertical-align: middle; background: #ffffff;">${isSuspTto ? '☒' : '☐'}</strong></span>
+                    </div>
+                </div>
+                <div style="padding: 8px 10px; font-size: 11px; line-height: 1.4; white-space: pre-wrap; min-height: 24px;">${diagnosis || "-"}</div>
+            </div>
+
+            <!-- 3. Cronograma de Atención -->
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #000; font-size: 10.5px; margin-bottom: 10px; text-align: center; page-break-inside: avoid;">
+                <thead>
+                    <tr style="background: #e2e8f0; font-weight: bold;">
+                        <th colspan="2" style="border: 1px solid #000; padding: 4px;">Reporte de cliente</th>
+                        <th colspan="5" style="border: 1px solid #000; padding: 4px;">Revisión realizada</th>
+                    </tr>
+                    <tr style="background: #f1f5f9; font-weight: 600; font-size: 10px;">
+                        <th style="border: 1px solid #000; padding: 3px; width: 14%;">Fecha</th>
+                        <th style="border: 1px solid #000; padding: 3px; width: 12%;">Hora</th>
+                        <th style="border: 1px solid #000; padding: 3px; width: 15%;">Fecha Inicio</th>
+                        <th style="border: 1px solid #000; padding: 3px; width: 13%;">Hora Inicio</th>
+                        <th style="border: 1px solid #000; padding: 3px; width: 15%;">Fecha Fin</th>
+                        <th style="border: 1px solid #000; padding: 3px; width: 13%;">Hora Fin</th>
+                        <th style="border: 1px solid #000; padding: 3px; width: 18%;">Down Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #000; padding: 5px;">${clientDate || "-"}</td>
+                        <td style="border: 1px solid #000; padding: 5px;">${clientTime || "-"}</td>
+                        <td style="border: 1px solid #000; padding: 5px;">${workStartDate || "-"}</td>
+                        <td style="border: 1px solid #000; padding: 5px;">${workStartTime || "-"}</td>
+                        <td style="border: 1px solid #000; padding: 5px;">${workEndDate || "-"}</td>
+                        <td style="border: 1px solid #000; padding: 5px;">${workEndTime || "-"}</td>
+                        <td style="border: 1px solid #000; padding: 5px; font-weight: bold;">${downTime || "-"}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- 4. Trabajo Realizado -->
+            <div style="border: 1.5px solid #000; margin-bottom: 10px;">
+                <div style="background: #e2e8f0; font-weight: bold; font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #000;">TRABAJO REALIZADO</div>
+                <div style="padding: 10px; font-size: 11px; line-height: 1.5; text-align: justify; white-space: pre-wrap;">${work || "No se ha ingresado el detalle del trabajo realizado."}</div>
+                ${imagesHtml}
+            </div>
+
+            <!-- 5. Conclusiones y Repuestos Requeridos -->
+            <div style="border: 1.5px solid #000; margin-bottom: 10px; page-break-inside: avoid;">
+                <div style="background: #e2e8f0; font-weight: bold; font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #000;">CONCLUSIONES</div>
+                <div style="padding: 8px 10px; font-size: 11px; line-height: 1.4; white-space: pre-wrap;">${conclusion || "-"}</div>
+                ${partsTableHtml}
+            </div>
+
+            <!-- 6. Firmas y Sellos -->
+            <div style="margin-top: 36px; display: flex; justify-content: space-between; align-items: flex-start; padding: 0 40px; page-break-inside: avoid;">
+                <div style="text-align: center; width: 40%;">
+                    <div style="border-top: 1.5px solid #000; margin-bottom: 4px;"></div>
+                    <div style="font-size: 11px; font-weight: bold;">Firma / Sello Técnico</div>
+                    <div style="font-size: 9.5px; color: #334155;">Servicio Técnico Especializado</div>
+                </div>
+                <div style="text-align: center; width: 40%;">
+                    <div style="border-top: 1.5px solid #000; margin-bottom: 4px;"></div>
+                    <div style="font-size: 11px; font-weight: bold;">Conformidad del Cliente</div>
+                    <div style="font-size: 9.5px; color: #334155;">Responsable de Servicio / Física Médica</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const contentEl = document.getElementById("informePreviewContent");
+    const modalEl = document.getElementById("informePreviewModal");
+    if (contentEl) contentEl.innerHTML = docHtml;
+    if (modalEl) modalEl.style.display = "block";
+}
+
+function closeReportPreview() {
+    const modal = document.getElementById("informePreviewModal");
+    if (modal) modal.style.display = "none";
+}
+
+function exportInforme() {
+    previewInforme();
+    setTimeout(() => {
+        window.print();
+    }, 350);
+}
+
+function resetReportForm() {
+    const defaultFields = {
+        reportClient: "INEN",
+        reportNumber: "260915_154574_ CG HT PSU OT",
+        reportService: "Radioterapia",
+        reportDate: "15 de Septiembre del 2026",
+        reportEquipment: "ACELERADOR LINEAL",
+        reportDept: "LIMA",
+        reportBrand: "ELEKTA",
+        reportModel: "SYNERGY FULL",
+        reportSerial: "154574",
+        reportIncident: "HT PSU OT",
+        reportDiagnosis: "Reemplazo de Switch Assembly y DIE HTB",
+        reportClientDate: "15/09/2026",
+        reportClientTime: "19:00",
+        reportWorkStartDate: "15/09/2026",
+        reportWorkStartTime: "19:00",
+        reportWorkEndDate: "15/09/2026",
+        reportWorkEndTime: "21:00 h",
+        reportDownTime: "2:00 h",
+        reportConclusion: "- Equipo operativo\n- Se requiere los siguientes repuestos"
+    };
+
+    for (const [id, val] of Object.entries(defaultFields)) {
+        const el = document.getElementById(id);
+        if (el) el.value = val;
+    }
+
+    const progEl = document.getElementById("reportProgrammed");
+    if (progEl) progEl.checked = true;
+    const suspEl = document.getElementById("reportSuspTto");
+    if (suspEl) suspEl.checked = false;
+
+    _reportImages = [];
+    renderReportImagesList();
+
+    const partsContainer = document.getElementById("reportParts");
+    if (partsContainer) {
+        partsContainer.innerHTML = "";
+        addReportPart("45133308377", "Switch Assembly", "01");
+        addReportPart("1573801", "Digital input & encoding board (DIE-HTB, DIE-B)", "01");
+    }
+
+    const fileInput = document.getElementById("reportImages");
+    if (fileInput) fileInput.value = "";
+
+    toast("Formulario de informe restablecido");
+}
+
+function initReportMediaHandlers() {
+    window.addEventListener("paste", (e) => {
+        const screenReports = document.getElementById("screenReports");
+        if (!screenReports || !screenReports.classList.contains("active")) return;
+        const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+        if (!items) return;
+        for (const item of items) {
+            if (item.type && item.type.indexOf("image") !== -1) {
+                const blob = item.getAsFile();
+                if (blob) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const count = _reportImages.length + 1;
+                        _reportImages.push({
+                            id: "img_" + (++_reportImgSeq),
+                            name: "Captura de inspección " + count,
+                            dataUrl: event.target.result
+                        });
+                        renderReportImagesList();
+                        toast("Imagen adjuntada desde el portapapeles", "ok");
+                    };
+                    reader.readAsDataURL(blob);
+                }
+            }
+        }
+    });
+
+    const dropZone = document.getElementById("reportImagesDropZone");
+    if (dropZone) {
+        dropZone.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = "var(--accent, #38bdf8)";
+        });
+        dropZone.addEventListener("dragleave", (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = "var(--border, #334155)";
+        });
+        dropZone.addEventListener("drop", (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = "var(--border, #334155)";
+            if (e.dataTransfer && e.dataTransfer.files) {
+                handleReportImagesChange({ target: { files: e.dataTransfer.files } });
+            }
+        });
+    }
+}
+
+function initReportDefaults() {
+    const partsContainer = document.getElementById("reportParts");
+    if (partsContainer && partsContainer.children.length === 0) {
+        addReportPart("45133308377", "Switch Assembly", "01");
+        addReportPart("1573801", "Digital input & encoding board (DIE-HTB, DIE-B)", "01");
+    }
+    renderReportImagesList();
+    initReportMediaHandlers();
+}
+
+if (typeof document !== "undefined") {
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", initReportDefaults);
+    } else {
+        initReportDefaults();
+    }
+}
+
 // ─── EXPORTACIONES GLOBALES PARA MANEJADORES DE INTERFAZ ─────────────────────
 window.toast = toast;
 window.verPDF = verPDF;
@@ -2188,3 +2750,13 @@ window.adminEntrar = adminEntrar;
 window.adminSalir = adminSalir;
 window.cargarListaManuales = cargarListaManuales;
 window.isOnline = isOnline;
+window.addReportPart = addReportPart;
+window.previewInforme = previewInforme;
+window.exportInforme = exportInforme;
+window.closeReportPreview = closeReportPreview;
+window.redactarTrabajoRealizado = redactarTrabajoRealizado;
+window.handleReportImagesChange = handleReportImagesChange;
+window.actualizarNombreImagenReporte = actualizarNombreImagenReporte;
+window.eliminarImagenReporte = eliminarImagenReporte;
+window.resetReportForm = resetReportForm;
+window.calcularDownTimeInforme = calcularDownTimeInforme;

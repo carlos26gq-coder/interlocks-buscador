@@ -22,6 +22,7 @@ except ImportError:
     pass
 
 from ai_service import analyze_with_gemini
+from report_service import generate_report_body_hybrid
 from flask import (
     Flask,
     jsonify,
@@ -597,6 +598,48 @@ def diagnose_ai():
             }), 503
 
 
+@app.route("/reports/generate-body", methods=["POST"])
+@app.route("/api/reports/generate-body", methods=["POST"])
+@limiter.limit("120 per minute")
+def reports_generate_body():
+    try:
+        data = json_body()
+        incident = bounded_text(data, "incident", 1000, required=True)
+        equipment = bounded_text(data, "equipment", 200) or "ACELERADOR LINEAL"
+        brand = bounded_text(data, "brand", 200) or "ELEKTA"
+        model = bounded_text(data, "model", 200) or "SYNERGY FULL"
+        diagnosis = bounded_text(data, "diagnosis", 1000)
+        image_descriptions_raw = data.get("image_descriptions")
+        image_descriptions = None
+        if isinstance(image_descriptions_raw, list):
+            image_descriptions = [str(x).strip() for x in image_descriptions_raw if str(x).strip()][:10]
+
+        client_key_raw = data.get("api_key", "")
+        client_key = client_key_raw.strip()[:256] if isinstance(client_key_raw, str) else ""
+
+        result = generate_report_body_hybrid(
+            incident=incident,
+            equipment=equipment,
+            brand=brand,
+            model=model,
+            diagnosis=diagnosis,
+            image_descriptions=image_descriptions,
+            search_engine=search_engine,
+            api_key=client_key,
+        )
+        return jsonify(result), 200
+    except ValidationError as val_err:
+        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        clean_err = _sanitize_error_message(exc)
+        app.logger.error("Error en endpoint /reports/generate-body: %s", clean_err)
+        return jsonify({
+            "ok": False,
+            "error": "server_error",
+            "message": f"Error al generar la propuesta de informe: {clean_err[:120]}",
+        }), 500
+
+
 @app.route("/notes", methods=["GET"])
 @limiter.limit("120 per minute")
 def get_notes():
@@ -870,6 +913,12 @@ def openapi_spec():
                 "post": {
                     "summary": "Analizador Cronológico de Archivos de Registro",
                     "responses": {"200": {"description": "Resultados del parseo de logs"}},
+                }
+            },
+            "/reports/generate-body": {
+                "post": {
+                    "summary": "Redacción técnica de cuerpo de informe y extracción de repuestos",
+                    "responses": {"200": {"description": "Cuerpo técnico generado y repuestos asociados"}},
                 }
             },
         },
