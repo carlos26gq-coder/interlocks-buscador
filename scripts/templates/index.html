@@ -475,39 +475,51 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 <div id="screenLogs" class="screen">
   <div class="cv-header">
     <div class="cv-title-group">
-      <h2>📋 Analizador Cronológico de Secuencias</h2>
-      <span class="cv-subsystem-badge">LOG PARSER</span>
+      <h2>📋 Analizador y Diagnóstico Forense de Registros</h2>
+      <span class="cv-subsystem-badge">LOG PARSER & FORENSICS</span>
       <p style="font-size:0.78rem;color:var(--muted);margin-top:4px;line-height:1.4">
-        Analiza archivos de registro (Logs) de Elekta Linac. Detecta automáticamente cascadas de interlocks y falla de componentes.
+        Diagnóstico forense y análisis de telemetría de Aceleradores Lineales Elekta (TRF, UDP Interlocks, Audit Trail, CCP, Calibración Óptica).
       </p>
     </div>
   </div>
 
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;">
-    <div id="logDropZone" style="border:2px dashed var(--border);border-radius:8px;padding:20px;text-align:center;margin-bottom:10px;">
-        <p style="color:var(--muted);font-size:0.8rem;margin-bottom:10px;">Arrastra un archivo de log (.txt, .log) aquí, o usa el botón:</p>
-        <input type="file" id="logFileInput" accept=".txt,.log,.csv" style="display:none;">
-        <button class="btn btn-primary btn-sm" onclick="logTriggerFileInput()">Seleccionar Archivo</button>
-    </div>
-
-    <div style="text-align:center;margin:10px 0;">
-        <span style="color:var(--muted);font-size:0.75rem;">O pega un fragmento de texto:</span>
-    </div>
-
-  <textarea id="logPasteArea" aria-label="Texto del registro para analizar" placeholder="Pega el texto del log aquí..." style="width:100%;height:100px;margin-bottom:10px;"></textarea>
-
-    <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <button class="btn btn-primary" onclick="logHandlePaste()">Analizar Texto</button>
-        <button class="btn btn-ghost" onclick="logLoadSample()">Cargar Log de Prueba</button>
-    </div>
+  <!-- Subtabs de modo de análisis -->
+  <div style="display:flex;gap:8px;margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:8px;flex-wrap:wrap;">
+    <button id="btnTabLinacSuite" class="btn btn-sm btn-primary" onclick="switchLogSubtab('suite')">⚡ Suite Forense Linac (linaclog)</button>
+    <button id="btnTabCascadeText" class="btn btn-sm btn-ghost" onclick="switchLogSubtab('cascade')">📋 Cascada de Interlocks (Texto)</button>
   </div>
 
-  <div id="logParsingSpinner" style="display:none;text-align:center;padding:20px;">
-    <div class="spinner-wrap" style="padding:10px 0"><div class="spinner"></div></div>
-    <p style="color:var(--accent);font-family:var(--mono);font-size:0.8rem;">Procesando eventos y detectando cascadas...</p>
-  </div>
+  <!-- 1. Contenedor de la Suite Forense Linac -->
+  <div id="linacLogSuiteContainer"></div>
 
-  <div id="logResults"></div>
+  <!-- 2. Contenedor de análisis de texto clásico / cascada -->
+  <div id="logTextAnalysisWrapper" style="display:none;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;">
+      <div id="logDropZone" style="border:2px dashed var(--border);border-radius:8px;padding:20px;text-align:center;margin-bottom:10px;">
+          <p style="color:var(--muted);font-size:0.8rem;margin-bottom:10px;">Arrastra un archivo de log (.txt, .log) aquí, o usa el botón:</p>
+          <input type="file" id="logFileInput" accept=".txt,.log,.csv" style="display:none;">
+          <button class="btn btn-primary btn-sm" onclick="logTriggerFileInput()">Seleccionar Archivo</button>
+      </div>
+
+      <div style="text-align:center;margin:10px 0;">
+          <span style="color:var(--muted);font-size:0.75rem;">O pega un fragmento de texto:</span>
+      </div>
+
+      <textarea id="logPasteArea" aria-label="Texto del registro para analizar" placeholder="Pega el texto del log aquí..." style="width:100%;height:100px;margin-bottom:10px;"></textarea>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="logHandlePaste()">Analizar Texto</button>
+          <button class="btn btn-ghost" onclick="logLoadSample()">Cargar Log de Prueba</button>
+      </div>
+    </div>
+
+    <div id="logParsingSpinner" style="display:none;text-align:center;padding:20px;">
+      <div class="spinner-wrap" style="padding:10px 0"><div class="spinner"></div></div>
+      <p style="color:var(--accent);font-family:var(--mono);font-size:0.8rem;">Procesando eventos y detectando cascadas...</p>
+    </div>
+
+    <div id="logResults"></div>
+  </div>
 </div>
 
 <div id="screenReports" class="screen">
@@ -776,11 +788,31 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 <script>window._INITIAL_R2_URL = {{ (r2_url or '')|tojson }};</script>
 <script src="/static/app.js?v={{ build_time }}"></script>
 <script src="/static/log-parser.js?v={{ build_time }}"></script>
+<script src="/static/linaclog-suite.js?v={{ build_time }}"></script>
 <script>
 // Manejadores globales para Analizador Cronológico de Archivos de Registro
 function logTriggerFileInput() { if (window.LogParser) window.LogParser.triggerFileInput(); }
 function logHandlePaste() { if (window.LogParser) window.LogParser.handlePaste(); }
 function logLoadSample() { if (window.LogParser) window.LogParser.loadSample(); }
+
+function switchLogSubtab(mode) {
+    const suiteEl = document.getElementById('linacLogSuiteContainer');
+    const textEl = document.getElementById('logTextAnalysisWrapper');
+    const btnSuite = document.getElementById('btnTabLinacSuite');
+    const btnText = document.getElementById('btnTabCascadeText');
+    if (mode === 'suite') {
+        if (suiteEl) suiteEl.style.display = 'block';
+        if (textEl) textEl.style.display = 'none';
+        if (btnSuite) btnSuite.className = 'btn btn-sm btn-primary';
+        if (btnText) btnText.className = 'btn btn-sm btn-ghost';
+        if (window.LinacLogSuite) window.LinacLogSuite.init();
+    } else {
+        if (suiteEl) suiteEl.style.display = 'none';
+        if (textEl) textEl.style.display = 'block';
+        if (btnSuite) btnSuite.className = 'btn btn-sm btn-ghost';
+        if (btnText) btnText.className = 'btn btn-sm btn-primary';
+    }
+}
 
 // Navegación entre pantallas y ergonomía de espacio de trabajo
 const _TOOL_META = {
@@ -813,6 +845,9 @@ function irA(name) {
     if (name==='Notes') {
         if (typeof window.cargarNotas === 'function') window.cargarNotas();
         else if (typeof cargarNotas === 'function') cargarNotas();
+    }
+    if (name==='Logs') {
+        if (window.LinacLogSuite) window.LinacLogSuite.init();
     }
 }
 window.irA = irA;

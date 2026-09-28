@@ -29,6 +29,7 @@ from flask import (
     make_response,
     render_template,
     request,
+    send_file,
     send_from_directory,
 )
 from flask_limiter import Limiter
@@ -58,7 +59,7 @@ MAX_NOTES_PAGE = 100
 MAX_NOTES_SEARCH = 500
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
 limiter = Limiter(
@@ -995,6 +996,245 @@ def logs_parse():
     except Exception as exc:
         app.logger.exception("Error en /logs/parse")
         return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
+# --------------------------------------------------------------------------
+# LINACLOG SUITE: Dedicated endpoints for Elekta linac multi-format logs
+# --------------------------------------------------------------------------
+LINACLOG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "linaclog"))
+
+
+@app.route("/api/linaclog/profile", methods=["GET"])
+@limiter.limit("600 per hour")
+def linaclog_profile():
+    """Returns linac hardware identification, software version, and beam hours."""
+    try:
+        from log_engine import RTDManifestParser
+        manifest_path = os.path.join(LINACLOG_DIR, "RTDManifest.txt")
+        if os.path.exists(manifest_path):
+            parser = RTDManifestParser()
+            res = parser.parse_file(manifest_path)
+            return jsonify({"ok": True, "data": res.to_dict()}), 200
+        return jsonify({"ok": False, "error": "Manifest file not found"}), 404
+    except Exception as exc:
+        app.logger.exception("Error en /api/linaclog/profile")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
+@app.route("/api/linaclog/files", methods=["GET"])
+@limiter.limit("600 per hour")
+def linaclog_files():
+    """Lists categorized available log files in linaclog directory."""
+    try:
+        if not os.path.exists(LINACLOG_DIR):
+            return jsonify({"ok": True, "files": {}, "total": 0}), 200
+
+        import glob
+        categories = {
+            "trf_treatment": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "*.trf"))[:25]],
+            "rt_udp_telemetry": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "rt-udp.*.log"))],
+            "audit_trail": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "*AUDIT*.TXT"))],
+            "ccp_supervisor": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "Elekta.CCP*.log"))[:15]],
+            "controller_log": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "LOG*")) if not os.path.splitext(f)[1]][:20],
+            "optical_calibration": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "OPT*.xml"))],
+            "rtd_manifest": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "RTDManifest.txt"))],
+        }
+        total_count = sum(len(v) for v in categories.values())
+        return jsonify({"ok": True, "categories": categories, "sampled_total": total_count}), 200
+    except Exception as exc:
+        app.logger.exception("Error en /api/linaclog/files")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
+@app.route("/api/linaclog/parse", methods=["POST"])
+@limiter.limit("600 per hour")
+def linaclog_parse():
+    """Parses an uploaded log file or an existing file from the linaclog directory."""
+    try:
+        from log_engine import parse_linac_log
+
+        # 1. Check if a file was uploaded
+        if "file" in request.files:
+            file_obj = request.files["file"]
+            if not file_obj.filename:
+                raise ValidationError("Archivo adjunto sin nombre.")
+            data = file_obj.read()
+            max_rec = request.form.get("max_records", type=int) or 100
+            res = parse_linac_log(data, filename=file_obj.filename, max_records=max_rec)
+            return jsonify({"ok": res.success, "result": res.to_dict()}), 200
+
+        # 2. Check JSON payload with file_name
+        req_json = request.get_json(silent=True) or {}
+        file_name = req_json.get("file_name", "")
+        max_rec = req_json.get("max_records", 100)
+
+        if not file_name:
+            raise ValidationError("Debe proporcionar 'file_name' o subir un archivo en el campo 'file'.")
+
+        # Security: Prevent directory traversal
+        clean_name = os.path.basename(file_name)
+        target_path = os.path.abspath(os.path.join(LINACLOG_DIR, clean_name))
+
+        if not target_path.startswith(LINACLOG_DIR):
+            raise ValidationError("Acceso a ruta de archivo denegado (path traversal detectado).")
+
+        if not os.path.exists(target_path):
+            return jsonify({"ok": False, "error": f"Archivo no encontrado: {clean_name}"}), 404
+
+        res = parse_linac_log(target_path, max_records=max_rec)
+        return jsonify({"ok": res.success, "result": res.to_dict()}), 200
+
+    except ValidationError as val_err:
+        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error en /api/linaclog/parse")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
+_LAST_LINAC_ANALYSIS: Optional[Dict[str, Any]] = None
+
+
+@app.route("/api/linaclog/analyze-folder", methods=["GET", "POST"])
+@limiter.limit("60 per minute")
+def linaclog_analyze_folder():
+    """Performs full forensic correlation and aggregation over a Linac log folder."""
+    global _LAST_LINAC_ANALYSIS
+    try:
+        from log_engine import LinacFolderAnalyzer
+        target_dir = LINACLOG_DIR
+        max_audit = 5000
+        max_trf = 200
+
+        if request.method == "POST":
+            req_json = request.get_json(silent=True) or {}
+            custom_path = req_json.get("folder_path")
+            if custom_path:
+                norm_path = os.path.abspath(custom_path)
+                if not os.path.exists(norm_path) or not os.path.isdir(norm_path):
+                    raise ValidationError(f"Directorio no válido o inexistente: {custom_path}")
+                target_dir = norm_path
+            max_audit = int(req_json.get("max_audit_records", 5000))
+            max_trf = int(req_json.get("max_trf_records", 200))
+
+        if not os.path.exists(target_dir):
+            return jsonify({"ok": False, "error": f"Directorio linaclog no encontrado en {target_dir}"}), 404
+
+        analyzer = LinacFolderAnalyzer(target_dir)
+        result = analyzer.analyze(max_audit_records=max_audit, max_trf_records=max_trf)
+        _LAST_LINAC_ANALYSIS = result
+
+        return jsonify({"ok": True, "data": result}), 200
+    except ValidationError as val_err:
+        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error en /api/linaclog/analyze-folder")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
+@app.route("/api/linaclog/upload-folder", methods=["POST"])
+@limiter.limit("60 per hour")
+def linaclog_upload_folder():
+    """Receives multiple files uploaded from a browser directory selector and analyzes them."""
+    global _LAST_LINAC_ANALYSIS
+    import tempfile
+    import shutil
+    from log_engine import LinacFolderAnalyzer
+
+    temp_dir = tempfile.mkdtemp(prefix="solvi_linac_upload_")
+    try:
+        uploaded_files = request.files.getlist("files") or request.files.getlist("files[]")
+        if not uploaded_files:
+            raise ValidationError("No se recibieron archivos en la carga de carpeta.")
+
+        saved_count = 0
+        for f in uploaded_files:
+            if not f.filename:
+                continue
+            base_fname = os.path.basename(f.filename)
+            if not base_fname:
+                continue
+            dest_path = os.path.join(temp_dir, base_fname)
+            f.save(dest_path)
+            saved_count += 1
+
+        if saved_count == 0:
+            raise ValidationError("No se pudieron guardar archivos válidos de la carpeta.")
+
+        max_audit = request.form.get("max_audit_records", type=int) or 5000
+        max_trf = request.form.get("max_trf_records", type=int) or 200
+
+        analyzer = LinacFolderAnalyzer(temp_dir)
+        result = analyzer.analyze(max_audit_records=max_audit, max_trf_records=max_trf)
+        _LAST_LINAC_ANALYSIS = result
+
+        return jsonify({"ok": True, "data": result, "files_processed": saved_count}), 200
+
+    except ValidationError as val_err:
+        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error en /api/linaclog/upload-folder")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+    finally:
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+@app.route("/api/linaclog/export-excel", methods=["GET", "POST"])
+@limiter.limit("120 per hour")
+def linaclog_export_excel():
+    """Generates and downloads a multi-sheet Excel audit report (.xlsx)."""
+    global _LAST_LINAC_ANALYSIS
+    import io
+    import datetime
+    from log_engine import LinacExcelExporter, LinacFolderAnalyzer
+
+    try:
+        if not LinacExcelExporter.is_available():
+            return jsonify({
+                "ok": False,
+                "error": "openpyxl no está disponible en el servidor. Instale openpyxl para exportar en Excel."
+            }), 503
+
+        data_to_export = None
+        if request.method == "POST":
+            req_json = request.get_json(silent=True) or {}
+            data_to_export = req_json.get("analysis_data")
+
+        if not data_to_export:
+            data_to_export = _LAST_LINAC_ANALYSIS
+
+        if not data_to_export:
+            if os.path.exists(LINACLOG_DIR):
+                analyzer = LinacFolderAnalyzer(LINACLOG_DIR)
+                data_to_export = analyzer.analyze()
+                _LAST_LINAC_ANALYSIS = data_to_export
+            else:
+                return jsonify({
+                    "ok": False,
+                    "error": "No hay análisis de Linac previo ni carpeta linaclog disponible para exportar."
+                }), 404
+
+        excel_buffer = io.BytesIO()
+        LinacExcelExporter.export(data_to_export, output=excel_buffer)
+        excel_buffer.seek(0)
+
+        linac_id = str(data_to_export.get("profile", {}).get("linac_id") or "4574")
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"Auditoria_Linac_{linac_id}_{timestamp}.xlsx"
+
+        return send_file(
+            excel_buffer,
+            as_attachment=True,
+            download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except Exception as exc:
+        app.logger.exception("Error en /api/linaclog/export-excel")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
 
 
 if __name__ == "__main__":

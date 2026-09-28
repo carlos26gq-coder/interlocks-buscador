@@ -14,6 +14,16 @@ const DIAGNOSTIC_WORDS = new Set([
     "tarjeta", "area", "module", "circuit", "switch", "relay", "valve"
 ]);
 
+const INVALID_BOARDS = new Set([
+    "PCB", "PWA", "PWB", "PCB IDENTIFICATION", "PCB ASSY", "PCB ASSEMBLY",
+    "PCB LAYOUT", "PCB DRAWING", "PCB SCHEMATIC", "PCB CONNECTIONS", "PCB MOUNTING",
+    "PCB AREA", "PCB POSITION", "PCB DESCRIPTION", "PCB TITLE", "PCB DETAILS",
+    "PCB NUMBER", "PCB REF", "PCB REFERENCE", "PCB NAME", "PCB REV", "PCB REVISION",
+    "PCB CODE", "PCB STATUS", "PCB SYSTEM", "PCB CIRCUIT", "PCB SUB", "PCB PART",
+    "PCB PCB", "PCB P4", "PCB FS17B", "PCB 72H", "PCB 74", "PCB RACK", "PCB CABINET",
+    "PCB FRAME", "PCB CHASSIS", "PCB ITEM"
+]);
+
 const MIN_RELATIVE_MATCH_DIAGNOSE = 25;
 const PDF_CONFIDENCE_THRESHOLD = 50;
 const LEGACY_SIGNAL_FIELDS = ["interlock", "error", "message", "observations"];
@@ -115,7 +125,14 @@ function candidateIds(query, manualFilter) {
 function phrasePattern(query) {
     const parts = tokenize(query);
     if (!parts.length) return null;
-    const escaped = parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const deduped = [];
+    for (const p of parts) {
+        if (!deduped.length || p !== deduped[deduped.length - 1]) {
+            deduped.push(p);
+        }
+    }
+    const limitedParts = deduped.slice(0, 16);
+    const escaped = limitedParts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const sep = "(?:[\\W_]+|[\\W_]+(?:the|a|an|of|in|to|and|or|de|la|el|del|y|en)[\\W_]+)";
     return new RegExp("\\b" + escaped.join(sep) + "\\b", "gi");
 }
@@ -298,7 +315,7 @@ function extractAssociatedComponents(text) {
     const boards = [];
     for (const b of boardMatches) {
         const bClean = b.replace(/\s+/g, " ").trim().toUpperCase();
-        if (!boards.includes(bClean) && bClean.length >= 3 && !["PCB", "PWA", "PWB"].includes(bClean)) {
+        if (!boards.includes(bClean) && bClean.length >= 3 && !INVALID_BOARDS.has(bClean)) {
             boards.push(bClean);
         }
     }

@@ -2,9 +2,11 @@
 
 from pathlib import Path
 import json
+import os
 import re
 import sys
 import unittest
+from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = ROOT / "scripts"
@@ -30,10 +32,20 @@ class ReportGenerationTestSuite(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = app.test_client()
+        cls._orig_gemini_key = os.environ.get("GEMINI_API_KEY")
+        # Aislar entorno de pruebas para evitar peticiones HTTP reales a Google Gemini
+        os.environ["GEMINI_API_KEY"] = ""
         with (TEMPLATES_DIR / "index.html").open("r", encoding="utf-8") as f:
             cls.html = f.read()
         with (STATIC_DIR / "app.js").open("r", encoding="utf-8") as f:
             cls.app_js = f.read()
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._orig_gemini_key is not None:
+            os.environ["GEMINI_API_KEY"] = cls._orig_gemini_key
+        elif "GEMINI_API_KEY" in os.environ:
+            del os.environ["GEMINI_API_KEY"]
 
     # ─── 1. MOTOR LOCAL DE REDACCIÓN TÉCNICA FUNDAMENTADA ─────────────────────
 
@@ -193,7 +205,8 @@ class ReportGenerationTestSuite(unittest.TestCase):
         expected_exports = [
             "addReportPart", "previewInforme", "exportInforme", "closeReportPreview",
             "redactarTrabajoRealizado", "handleReportImagesChange", "actualizarNombreImagenReporte",
-            "eliminarImagenReporte", "resetReportForm", "calcularDownTimeInforme"
+            "eliminarImagenReporte", "resetReportForm", "calcularDownTimeInforme",
+            "comprimirImagenParaReporte"
         ]
         for exp in expected_exports:
             self.assertIn(f"window.{exp} =", self.app_js, f"Falta exportar {exp} en window de app.js")
@@ -202,6 +215,49 @@ class ReportGenerationTestSuite(unittest.TestCase):
         """Verifica que NO existan menciones de IA/AI en los elementos visuales del informe."""
         visible_text = extract_visible_html_text(self.html)
         assert_no_visible_ai(self, visible_text, "index.html con formulario de informe")
+
+    def test_max_content_length_is_at_least_16mb(self):
+        """Verifica que el límite de payload admita imágenes adjuntas (mínimo 16MB) para prevenir HTTP 413."""
+        limit = app.config.get("MAX_CONTENT_LENGTH", 0)
+        self.assertGreaterEqual(limit, 16 * 1024 * 1024, f"MAX_CONTENT_LENGTH debe ser >= 16MB, es {limit}")
+
+    def test_search_worker_parity_and_redos_prevention(self):
+        """Verifica que search-worker.js tenga INVALID_BOARDS y acotamiento de 16 tokens para ReDoS."""
+        worker_js = (STATIC_DIR / "search-worker.js").read_text(encoding="utf-8")
+        self.assertIn("INVALID_BOARDS", worker_js)
+        self.assertIn("PCB IDENTIFICATION", worker_js)
+        self.assertIn("slice(0, 16)", worker_js)
+
+    @patch("report_service.genai.Client")
+    def test_hybrid_generation_with_mocked_gemini(self, mock_client_cls):
+        """Verifica que generate_report_body_hybrid procese respuestas válidas de Gemini sin tocar la red."""
+        from report_service import ReportBodyResponse, SparePartModel
+        mock_instance = MagicMock()
+        mock_client_cls.return_value = mock_instance
+
+        mock_resp = MagicMock()
+        mock_resp.parsed = ReportBodyResponse(
+            body="Revisión técnica de alta tensión en acelerador lineal Elekta Synergy Full. Switch Assembly inspeccionado.",
+            suggested_diagnosis="Sustitución de Switch Assembly en transformador T4",
+            suggested_parts=[SparePartModel(pn="45133308377", description="Switch Assembly", quantity="01")],
+            suggested_conclusions="- Equipo operativo tras intervención"
+        )
+        mock_resp.text = "{}"
+        mock_instance.models.generate_content.return_value = mock_resp
+
+        result = generate_report_body_hybrid(
+            incident="HT PSU OT",
+            equipment="ACELERADOR LINEAL",
+            brand="ELEKTA",
+            model="SYNERGY FULL",
+            diagnosis="Reemplazo de Switch Assembly",
+            search_engine=search_engine,
+            api_key="test_fake_api_key_12345",
+        )
+        self.assertTrue(result.get("ok"))
+        self.assertEqual(result.get("source"), "gemini")
+        self.assertIn("Switch Assembly", result.get("body", ""))
+        self.assertTrue(len(result.get("suggested_parts", [])) >= 1)
 
 
 if __name__ == "__main__":

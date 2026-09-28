@@ -2222,32 +2222,91 @@ function addReportPart(pn = "", desc = "", qty = "01") {
 let _reportImages = [];
 let _reportImgSeq = 0;
 
-function handleReportImagesChange(event) {
+function comprimirImagenParaReporte(fileOrBlob, maxDimension = 1280, quality = 0.82) {
+    return new Promise((resolve) => {
+        if (!fileOrBlob || !fileOrBlob.type || !fileOrBlob.type.startsWith("image/")) {
+            resolve(null);
+            return;
+        }
+
+        const objectUrl = URL.createObjectURL(fileOrBlob);
+        const img = new Image();
+
+        img.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            let width = img.naturalWidth || img.width;
+            let height = img.naturalHeight || img.height;
+
+            if (!width || !height) {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = () => resolve(null);
+                reader.readAsDataURL(fileOrBlob);
+                return;
+            }
+
+            if (width > maxDimension || height > maxDimension) {
+                if (width > height) {
+                    height = Math.round((height * maxDimension) / width);
+                    width = maxDimension;
+                } else {
+                    width = Math.round((width * maxDimension) / height);
+                    height = maxDimension;
+                }
+            }
+
+            try {
+                const canvas = document.createElement("canvas");
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = () => resolve(null);
+                    reader.readAsDataURL(fileOrBlob);
+                    return;
+                }
+                ctx.drawImage(img, 0, 0, width, height);
+                const dataUrl = canvas.toDataURL("image/jpeg", quality);
+                resolve(dataUrl);
+            } catch (_canvasErr) {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = () => resolve(null);
+                reader.readAsDataURL(fileOrBlob);
+            }
+        };
+
+        img.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(fileOrBlob);
+        };
+
+        img.src = objectUrl;
+    });
+}
+
+async function handleReportImagesChange(event) {
     const files = event?.target?.files || document.getElementById("reportImages")?.files;
     if (!files || files.length === 0) return;
 
-    const readPromises = Array.from(files).map((file) => {
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                resolve({
-                    id: "img_" + (++_reportImgSeq),
-                    name: file.name.replace(/\.[^/.]+$/, "").substring(0, 80),
-                    dataUrl: e.target.result
-                });
-            };
-            reader.onerror = () => resolve(null);
-            reader.readAsDataURL(file);
-        });
-    });
-
-    Promise.all(readPromises).then((results) => {
-        for (const item of results) {
-            if (item) _reportImages.push(item);
+    const fileList = Array.from(files);
+    for (const file of fileList) {
+        const compressedDataUrl = await comprimirImagenParaReporte(file);
+        if (compressedDataUrl) {
+            _reportImages.push({
+                id: "img_" + (++_reportImgSeq),
+                name: file.name.replace(/\.[^/.]+$/, "").substring(0, 80),
+                dataUrl: compressedDataUrl
+            });
         }
-        renderReportImagesList();
-        if (event?.target) event.target.value = "";
-    });
+    }
+    renderReportImagesList();
+    if (event?.target) event.target.value = "";
 }
 
 function renderReportImagesList() {
@@ -2763,18 +2822,17 @@ function initReportMediaHandlers() {
             if (item.type && item.type.indexOf("image") !== -1) {
                 const blob = item.getAsFile();
                 if (blob) {
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
+                    comprimirImagenParaReporte(blob).then((compressedDataUrl) => {
+                        if (!compressedDataUrl) return;
                         const count = _reportImages.length + 1;
                         _reportImages.push({
                             id: "img_" + (++_reportImgSeq),
                             name: "Captura de inspección " + count,
-                            dataUrl: event.target.result
+                            dataUrl: compressedDataUrl
                         });
                         renderReportImagesList();
                         toast("Imagen adjuntada desde el portapapeles", "ok");
-                    };
-                    reader.readAsDataURL(blob);
+                    });
                 }
             }
         }
@@ -2855,3 +2913,4 @@ window.actualizarNombreImagenReporte = actualizarNombreImagenReporte;
 window.eliminarImagenReporte = eliminarImagenReporte;
 window.resetReportForm = resetReportForm;
 window.calcularDownTimeInforme = calcularDownTimeInforme;
+window.comprimirImagenParaReporte = comprimirImagenParaReporte;

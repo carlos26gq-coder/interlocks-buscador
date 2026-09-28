@@ -244,6 +244,16 @@ class RealReportsAndFormatValidationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = app.test_client()
+        cls._orig_gemini_key = os.environ.get("GEMINI_API_KEY")
+        # Aislar entorno de pruebas para evitar peticiones HTTP reales a Google Gemini
+        os.environ["GEMINI_API_KEY"] = ""
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._orig_gemini_key is not None:
+            os.environ["GEMINI_API_KEY"] = cls._orig_gemini_key
+        elif "GEMINI_API_KEY" in os.environ:
+            del os.environ["GEMINI_API_KEY"]
 
     def _assert_no_ai_mentions(self, text: str, field_desc: str):
         matches = AI_MENTION_REGEX.findall(text)
