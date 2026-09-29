@@ -1006,6 +1006,378 @@ def logs_parse():
 # LINACLOG SUITE: Dedicated endpoints for Elekta linac multi-format logs
 # --------------------------------------------------------------------------
 LINACLOG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "linaclog"))
+_LAST_LINAC_DIR: str = LINACLOG_DIR
+_LAST_LINAC_ANALYSIS: Optional[Dict[str, Any]] = None
+
+
+def _normalize_name_token(name: str) -> str:
+    return re.sub(r'[\s_\-\.\+]+', '', name).lower()
+
+
+def _extract_sdd_zip_if_needed(zip_path: str) -> Optional[str]:
+    """
+    Checks if a zip file contains Elekta Linac logs and returns an extracted cache directory.
+    If an already-extracted directory with logs exists alongside the zip (e.g. 'LOGS'), returns it immediately.
+    """
+    import zipfile
+    import hashlib
+    import tempfile
+    if not (os.path.isfile(zip_path) and (zip_path.lower().endswith(".zip") or zipfile.is_zipfile(zip_path))):
+        return None
+
+    # Check for adjacent already-extracted 'LOGS' folder
+    parent_dir = os.path.dirname(zip_path)
+    log_patterns = ("*.trf", "rt-udp*.log", "*Manifest*.txt", "*AUDIT*.TXT", "LOG[0-9]*", "OPT*.xml")
+    logs_sibling = os.path.join(parent_dir, "LOGS")
+    if os.path.isdir(logs_sibling):
+        import glob
+        if any(any(os.path.isfile(f) for f in glob.glob(os.path.join(logs_sibling, pat))) for pat in log_patterns):
+            return logs_sibling
+
+    try:
+        st = os.stat(zip_path)
+        cache_key = hashlib.sha256(f"{zip_path}_{st.st_size}_{st.st_mtime}".encode()).hexdigest()[:16]
+        cache_dir = os.path.join(tempfile.gettempdir(), f"solvi_sdd_{cache_key}")
+        if os.path.isdir(cache_dir) and len(os.listdir(cache_dir)) > 0:
+            return cache_dir
+
+        os.makedirs(cache_dir, exist_ok=True)
+        log_exts = (".trf", ".log", ".txt", ".xml", ".dat")
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            for member in zf.infolist():
+                if member.is_dir() or member.filename.startswith("__MACOSX"):
+                    continue
+                name = os.path.basename(member.filename)
+                if not name:
+                    continue
+                low = name.lower()
+                if (
+                    low.endswith(log_exts)
+                    or low.startswith("log")
+                    or low.startswith("elekta")
+                    or low.startswith("rt-udp")
+                    or "manifest" in low
+                    or "audit" in low
+                ):
+                    target_file = os.path.join(cache_dir, name)
+                    with zf.open(member) as source, open(target_file, "wb") as target:
+                        target.write(source.read())
+        return cache_dir if os.path.isdir(cache_dir) and len(os.listdir(cache_dir)) > 0 else None
+    except Exception:
+        return None
+
+
+def _find_linac_log_subdir(folder: str) -> str:
+    """
+    If a folder does not directly contain linac logs, checks if an immediate subfolder
+    (such as 'LOGS', 'logs', 'SDD+...', etc.) or zip file contains the logs and returns it.
+    """
+    import zipfile
+    if not folder:
+        return folder
+
+    # 1. Direct zip file check
+    if os.path.isfile(folder) and (folder.lower().endswith(".zip") or zipfile.is_zipfile(folder)):
+        extracted = _extract_sdd_zip_if_needed(folder)
+        if extracted:
+            return extracted
+        return folder
+
+    if not os.path.isdir(folder):
+        # Check if folder + '.zip' exists
+        if os.path.isfile(folder + ".zip"):
+            extracted = _extract_sdd_zip_if_needed(folder + ".zip")
+            if extracted:
+                return extracted
+        return folder
+
+    # 2. Check if folder directly has log files
+    log_signatures = {".trf", ".log", ".txt", ".xml"}
+    try:
+        with os.scandir(folder) as it:
+            for entry in it:
+                if entry.is_file():
+                    name_low = entry.name.lower()
+                    if (
+                        name_low.endswith(".trf")
+                        or (name_low.startswith("rt-udp") and name_low.endswith(".log"))
+                        or ((name_low.startswith("audit") or "audit_trail" in name_low) and name_low.endswith(".txt"))
+                        or (name_low == "rtdmanifest.txt" or name_low == "rtdregistry.txt")
+                        or (name_low.startswith("elekta.ccp") and name_low.endswith(".log"))
+                        or (name_low.startswith("opt") and name_low.endswith(".xml"))
+                    ):
+                        return folder
+    except Exception:
+        pass
+
+    # 3. Check subdirectories (prioritize LOGS, logs, SDD+)
+    try:
+        subdirs = []
+        with os.scandir(folder) as it:
+            for entry in it:
+                if entry.is_dir():
+                    subdirs.append(entry.path)
+                elif entry.is_file() and entry.name.lower().endswith(".zip"):
+                    zip_res = _extract_sdd_zip_if_needed(entry.path)
+                    if zip_res:
+                        return zip_res
+
+        subdirs.sort(key=lambda x: (0 if os.path.basename(x).upper() in ("LOGS", "LOG") else (1 if os.path.basename(x).upper().startswith("SDD") else 2)))
+        for sub in subdirs:
+            try:
+                with os.scandir(sub) as it:
+                    for entry in it:
+                        if entry.is_file():
+                            name_low = entry.name.lower()
+                            if (
+                                name_low.endswith(".trf")
+                                or (name_low.startswith("rt-udp") and name_low.endswith(".log"))
+                                or ((name_low.startswith("audit") or "audit_trail" in name_low) and name_low.endswith(".txt"))
+                                or (name_low == "rtdmanifest.txt" or name_low == "rtdregistry.txt")
+                                or (name_low.startswith("elekta.ccp") and name_low.endswith(".log"))
+                                or (name_low.startswith("opt") and name_low.endswith(".xml"))
+                            ):
+                                return sub
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return folder
+
+
+def _resolve_fuzzy_segments(base_dir: str, parts: List[str]) -> Optional[str]:
+    """Walks directory hierarchy matching segments with case, space, punctuation, and zip tolerance."""
+    current = base_dir
+    for i, part in enumerate(parts):
+        if not part:
+            continue
+        direct = os.path.join(current, part)
+        if os.path.exists(direct):
+            if os.path.isdir(direct):
+                current = direct
+                continue
+            elif os.path.isfile(direct) and i == len(parts) - 1:
+                return _find_linac_log_subdir(direct)
+
+        target_norm = _normalize_name_token(part)
+        matched = False
+        try:
+            if os.path.isdir(current):
+                with os.scandir(current) as it:
+                    for entry in it:
+                        entry_norm = _normalize_name_token(entry.name)
+                        # Check exact token match or without .zip extension
+                        if entry_norm == target_norm or entry_norm.replace("zip", "") == target_norm:
+                            if entry.is_dir():
+                                current = entry.path
+                                matched = True
+                                break
+                            elif entry.is_file() and i == len(parts) - 1:
+                                return _find_linac_log_subdir(entry.path)
+        except Exception:
+            pass
+        if not matched:
+            return None
+    return current if (os.path.exists(current)) else None
+
+
+def resolve_folder_path(raw_path: str) -> Optional[str]:
+    """
+    Intelligently resolves a user-entered folder path string into an existing absolute directory path.
+    Handles:
+      - Trailing and leading whitespace, single/double quotes, and backticks.
+      - URL prefixes like file:/// or file://.
+      - Paths missing Windows drive letters (e.g., 'Users\\CGutierrez\\Desktop\\AL5LOGS\\LOGS' -> 'C:\\Users\\...').
+      - Variations with spaces vs no spaces (e.g., 'AL5 LOGS' vs 'AL5LOGS').
+      - Forward and backward slash variations.
+      - SDD zip files (e.g. 'AL5LOGS\\SDD+ELEKTA5+...zip' or pointing directly to .zip).
+      - Tilde user expansion (~/Desktop/...).
+      - Relative paths to User home, Desktop, current working directory, or project root.
+      - Subfolder auto-detection (e.g., pointing to 'AL5LOGS' auto-resolves to 'AL5LOGS\\LOGS').
+    Returns:
+      Canonical absolute path to the directory containing logs if it exists, otherwise None.
+    """
+    if not raw_path:
+        return None
+
+    cleaned = str(raw_path).strip().strip('"\'`\u201c\u201d').strip()
+    if not cleaned:
+        return None
+
+    # Handle file:// or file:/// URL prefixes
+    if cleaned.lower().startswith("file:///"):
+        cleaned = cleaned[8:]
+        if os.name == "nt" and len(cleaned) > 2 and cleaned[0] == "/" and cleaned[2] == ":":
+            cleaned = cleaned[1:]
+    elif cleaned.lower().startswith("file://"):
+        cleaned = cleaned[7:]
+
+    # Expand ~
+    expanded = os.path.expanduser(cleaned)
+
+    # 1. Standard direct check (directory or file/zip)
+    norm = os.path.abspath(os.path.normpath(expanded))
+    if os.path.exists(norm):
+        return _find_linac_log_subdir(norm)
+    if os.path.exists(norm + ".zip"):
+        return _find_linac_log_subdir(norm + ".zip")
+
+    stripped = cleaned.lstrip(r"\/")
+    parts = [p for p in re.split(r'[\\/]+', stripped) if p]
+
+    # 2. Windows drive resolution (e.g. user entered 'Users\...\Desktop\...' or '\Users\...')
+    if os.name == "nt" or "\\" in cleaned or "/" in cleaned:
+        sys_drive = os.environ.get("SystemDrive", "C:").rstrip(":")
+        cwd_drive = os.path.splitdrive(os.getcwd())[0].rstrip(":")
+        preferred_drives = [d for d in [sys_drive, cwd_drive, "C", "D", "E"] if d]
+        seen_drives = set()
+        ordered_drives = []
+        for d in preferred_drives:
+            if d.upper() not in seen_drives:
+                seen_drives.add(d.upper())
+                ordered_drives.append(d.upper())
+
+        for letter in ordered_drives:
+            cand = os.path.abspath(os.path.normpath(f"{letter}:\\{stripped}"))
+            if os.path.exists(cand):
+                return _find_linac_log_subdir(cand)
+            if os.path.exists(cand + ".zip"):
+                return _find_linac_log_subdir(cand + ".zip")
+            fuz = _resolve_fuzzy_segments(f"{letter}:\\", parts)
+            if fuz and os.path.exists(fuz):
+                return _find_linac_log_subdir(fuz)
+
+    # 3. User Home and Desktop relative resolution
+    user_home = os.path.expanduser("~")
+    desktop_dir = os.path.join(user_home, "Desktop")
+    downloads_dir = os.path.join(user_home, "Downloads")
+    documents_dir = os.path.join(user_home, "Documents")
+    candidates_roots = [
+        desktop_dir,
+        user_home,
+        downloads_dir,
+        documents_dir,
+        str(BASE_DIR),
+        os.path.dirname(str(BASE_DIR)),
+        LINACLOG_DIR,
+    ]
+    if _LAST_LINAC_DIR and os.path.exists(_LAST_LINAC_DIR):
+        candidates_roots.insert(0, _LAST_LINAC_DIR)
+
+    for root in candidates_roots:
+        if not os.path.exists(root):
+            continue
+        cand_norm = os.path.abspath(os.path.normpath(os.path.join(root, stripped)))
+        if os.path.exists(cand_norm):
+            return _find_linac_log_subdir(cand_norm)
+        if os.path.exists(cand_norm + ".zip"):
+            return _find_linac_log_subdir(cand_norm + ".zip")
+        fuz = _resolve_fuzzy_segments(root, parts)
+        if fuz and os.path.exists(fuz):
+            return _find_linac_log_subdir(fuz)
+
+    return None
+
+
+def discover_local_linac_folders() -> List[Dict[str, Any]]:
+    """Discovers local directories and SDD archives on the host containing Elekta linac logs (ultra-fast scan)."""
+    discovered = []
+    seen = set()
+
+    search_roots = [
+        LINACLOG_DIR,
+        os.path.expanduser("~/Desktop"),
+        os.path.expanduser("~/Downloads"),
+        os.path.expanduser("~/Documents"),
+        str(BASE_DIR),
+    ]
+    if _LAST_LINAC_DIR and os.path.exists(_LAST_LINAC_DIR):
+        search_roots.insert(0, _LAST_LINAC_DIR)
+
+    ignored_dir_names = {".git", "venv", ".venv", "node_modules", "__pycache__", "scripts", "static", "templates", "data", "tests"}
+
+    def _check_and_add_folder(path: str, label: str):
+        canonical = os.path.abspath(os.path.normpath(path))
+        if canonical in seen or not os.path.isdir(canonical):
+            return
+        base_name = os.path.basename(canonical).lower()
+        if base_name in ignored_dir_names or base_name.startswith("."):
+            return
+
+        trf_count = 0
+        has_critical_signature = False
+        total_logs = 0
+
+        try:
+            with os.scandir(canonical) as it:
+                for entry in it:
+                    if entry.is_file():
+                        name_low = entry.name.lower()
+                        if name_low.endswith(".trf"):
+                            trf_count += 1
+                            total_logs += 1
+                        elif name_low.startswith("rt-udp") and name_low.endswith(".log"):
+                            has_critical_signature = True
+                            total_logs += 1
+                        elif (name_low.startswith("audit") or "audit_trail" in name_low) and name_low.endswith(".txt"):
+                            has_critical_signature = True
+                            total_logs += 1
+                        elif name_low == "rtdmanifest.txt" or name_low == "rtdregistry.txt":
+                            has_critical_signature = True
+                            total_logs += 1
+                        elif name_low.startswith("elekta.ccp") and name_low.endswith(".log"):
+                            has_critical_signature = True
+                            total_logs += 1
+                        elif name_low.startswith("opt") and name_low.endswith(".xml"):
+                            has_critical_signature = True
+                            total_logs += 1
+                        elif name_low.startswith("log") and (not "." in name_low or name_low.split(".")[-1].isdigit()):
+                            total_logs += 1
+        except Exception:
+            return
+
+        if trf_count >= 2 or has_critical_signature or (total_logs >= 20 and trf_count >= 1):
+            seen.add(canonical)
+            discovered.append({
+                "path": canonical,
+                "label": label,
+                "file_count_estimate": total_logs
+            })
+
+    for root in search_roots:
+        if not os.path.exists(root):
+            continue
+        if os.path.isdir(root):
+            _check_and_add_folder(root, os.path.basename(root) or root)
+            try:
+                with os.scandir(root) as it:
+                    for sub in it:
+                        if sub.is_dir() and sub.name.lower() not in ignored_dir_names and not sub.name.startswith("."):
+                            _check_and_add_folder(sub.path, f"{os.path.basename(root)}/{sub.name}")
+                            try:
+                                with os.scandir(sub.path) as it2:
+                                    for sub2 in it2:
+                                        if sub2.is_dir() and sub2.name.lower() not in ignored_dir_names and not sub2.name.startswith("."):
+                                            _check_and_add_folder(sub2.path, f"{os.path.basename(root)}/{sub.name}/{sub2.name}")
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
+    discovered.sort(key=lambda x: x.get("file_count_estimate", 0), reverse=True)
+    return discovered[:6]
+
+
+@app.route("/api/linaclog/suggested-folders", methods=["GET"])
+@limiter.limit("600 per hour")
+def linaclog_suggested_folders():
+    """Discovers available linac log directories on the local machine for 1-click selection."""
+    try:
+        suggestions = discover_local_linac_folders()
+        return jsonify({"ok": True, "folders": suggestions}), 200
+    except Exception as exc:
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
 
 
 @app.route("/api/linaclog/profile", methods=["GET"])
@@ -1014,7 +1386,11 @@ def linaclog_profile():
     """Returns linac hardware identification, software version, and beam hours."""
     try:
         from log_engine import RTDManifestParser
-        manifest_path = os.path.join(LINACLOG_DIR, "RTDManifest.txt")
+        active_dir = _LAST_LINAC_DIR if (_LAST_LINAC_DIR and os.path.exists(_LAST_LINAC_DIR)) else LINACLOG_DIR
+        manifest_path = os.path.join(active_dir, "RTDManifest.txt")
+        if not os.path.exists(manifest_path) and active_dir != LINACLOG_DIR:
+            manifest_path = os.path.join(LINACLOG_DIR, "RTDManifest.txt")
+
         if os.path.exists(manifest_path):
             parser = RTDManifestParser()
             res = parser.parse_file(manifest_path)
@@ -1030,21 +1406,30 @@ def linaclog_profile():
 def linaclog_files():
     """Lists categorized available log files in linaclog directory."""
     try:
-        if not os.path.exists(LINACLOG_DIR):
+        folder_param = request.args.get("folder")
+        active_dir = LINACLOG_DIR
+        if folder_param:
+            resolved = resolve_folder_path(folder_param)
+            if resolved and os.path.isdir(resolved):
+                active_dir = resolved
+        elif _LAST_LINAC_DIR and os.path.exists(_LAST_LINAC_DIR):
+            active_dir = _LAST_LINAC_DIR
+
+        if not os.path.exists(active_dir):
             return jsonify({"ok": True, "files": {}, "total": 0}), 200
 
         import glob
         categories = {
-            "trf_treatment": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "*.trf"))[:25]],
-            "rt_udp_telemetry": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "rt-udp.*.log"))],
-            "audit_trail": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "*AUDIT*.TXT"))],
-            "ccp_supervisor": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "Elekta.CCP*.log"))[:15]],
-            "controller_log": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "LOG*")) if not os.path.splitext(f)[1]][:20],
-            "optical_calibration": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "OPT*.xml"))],
-            "rtd_manifest": [os.path.basename(f) for f in glob.glob(os.path.join(LINACLOG_DIR, "RTDManifest.txt"))],
+            "trf_treatment": [os.path.basename(f) for f in glob.glob(os.path.join(active_dir, "*.trf"))[:25]],
+            "rt_udp_telemetry": [os.path.basename(f) for f in glob.glob(os.path.join(active_dir, "rt-udp.*.log"))],
+            "audit_trail": [os.path.basename(f) for f in glob.glob(os.path.join(active_dir, "*AUDIT*.TXT"))],
+            "ccp_supervisor": [os.path.basename(f) for f in glob.glob(os.path.join(active_dir, "Elekta.CCP*.log"))[:15]],
+            "controller_log": [os.path.basename(f) for f in glob.glob(os.path.join(active_dir, "LOG*")) if not os.path.splitext(f)[1]][:20],
+            "optical_calibration": [os.path.basename(f) for f in glob.glob(os.path.join(active_dir, "OPT*.xml"))],
+            "rtd_manifest": [os.path.basename(f) for f in glob.glob(os.path.join(active_dir, "RTDManifest.txt"))],
         }
         total_count = sum(len(v) for v in categories.values())
-        return jsonify({"ok": True, "categories": categories, "sampled_total": total_count}), 200
+        return jsonify({"ok": True, "categories": categories, "sampled_total": total_count, "folder": active_dir}), 200
     except Exception as exc:
         app.logger.exception("Error en /api/linaclog/files")
         return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
@@ -1075,15 +1460,19 @@ def linaclog_parse():
         if not file_name:
             raise ValidationError("Debe proporcionar 'file_name' o subir un archivo en el campo 'file'.")
 
-        # Security: Prevent directory traversal
         clean_name = os.path.basename(file_name)
-        target_path = os.path.abspath(os.path.join(LINACLOG_DIR, clean_name))
+        active_dir = _LAST_LINAC_DIR if (_LAST_LINAC_DIR and os.path.exists(_LAST_LINAC_DIR)) else LINACLOG_DIR
+        target_path = os.path.abspath(os.path.join(active_dir, clean_name))
 
-        if not target_path.startswith(LINACLOG_DIR):
+        if not target_path.startswith(active_dir) and not target_path.startswith(LINACLOG_DIR):
             raise ValidationError("Acceso a ruta de archivo denegado (path traversal detectado).")
 
         if not os.path.exists(target_path):
-            return jsonify({"ok": False, "error": f"Archivo no encontrado: {clean_name}"}), 404
+            alt_path = os.path.abspath(os.path.join(LINACLOG_DIR, clean_name))
+            if os.path.exists(alt_path):
+                target_path = alt_path
+            else:
+                return jsonify({"ok": False, "error": f"Archivo no encontrado: {clean_name}"}), 404
 
         res = parse_linac_log(target_path, max_records=max_rec)
         return jsonify({"ok": res.success, "result": res.to_dict()}), 200
@@ -1095,17 +1484,14 @@ def linaclog_parse():
         return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
 
 
-_LAST_LINAC_ANALYSIS: Optional[Dict[str, Any]] = None
-
-
 @app.route("/api/linaclog/analyze-folder", methods=["GET", "POST"])
 @limiter.limit("60 per minute")
 def linaclog_analyze_folder():
     """Performs full forensic correlation and aggregation over a Linac log folder."""
-    global _LAST_LINAC_ANALYSIS
+    global _LAST_LINAC_ANALYSIS, _LAST_LINAC_DIR
     try:
         from log_engine import LinacFolderAnalyzer
-        target_dir = LINACLOG_DIR
+        target_dir = _LAST_LINAC_DIR if (_LAST_LINAC_DIR and os.path.exists(_LAST_LINAC_DIR)) else LINACLOG_DIR
         max_audit = 5000
         max_trf = 200
 
@@ -1113,11 +1499,13 @@ def linaclog_analyze_folder():
             req_json = request.get_json(silent=True) or {}
             custom_path = req_json.get("folder_path")
             if custom_path:
-                clean_path = str(custom_path).strip().strip('"\'').strip()
-                norm_path = os.path.abspath(os.path.normpath(clean_path))
-                if not os.path.exists(norm_path) or not os.path.isdir(norm_path):
-                    raise ValidationError(f"Directorio no válido o inexistente: {clean_path}")
-                target_dir = norm_path
+                resolved = resolve_folder_path(custom_path)
+                if not resolved or not os.path.isdir(resolved):
+                    suggestions = [f["path"] for f in discover_local_linac_folders()][:3]
+                    hint = f" Carpetas sugeridas encontradas en el equipo: {', '.join(suggestions)}" if suggestions else ""
+                    raise ValidationError(f"Directorio no válido o inexistente: {custom_path}.{hint}")
+                target_dir = resolved
+                _LAST_LINAC_DIR = resolved
             max_audit = int(req_json.get("max_audit_records", 5000))
             max_trf = int(req_json.get("max_trf_records", 200))
 
@@ -1127,8 +1515,13 @@ def linaclog_analyze_folder():
         analyzer = LinacFolderAnalyzer(target_dir)
         result = analyzer.analyze(max_audit_records=max_audit, max_trf_records=max_trf)
         _LAST_LINAC_ANALYSIS = result
+        _LAST_LINAC_DIR = analyzer.folder_path
 
-        return jsonify({"ok": True, "data": result}), 200
+        return jsonify({
+            "ok": True,
+            "data": result,
+            "resolved_path": analyzer.folder_path
+        }), 200
     except ValidationError as val_err:
         return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
     except Exception as exc:
@@ -1262,6 +1655,81 @@ def linaclog_upload_folder():
         return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
     except Exception as exc:
         app.logger.exception("Error en /api/linaclog/upload-folder")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+    finally:
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+@app.route("/api/linaclog/upload-zip", methods=["POST"])
+@limiter.limit("60 per hour")
+def linaclog_upload_zip():
+    """Receives a single SDD zip archive, extracts linac logs, and performs full forensic analysis."""
+    global _LAST_LINAC_ANALYSIS
+    import tempfile
+    import shutil
+    import zipfile
+    from log_engine import LinacFolderAnalyzer
+
+    if "file" not in request.files and "zip" not in request.files:
+        return jsonify({"ok": False, "error": "validation_error", "message": "No se recibió ningún archivo .zip."}), 400
+
+    zip_file = request.files.get("file") or request.files.get("zip")
+    if not zip_file or not zip_file.filename:
+        return jsonify({"ok": False, "error": "validation_error", "message": "Archivo .zip inválido."}), 400
+
+    temp_dir = tempfile.mkdtemp(prefix="solvi_linac_zip_upload_")
+    try:
+        zip_temp_path = os.path.join(temp_dir, "upload.zip")
+        zip_file.save(zip_temp_path)
+
+        if not zipfile.is_zipfile(zip_temp_path):
+            raise ValidationError("El archivo subido no es un archivo .zip válido.")
+
+        extract_dir = os.path.join(temp_dir, "extracted")
+        os.makedirs(extract_dir, exist_ok=True)
+
+        log_exts = (".trf", ".log", ".txt", ".xml", ".dat")
+        saved_count = 0
+        with zipfile.ZipFile(zip_temp_path, "r") as zf:
+            for member in zf.infolist():
+                if member.is_dir() or member.filename.startswith("__MACOSX"):
+                    continue
+                name = os.path.basename(member.filename)
+                if not name:
+                    continue
+                low = name.lower()
+                if (
+                    low.endswith(log_exts)
+                    or low.startswith("log")
+                    or low.startswith("elekta")
+                    or low.startswith("rt-udp")
+                    or "manifest" in low
+                    or "audit" in low
+                ):
+                    target_file = os.path.join(extract_dir, name)
+                    with zf.open(member) as source, open(target_file, "wb") as target:
+                        target.write(source.read())
+                    saved_count += 1
+
+        if saved_count == 0:
+            raise ValidationError("El archivo .zip no contiene registros compatibles de Linac Elekta.")
+
+        max_audit = request.form.get("max_audit_records", type=int) or 5000
+        max_trf = request.form.get("max_trf_records", type=int) or 200
+
+        analyzer = LinacFolderAnalyzer(extract_dir)
+        result = analyzer.analyze(max_audit_records=max_audit, max_trf_records=max_trf)
+        _LAST_LINAC_ANALYSIS = result
+
+        return jsonify({"ok": True, "data": result, "files_processed": saved_count}), 200
+
+    except ValidationError as val_err:
+        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error en /api/linaclog/upload-zip")
         return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
     finally:
         try:

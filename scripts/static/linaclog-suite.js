@@ -14,6 +14,9 @@ class LinacLogSuite {
         selectedFile: "",
         currentResult: null,
         folderAnalysis: null,
+        suggestedFolders: [],
+        customPath: "",
+        ingestMode: "local", // 'local' | 'remote'
         loading: false,
         loadingText: "Analizando...",
         showFileDrilldown: false,
@@ -23,7 +26,8 @@ class LinacLogSuite {
     static async init() {
         await Promise.all([
             LinacLogSuite.loadProfile(),
-            LinacLogSuite.loadAvailableFiles()
+            LinacLogSuite.loadAvailableFiles(),
+            LinacLogSuite.loadSuggestedFolders()
         ]);
         // Auto-run folder analysis if not already loaded
         if (!LinacLogSuite.state.folderAnalysis) {
@@ -47,9 +51,31 @@ class LinacLogSuite {
         }
     }
 
-    static async loadAvailableFiles() {
+    static async loadSuggestedFolders() {
         try {
-            const res = await fetch("/api/linaclog/files");
+            const res = await fetch("/api/linaclog/suggested-folders");
+            if (res.ok) {
+                const data = await res.json();
+                if (data.ok && Array.isArray(data.folders)) {
+                    LinacLogSuite.state.suggestedFolders = data.folders;
+                }
+            }
+        } catch (e) {
+            console.warn("LinacLogSuite: No se pudieron cargar carpetas sugeridas:", e);
+        }
+    }
+
+    static async selectSuggestedFolder(folderPath) {
+        LinacLogSuite.state.customPath = folderPath;
+        const input = document.getElementById("linacLocalPathInput");
+        if (input) input.value = folderPath;
+        await LinacLogSuite.analyzeFolder(true, folderPath);
+    }
+
+    static async loadAvailableFiles(folder = null) {
+        try {
+            const url = folder ? `/api/linaclog/files?folder=${encodeURIComponent(folder)}` : "/api/linaclog/files";
+            const res = await fetch(url);
             if (res.ok) {
                 const data = await res.json();
                 if (data.ok && data.categories) {
@@ -93,6 +119,12 @@ class LinacLogSuite {
                 if (data.data.profile) {
                     LinacLogSuite.state.linacProfile = data.data.profile;
                 }
+                if (data.resolved_path) {
+                    LinacLogSuite.state.customPath = data.resolved_path;
+                    const pathInput = document.getElementById("linacLocalPathInput");
+                    if (pathInput) pathInput.value = data.resolved_path;
+                    LinacLogSuite.loadAvailableFiles(data.resolved_path);
+                }
                 LinacLogSuite.state.activeView = "folder";
             } else if (showFeedback) {
                 alert("Aviso: " + (data.message || data.error || "No se pudo completar el análisis de la carpeta."));
@@ -111,13 +143,62 @@ class LinacLogSuite {
         const input = document.getElementById("linacLocalPathInput");
         let path = input ? input.value.trim() : "";
         if (!path) {
-            alert("Por favor ingresa la ruta de la carpeta de logs en disco.");
+            // Si el campo está vacío, analizar la carpeta predeterminada del Linac
+            await LinacLogSuite.analyzeFolder(true);
             return;
         }
         // Limpiar comillas iniciales o finales añadidas por Windows al 'Copiar como ruta de acceso'
-        path = path.replace(/^["']+|["']+$/g, '').trim();
+        path = path.replace(/^["'`\u201c\u201d]+|["'`\u201c\u201d]+$/g, '').trim();
         LinacLogSuite.state.customPath = path;
         await LinacLogSuite.analyzeFolder(true, path);
+    }
+
+    static switchIngestMode(mode) {
+        LinacLogSuite.state.ingestMode = mode;
+        LinacLogSuite.renderUI();
+    }
+
+    static triggerZipUpload() {
+        const input = document.getElementById("linacZipUploadInput");
+        if (input) input.click();
+    }
+
+    static async handleZipUpload(event) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+
+        LinacLogSuite.state.loading = true;
+        LinacLogSuite.state.loadingText = `Procesando archivo SDD ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)...`;
+        LinacLogSuite.renderUI();
+
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("max_audit_records", "5000");
+            formData.append("max_trf_records", "200");
+
+            const res = await fetch("/api/linaclog/upload-zip", {
+                method: "POST",
+                body: formData
+            });
+
+            const data = await res.json();
+            if (data.ok && data.data) {
+                LinacLogSuite.state.folderAnalysis = data.data;
+                if (data.data.profile) {
+                    LinacLogSuite.state.linacProfile = data.data.profile;
+                }
+                LinacLogSuite.state.activeView = "folder";
+            } else {
+                alert("Aviso al analizar archivo SDD: " + (data.message || data.error || "Formato no compatible"));
+            }
+        } catch (e) {
+            alert("Error al cargar archivo SDD: " + e.message);
+        } finally {
+            LinacLogSuite.state.loading = false;
+            event.target.value = "";
+            LinacLogSuite.renderUI();
+        }
     }
 
     static triggerFolderUpload() {
@@ -129,7 +210,43 @@ class LinacLogSuite {
         const files = event.target.files;
         if (!files || files.length === 0) return;
 
-        // Filtrado inteligente: sólo archivos de diagnóstico requeridos para análisis
+        // Detección automática en equipo local (Zero-Upload directo desde disco en ~1.8s)
+        const isLocalHost = ['localhost', '127.0.0.1', '::1', ''].includes(window.location.hostname);
+        const topFolder = (files[0] && files[0].webkitRelativePath) ? files[0].webkitRelativePath.split('/')[0] : "";
+        if (isLocalHost && topFolder) {
+            LinacLogSuite.state.loading = true;
+            LinacLogSuite.state.loadingText = `Detectando carpeta local '${topFolder}' en disco...`;
+            LinacLogSuite.renderUI();
+            try {
+                const checkRes = await fetch("/api/linaclog/analyze-folder", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ folder_path: topFolder })
+                });
+                const checkData = await checkRes.json();
+                if (checkData.ok && checkData.data) {
+                    LinacLogSuite.state.folderAnalysis = checkData.data;
+                    if (checkData.data.profile) {
+                        LinacLogSuite.state.linacProfile = checkData.data.profile;
+                    }
+                    if (checkData.resolved_path) {
+                        LinacLogSuite.state.customPath = checkData.resolved_path;
+                        const pathInput = document.getElementById("linacLocalPathInput");
+                        if (pathInput) pathInput.value = checkData.resolved_path;
+                        LinacLogSuite.loadAvailableFiles(checkData.resolved_path);
+                    }
+                    LinacLogSuite.state.activeView = "folder";
+                    LinacLogSuite.state.loading = false;
+                    LinacLogSuite.renderUI();
+                    event.target.value = "";
+                    return;
+                }
+            } catch (err) {
+                console.warn("Direct local resolution attempt failed, proceeding to web upload:", err);
+            }
+        }
+
+        // Filtrado inteligente para transferencia por lotes web/remota
         const IGNORED_EXTS = ['.dat', '.evtx', '.dmp', '.iso', '.exe', '.dll', '.zip', '.tar', '.gz'];
         const validFiles = [];
         let logCount = 0;
@@ -140,7 +257,6 @@ class LinacLogSuite {
             const lower = f.name.toLowerCase();
             if (IGNORED_EXTS.some(ext => lower.endsWith(ext))) continue;
 
-            // Acotar registros repetitivos de microcontrolador LOGxxxx a una muestra representativa
             if (lower.startsWith('log') && !lower.includes('.')) {
                 logCount++;
                 if (logCount > 40) continue;
@@ -158,7 +274,6 @@ class LinacLogSuite {
         const totalMb = (totalBytes / (1024 * 1024)).toFixed(1);
         const sessionId = "linac_sess_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
 
-        // Agrupar en lotes de máximo 20 archivos o 15 MB por lote para evitar HTTP 413
         const batches = [];
         let currentBatch = [];
         let currentBatchBytes = 0;
@@ -180,7 +295,7 @@ class LinacLogSuite {
         }
 
         LinacLogSuite.state.loading = true;
-        LinacLogSuite.state.loadingText = `Iniciando carga por lotes segura (${validFiles.length} archivos, ${batches.length} lotes, ${totalMb} MB)...`;
+        LinacLogSuite.state.loadingText = `Iniciando transferencia de registros (${validFiles.length} archivos, ${batches.length} lotes, ${totalMb} MB)...`;
         LinacLogSuite.renderUI();
 
         try {
@@ -210,7 +325,6 @@ class LinacLogSuite {
                 }
             }
 
-            // Finalizar sesión y ejecutar análisis forense de la carpeta
             LinacLogSuite.state.loadingText = `Lotes transferidos exitosamente. Correlacionando eventos y telemetría...`;
             LinacLogSuite.renderUI();
 
@@ -231,12 +345,11 @@ class LinacLogSuite {
                     LinacLogSuite.state.linacProfile = data.data.profile;
                 }
                 LinacLogSuite.state.activeView = "folder";
-                alert(`✅ Análisis completado con éxito: ${data.files_processed || validFiles.length} archivos correlacionados sin restricciones.`);
             } else {
                 alert("Error al finalizar el análisis de la carpeta: " + (data.message || data.error || "Formato no reconocido"));
             }
         } catch (e) {
-            alert("Error en la subida de carpeta: " + e.message + "\n\n💡 Sugerencia: Para carpetas muy grandes, puedes usar el campo 'Ruta local en disco' ingresando su ruta para un análisis instantáneo en 2 segundos.");
+            alert("Error en la transferencia de registros: " + e.message + "\n\n💡 Si estás en el mismo equipo, puedes ingresar la ruta en 'Ruta local en disco' para análisis instantáneo en 2 segundos.");
         } finally {
             LinacLogSuite.state.loading = false;
             LinacLogSuite.renderUI();
@@ -372,40 +485,84 @@ class LinacLogSuite {
             fileOptions += `<option value="${f}" ${sel}>${f}</option>`;
         });
 
+        const isLocal = LinacLogSuite.state.ingestMode !== 'remote';
+
         // Main HTML layout
         container.innerHTML = `
-            <!-- Input oculto para selección de carpeta completa en navegador -->
+            <!-- Inputs ocultos para selección y subida -->
             <input type="file" id="linacFolderUploadInput" webkitdirectory directory multiple style="display:none" onchange="LinacLogSuite.handleFolderUpload(event)">
+            <input type="file" id="linacZipUploadInput" accept=".zip" style="display:none" onchange="LinacLogSuite.handleZipUpload(event)">
 
-            <!-- Barra de Acciones Principales de Carpeta y Exportación -->
+            <!-- Panel Principal de Ingestión y Diagnóstico -->
             <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
-                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
                     <div>
-                        <span style="font-size:0.68rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;letter-spacing:0.06em;">MODO ANÁLISIS INTEGRAL DE CARPETA</span>
+                        <span style="font-size:0.68rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;letter-spacing:0.06em;">AUDITORÍA Y FORENSIA DE ACELERADOR LINEAL</span>
                         <h3 style="font-size:1.05rem;font-weight:700;color:var(--text);margin-top:2px;">
-                            Forensia y Diagnóstico Completo del Acelerador
+                            Ingestión y Correlación Integral de Registros Elekta
                         </h3>
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                        <button class="btn btn-primary" onclick="LinacLogSuite.analyzeFolder(true)" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:6px;">
-                            <span>⚡</span> Analizar Carpeta del Linac
-                        </button>
-                        <button class="btn btn-ghost" onclick="LinacLogSuite.triggerFolderUpload()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:6px;">
-                            <span>📁</span> Cargar Otra Carpeta...
-                        </button>
                         <button class="btn btn-ghost" onclick="LinacLogSuite.exportExcel()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:6px;border-color:rgba(74,222,128,0.4);color:var(--green);">
                             <span>📥</span> Exportar a Excel (.xlsx)
                         </button>
                     </div>
                 </div>
 
-                <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                    <span style="font-size:0.75rem;font-family:var(--mono);color:var(--muted);white-space:nowrap;">📍 Ruta local en disco:</span>
-                    <input type="text" id="linacLocalPathInput" placeholder="Ej: C:\\Users\\...\\Desktop\\mi_carpeta_linac o linaclog" style="flex:1;min-width:240px;padding:6px 10px;font-size:0.78rem;font-family:var(--mono);" value="${LinacLogSuite.state.customPath || ''}" onkeydown="if(event.key==='Enter') LinacLogSuite.analyzeCustomPath()">
-                    <button class="btn btn-sm btn-primary" onclick="LinacLogSuite.analyzeCustomPath()" ${LinacLogSuite.state.loading ? 'disabled' : ''}>
-                        ⚡ Analizar Ruta Local
+                <!-- Selector de Modo de Ingestión (Local vs Remoto) -->
+                <div style="display:flex;gap:6px;background:rgba(0,0,0,0.25);padding:4px;border-radius:8px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.05);width:fit-content;flex-wrap:wrap;">
+                    <button type="button" onclick="LinacLogSuite.switchIngestMode('local')" style="padding:5px 12px;font-size:0.75rem;font-weight:600;border-radius:6px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all 0.2s;${isLocal ? 'background:var(--accent);color:#000;' : 'background:transparent;color:var(--muted);'}">
+                        <span>⚡</span> Este Equipo (Ruta Local / Instantáneo)
+                    </button>
+                    <button type="button" onclick="LinacLogSuite.switchIngestMode('remote')" style="padding:5px 12px;font-size:0.75rem;font-weight:600;border-radius:6px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all 0.2s;${!isLocal ? 'background:var(--accent);color:#000;' : 'background:transparent;color:var(--muted);'}">
+                        <span>🌐</span> Dispositivo Remoto / Celular / Red (Subida Web)
                     </button>
                 </div>
+
+                ${isLocal ? `
+                    <!-- MODO LOCAL: Zero-Upload directo desde disco -->
+                    <div style="padding:10px;background:rgba(56,189,248,0.04);border:1px solid rgba(56,189,248,0.15);border-radius:8px;">
+                        <p style="font-size:0.72rem;color:var(--muted);margin-bottom:8px;line-height:1.4;">
+                            <strong style="color:var(--accent);">⚡ Modo Directo desde Disco:</strong> Procesa carpetas completas o volcados SDD de 3+ GB en ~1.5 segundos sin transferencias web ni límites de memoria.
+                        </p>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                            <span style="font-size:0.75rem;font-family:var(--mono);color:var(--muted);white-space:nowrap;">📍 Ruta o carpeta:</span>
+                            <input type="text" id="linacLocalPathInput" placeholder="Ej: AL5LOGS o Users\\CGutierrez\\Desktop\\AL5LOGS\\LOGS o C:\\..." style="flex:1;min-width:240px;padding:6px 10px;font-size:0.78rem;font-family:var(--mono);" value="${LinacLogSuite.state.customPath || ''}" onkeydown="if(event.key==='Enter') LinacLogSuite.analyzeCustomPath()">
+                            <button class="btn btn-primary" onclick="LinacLogSuite.analyzeCustomPath()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:6px;">
+                                <span>⚡</span> Analizar Ruta Local
+                            </button>
+                            <button class="btn btn-ghost" onclick="LinacLogSuite.triggerFolderUpload()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:6px;" title="Examinar y seleccionar carpeta en disco con auto-detección instantánea">
+                                <span>📂</span> Examinar en Disco...
+                            </button>
+                        </div>
+
+                        ${(LinacLogSuite.state.suggestedFolders && LinacLogSuite.state.suggestedFolders.length > 0) ? `
+                            <div style="margin-top:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                <span style="font-size:0.7rem;font-family:var(--mono);color:var(--muted);">💡 Carpetas detectadas en el equipo:</span>
+                                ${LinacLogSuite.state.suggestedFolders.map(f => `
+                                    <button type="button" onclick="LinacLogSuite.selectSuggestedFolder('${f.path.replace(/\\/g, '\\\\')}')" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.25);color:var(--accent);font-size:0.72rem;font-family:var(--mono);padding:3px 8px;border-radius:4px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;" title="${f.path}">
+                                        <span>📍</span> ${f.label} <span style="opacity:0.7;font-size:0.65rem;">(${Number(f.file_count_estimate).toLocaleString()} arch.)</span>
+                                    </button>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                ` : `
+                    <!-- MODO REMOTO / RED: Transferencia web para clientes móviles o remotos -->
+                    <div style="padding:10px;background:rgba(168,85,247,0.04);border:1px solid rgba(168,85,247,0.2);border-radius:8px;">
+                        <p style="font-size:0.72rem;color:var(--muted);margin-bottom:8px;line-height:1.4;">
+                            <strong style="color:var(--purple,#a855f7);">🌐 Subida Web / Dispositivo Remoto:</strong> Úsalo cuando accedas a SOLVI desde un celular, tablet o laptop remota. Para máxima velocidad en red, se recomienda subir el archivo <strong style="color:var(--text);">.zip de volcado SDD</strong>.
+                        </p>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                            <button class="btn btn-primary" onclick="LinacLogSuite.triggerZipUpload()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:6px;">
+                                <span>📦</span> Subir Archivo SDD (.zip)
+                            </button>
+                            <button class="btn btn-ghost" onclick="LinacLogSuite.triggerFolderUpload()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:6px;">
+                                <span>📁</span> Subir Carpeta Desglosada...
+                            </button>
+                        </div>
+                    </div>
+                `}
             </div>
 
             <!-- Spinner de carga -->

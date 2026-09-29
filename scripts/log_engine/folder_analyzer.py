@@ -27,7 +27,84 @@ class LinacFolderAnalyzer:
     """
 
     def __init__(self, folder_path: str):
-        self.folder_path = os.path.abspath(folder_path)
+        raw_abs = os.path.abspath(folder_path)
+        self.folder_path = self._find_effective_log_dir(raw_abs)
+
+    @staticmethod
+    def _extract_zip_cache(zip_path: str) -> str:
+        """Extracts linac log files from an SDD zip file into a local cache directory."""
+        import hashlib
+        import tempfile
+        import zipfile
+        st = os.stat(zip_path)
+        cache_key = hashlib.sha256(f"{zip_path}_{st.st_size}_{st.st_mtime}".encode()).hexdigest()[:16]
+        cache_dir = os.path.join(tempfile.gettempdir(), f"solvi_sdd_{cache_key}")
+        if os.path.isdir(cache_dir) and len(os.listdir(cache_dir)) > 0:
+            return cache_dir
+
+        os.makedirs(cache_dir, exist_ok=True)
+        log_exts = (".trf", ".log", ".txt", ".xml", ".dat")
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            for member in zf.infolist():
+                if member.is_dir() or member.filename.startswith("__MACOSX"):
+                    continue
+                name = os.path.basename(member.filename)
+                if not name:
+                    continue
+                low = name.lower()
+                if (
+                    low.endswith(log_exts)
+                    or low.startswith("log")
+                    or low.startswith("elekta")
+                    or low.startswith("rt-udp")
+                    or "manifest" in low
+                    or "audit" in low
+                ):
+                    target_file = os.path.join(cache_dir, name)
+                    with zf.open(member) as source, open(target_file, "wb") as target:
+                        target.write(source.read())
+        return cache_dir
+
+    @staticmethod
+    def _find_effective_log_dir(target_dir: str) -> str:
+        """
+        If target_dir does not directly contain linac logs, inspects immediate subdirectories
+        (e.g., LOGS, logs, SDD+...) or zip archives and resolves to the subdirectory containing actual logs.
+        """
+        import zipfile
+        log_patterns = ("*.trf", "rt-udp*.log", "*Manifest*.txt", "*AUDIT*.TXT", "LOG[0-9]*", "OPT*.xml", "*Registry*.txt", "Elekta.CCP*.log")
+
+        # 1. Direct zip file handling
+        if os.path.isfile(target_dir) and (target_dir.lower().endswith(".zip") or zipfile.is_zipfile(target_dir)):
+            parent_dir = os.path.dirname(target_dir)
+            logs_sibling = os.path.join(parent_dir, "LOGS")
+            if os.path.isdir(logs_sibling) and any(any(os.path.isfile(f) for f in glob.glob(os.path.join(logs_sibling, pat))) for pat in log_patterns):
+                return logs_sibling
+            return LinacFolderAnalyzer._extract_zip_cache(target_dir)
+
+        if not os.path.isdir(target_dir):
+            return target_dir
+
+        has_direct_logs = any(any(os.path.isfile(f) for f in glob.glob(os.path.join(target_dir, pat))) for pat in log_patterns)
+        if has_direct_logs:
+            return target_dir
+
+        try:
+            subdirs = [os.path.join(target_dir, d) for d in os.listdir(target_dir) if os.path.isdir(os.path.join(target_dir, d))]
+            subdirs.sort(key=lambda x: (0 if os.path.basename(x).upper() in ("LOGS", "LOG") else (1 if os.path.basename(x).upper().startswith("SDD") else 2)))
+            for sub in subdirs:
+                if any(any(os.path.isfile(f) for f in glob.glob(os.path.join(sub, pat))) for pat in log_patterns):
+                    return sub
+
+            # Check for SDD zip files inside target_dir
+            for entry in os.listdir(target_dir):
+                if entry.lower().endswith(".zip") and ("sdd" in entry.lower() or "elekta" in entry.lower() or "log" in entry.lower()):
+                    zip_candidate = os.path.join(target_dir, entry)
+                    if zipfile.is_zipfile(zip_candidate):
+                        return LinacFolderAnalyzer._extract_zip_cache(zip_candidate)
+        except Exception:
+            pass
+        return target_dir
 
     def analyze(self, max_audit_records: int = 5000, max_trf_records: int = 200) -> Dict[str, Any]:
         """

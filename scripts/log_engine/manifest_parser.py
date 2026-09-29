@@ -60,7 +60,7 @@ class RTDManifestParser(BaseLogParser):
         patterns = {
             "created": r"Created:\s*([^\r\n]+)",
             "host_name": r"Host Name[\s\.]*:\s*([^\r\n]+)",
-            "linac_id": r"Linac ID\s*:\s*([^\r\n]+)",
+            "linac_id": r"Linac(?:\s*ID)?\s*:\s*([^\r\n]+)",
             "linac_name": r"Linac Name\s*:\s*([^\r\n]+)",
             "linac_scale": r"Linac Parameter Scale\s*:\s*([^\r\n]+)",
             "ht_hours": r"HT Hours\s*:\s*([^\r\n]+)",

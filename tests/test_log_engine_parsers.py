@@ -474,6 +474,197 @@ class TestLogEngineParsers(unittest.TestCase):
         self.assertEqual(fin_data["files_processed"], 2)
         self.assertEqual(fin_data["data"]["profile"]["linac_id"], "9999")
 
+    def test_resolve_folder_path_intelligent_resolution(self):
+        import api
+        # 1. LINACLOG_DIR itself
+        self.assertEqual(api.resolve_folder_path(api.LINACLOG_DIR), api.LINACLOG_DIR)
+
+        # 2. Stripping drive letter on Windows (e.g., C:\Users\... -> Users\...)
+        drive, rest = os.path.splitdrive(api.LINACLOG_DIR)
+        if drive:
+            without_drive = rest.lstrip("\\/")
+            resolved = api.resolve_folder_path(without_drive)
+            self.assertEqual(resolved, api.LINACLOG_DIR)
+
+            # Leading slash without drive
+            leading_slash = "\\" + without_drive
+            self.assertEqual(api.resolve_folder_path(leading_slash), api.LINACLOG_DIR)
+
+            # Forward slash
+            fwd_slash = without_drive.replace("\\", "/")
+            self.assertEqual(api.resolve_folder_path(fwd_slash), api.LINACLOG_DIR)
+
+            # Surrounding quotes
+            quoted = f'"{without_drive}"'
+            self.assertEqual(api.resolve_folder_path(quoted), api.LINACLOG_DIR)
+
+        # 3. Non-existent path returns None
+        self.assertIsNone(api.resolve_folder_path("NonExistent_Folder_XYZ_987654321"))
+        self.assertIsNone(api.resolve_folder_path(""))
+        self.assertIsNone(api.resolve_folder_path(None))
+
+    def test_api_linaclog_analyze_folder_path_without_drive(self):
+        import api
+        client = api.app.test_client()
+        drive, rest = os.path.splitdrive(api.LINACLOG_DIR)
+        path_input = rest.lstrip("\\/") if drive else api.LINACLOG_DIR
+
+        res = client.post("/api/linaclog/analyze-folder", json={
+            "folder_path": path_input,
+            "max_audit_records": 10,
+            "max_trf_records": 5
+        })
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["resolved_path"], api.LINACLOG_DIR)
+        self.assertIn("profile", data["data"])
+
+    def test_api_linaclog_files_with_folder_query_param(self):
+        import api
+        client = api.app.test_client()
+        drive, rest = os.path.splitdrive(api.LINACLOG_DIR)
+        path_input = rest.lstrip("\\/") if drive else api.LINACLOG_DIR
+
+        res = client.get(f"/api/linaclog/files?folder={path_input}")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["folder"], api.LINACLOG_DIR)
+        self.assertIn("categories", data)
+
+    def test_api_linaclog_suggested_folders_endpoint(self):
+        import api
+        client = api.app.test_client()
+        res = client.get("/api/linaclog/suggested-folders")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["ok"])
+        self.assertIsInstance(data["folders"], list)
+        if data["folders"]:
+            first = data["folders"][0]
+            self.assertIn("path", first)
+            self.assertIn("label", first)
+            self.assertIn("file_count_estimate", first)
+            self.assertGreaterEqual(first["file_count_estimate"], 1)
+
+    def test_resolve_folder_path_fuzzy_and_space_tolerance(self):
+        import api
+        # Real or synthetic fuzzy space resolution
+        desktop = os.path.expanduser("~/Desktop")
+        al5_exact = os.path.join(desktop, "AL5LOGS")
+        if os.path.exists(al5_exact):
+            # 1. Fuzzy with spaces 'AL5 LOGS'
+            resolved_spaced = api.resolve_folder_path("AL5 LOGS")
+            self.assertIsNotNone(resolved_spaced)
+            self.assertTrue(os.path.isdir(resolved_spaced))
+
+            # 2. Spaced with LOGS 'AL5 LOGS\LOGS'
+            resolved_spaced_logs = api.resolve_folder_path(r"AL5 LOGS\LOGS")
+            self.assertIsNotNone(resolved_spaced_logs)
+            self.assertTrue(os.path.isdir(resolved_spaced_logs))
+
+            # 3. Path with Desktop prefix
+            resolved_desktop = api.resolve_folder_path(r"Desktop\AL5LOGS")
+            self.assertIsNotNone(resolved_desktop)
+            self.assertTrue(os.path.isdir(resolved_desktop))
+
+            # 4. Path with Users\... missing C:
+            resolved_users = api.resolve_folder_path(r"Users\CGutierrez\Desktop\AL5 LOGS\LOGS")
+            self.assertIsNotNone(resolved_users)
+            self.assertTrue(os.path.isdir(resolved_users))
+
+    def test_linac_folder_analyzer_auto_descends_to_logs_subfolder(self):
+        from log_engine import LinacFolderAnalyzer
+        desktop = os.path.expanduser("~/Desktop")
+        al5_exact = os.path.join(desktop, "AL5LOGS")
+        al5_logs = os.path.join(al5_exact, "LOGS")
+        if os.path.exists(al5_logs):
+            analyzer = LinacFolderAnalyzer(al5_exact)
+            self.assertEqual(os.path.normpath(analyzer.folder_path), os.path.normpath(al5_logs))
+
+    def test_api_linaclog_upload_zip_endpoint(self):
+        import api
+        import zipfile
+        import io
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("RTDManifest.txt", "Host Name: ELEKTA5\nLinac ID: 4574\nLinac Name: 05Elekta\nSoftware: Integrity 4.0.6\n")
+            zf.writestr("AUDIT_TRAIL.TXT", "[2026-09-21 22:58:23] SYS: Beam delivered successfully MU=100.0\n")
+
+        zip_buffer.seek(0)
+        client = api.app.test_client()
+        res = client.post("/api/linaclog/upload-zip", data={
+            "file": (zip_buffer, "SDD+TEST.zip"),
+            "max_audit_records": 50,
+            "max_trf_records": 10
+        }, content_type="multipart/form-data")
+
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["files_processed"], 2)
+        self.assertEqual(data["data"]["profile"]["linac_id"], "4574")
+
+    def test_resolve_folder_path_with_zip_and_sdd_names(self):
+        import api
+        real_zip = r"C:\Users\CGutierrez\Desktop\AL5LOGS\SDD+ELEKTA5+4+0+6+0+187+1+PD+20260921+225823.zip"
+        if os.path.exists(real_zip):
+            # 1. Direct zip path
+            res1 = api.resolve_folder_path(real_zip)
+            self.assertIsNotNone(res1)
+            self.assertTrue(os.path.isdir(res1))
+
+            # 2. Relative zip path missing C:
+            res2 = api.resolve_folder_path(r"Users\CGutierrez\Desktop\AL5LOGS\SDD+ELEKTA5+4+0+6+0+187+1+PD+20260921+225823.zip")
+            self.assertIsNotNone(res2)
+            self.assertTrue(os.path.isdir(res2))
+
+            # 3. Zip path without .zip extension
+            res3 = api.resolve_folder_path(r"Users\CGutierrez\Desktop\AL5LOGS\SDD+ELEKTA5+4+0+6+0+187+1+PD+20260921+225823")
+            self.assertIsNotNone(res3)
+            self.assertTrue(os.path.isdir(res3))
+
+            # 4. Spaced AL5 LOGS with zip name
+    def test_api_linaclog_analyze_folder_with_real_al5logs_if_present(self):
+        import api
+        real_al5 = r"C:\Users\CGutierrez\Desktop\AL5LOGS\LOGS"
+        if not os.path.exists(real_al5):
+            self.skipTest("AL5LOGS directory not present on this machine")
+
+        client = api.app.test_client()
+        # Test with relative path missing C:\ (the user's exact input!)
+        res = client.post("/api/linaclog/analyze-folder", json={
+            "folder_path": r"Users\CGutierrez\Desktop\AL5LOGS\LOGS",
+            "max_audit_records": 100,
+            "max_trf_records": 10
+        })
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["resolved_path"], real_al5)
+        self.assertEqual(data["data"]["profile"]["linac_id"], "4574")
+
+    def test_api_linaclog_analyze_folder_with_real_sdd_zip_if_present(self):
+        import api
+        real_zip = r"C:\Users\CGutierrez\Desktop\AL5LOGS\SDD+ELEKTA5+4+0+6+0+187+1+PD+20260921+225823.zip"
+        if not os.path.exists(real_zip):
+            self.skipTest("SDD zip not present on this machine")
+
+        client = api.app.test_client()
+        # Test analyzing directly via SDD zip name without drive letter
+        res = client.post("/api/linaclog/analyze-folder", json={
+            "folder_path": r"Users\CGutierrez\Desktop\AL5LOGS\SDD+ELEKTA5+4+0+6+0+187+1+PD+20260921+225823.zip",
+            "max_audit_records": 100,
+            "max_trf_records": 10
+        })
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["ok"])
+        self.assertTrue(os.path.isdir(data["resolved_path"]))
+        self.assertEqual(data["data"]["profile"]["linac_id"], "4574")
+
 
 if __name__ == "__main__":
     unittest.main()
