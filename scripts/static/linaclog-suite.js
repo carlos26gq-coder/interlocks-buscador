@@ -109,11 +109,13 @@ class LinacLogSuite {
 
     static async analyzeCustomPath() {
         const input = document.getElementById("linacLocalPathInput");
-        const path = input ? input.value.trim() : "";
+        let path = input ? input.value.trim() : "";
         if (!path) {
             alert("Por favor ingresa la ruta de la carpeta de logs en disco.");
             return;
         }
+        // Limpiar comillas iniciales o finales añadidas por Windows al 'Copiar como ruta de acceso'
+        path = path.replace(/^["']+|["']+$/g, '').trim();
         LinacLogSuite.state.customPath = path;
         await LinacLogSuite.analyzeFolder(true, path);
     }
@@ -138,7 +140,7 @@ class LinacLogSuite {
             const lower = f.name.toLowerCase();
             if (IGNORED_EXTS.some(ext => lower.endsWith(ext))) continue;
 
-            // Acotar registros repetitivos de controlador LOGxxxx a un máximo representativo
+            // Acotar registros repetitivos de microcontrolador LOGxxxx a una muestra representativa
             if (lower.startsWith('log') && !lower.includes('.')) {
                 logCount++;
                 if (logCount > 40) continue;
@@ -149,46 +151,92 @@ class LinacLogSuite {
         }
 
         if (validFiles.length === 0) {
-            alert("No se encontraron archivos de registro compatibles en la carpeta seleccionada (.trf, rt-udp, audit trail, supervisor ccp, opt xml).");
+            alert("No se encontraron archivos de registro compatibles en la carpeta seleccionada (.trf, rt-udp, audit trail, supervisor ccp, opt xml, rtd registry).");
             return;
         }
 
-        const mbSize = (totalBytes / (1024 * 1024)).toFixed(1);
+        const totalMb = (totalBytes / (1024 * 1024)).toFixed(1);
+        const sessionId = "linac_sess_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
+
+        // Agrupar en lotes de máximo 20 archivos o 15 MB por lote para evitar HTTP 413
+        const batches = [];
+        let currentBatch = [];
+        let currentBatchBytes = 0;
+        const MAX_BATCH_BYTES = 15 * 1024 * 1024; // 15 MB
+        const MAX_BATCH_FILES = 25;
+
+        for (let i = 0; i < validFiles.length; i++) {
+            const f = validFiles[i];
+            if (currentBatch.length >= MAX_BATCH_FILES || (currentBatchBytes + f.size > MAX_BATCH_BYTES && currentBatch.length > 0)) {
+                batches.push(currentBatch);
+                currentBatch = [];
+                currentBatchBytes = 0;
+            }
+            currentBatch.push(f);
+            currentBatchBytes += f.size;
+        }
+        if (currentBatch.length > 0) {
+            batches.push(currentBatch);
+        }
+
         LinacLogSuite.state.loading = true;
-        LinacLogSuite.state.loadingText = `Subiendo y analizando ${validFiles.length} archivos de diagnóstico (${mbSize} MB)...`;
+        LinacLogSuite.state.loadingText = `Iniciando carga por lotes segura (${validFiles.length} archivos, ${batches.length} lotes, ${totalMb} MB)...`;
         LinacLogSuite.renderUI();
 
         try {
-            const formData = new FormData();
-            for (let i = 0; i < validFiles.length; i++) {
-                formData.append("files", validFiles[i]);
-            }
-            formData.append("max_audit_records", "5000");
-            formData.append("max_trf_records", "200");
+            let uploadedBytes = 0;
+            for (let b = 0; b < batches.length; b++) {
+                const batch = batches[b];
+                const pct = Math.round(((b) / batches.length) * 100);
+                const currentMb = (uploadedBytes / (1024 * 1024)).toFixed(1);
+                LinacLogSuite.state.loadingText = `Subiendo lote ${b + 1} de ${batches.length} (${pct}%) — ${currentMb} / ${totalMb} MB...`;
+                LinacLogSuite.renderUI();
 
-            const res = await fetch("/api/linaclog/upload-folder", {
+                const formData = new FormData();
+                formData.append("session_id", sessionId);
+                for (let j = 0; j < batch.length; j++) {
+                    formData.append("files", batch[j]);
+                    uploadedBytes += batch[j].size;
+                }
+
+                const chunkRes = await fetch("/api/linaclog/upload-chunk", {
+                    method: "POST",
+                    body: formData
+                });
+
+                if (!chunkRes.ok) {
+                    const errData = await chunkRes.json().catch(() => ({}));
+                    throw new Error(errData.message || errData.error || `Falla en lote ${b + 1} (HTTP ${chunkRes.status})`);
+                }
+            }
+
+            // Finalizar sesión y ejecutar análisis forense de la carpeta
+            LinacLogSuite.state.loadingText = `Lotes transferidos exitosamente. Correlacionando eventos y telemetría...`;
+            LinacLogSuite.renderUI();
+
+            const finalizeRes = await fetch("/api/linaclog/finalize-upload", {
                 method: "POST",
-                body: formData
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    max_audit_records: 5000,
+                    max_trf_records: 200
+                })
             });
 
-            if (res.status === 413) {
-                alert("⚠️ La carpeta supera el límite de transferencia web por navegador.\n\nSugerencia: Para carpetas muy grandes, usa el campo 'Ruta local en disco' ingresando su ruta (ej. C:\\...\\tu_carpeta) para analizarla directamente sin restricciones de tamaño ni demoras de red.");
-                return;
-            }
-
-            const data = await res.json();
+            const data = await finalizeRes.json();
             if (data.ok && data.data) {
                 LinacLogSuite.state.folderAnalysis = data.data;
                 if (data.data.profile) {
                     LinacLogSuite.state.linacProfile = data.data.profile;
                 }
                 LinacLogSuite.state.activeView = "folder";
-                alert(`✅ Análisis completado con éxito: ${data.files_processed || validFiles.length} archivos procesados.`);
+                alert(`✅ Análisis completado con éxito: ${data.files_processed || validFiles.length} archivos correlacionados sin restricciones.`);
             } else {
-                alert("Error al procesar la carpeta subida: " + (data.message || data.error || "Formato no reconocido"));
+                alert("Error al finalizar el análisis de la carpeta: " + (data.message || data.error || "Formato no reconocido"));
             }
         } catch (e) {
-            alert("Error en la subida de carpeta: " + e.message);
+            alert("Error en la subida de carpeta: " + e.message + "\n\n💡 Sugerencia: Para carpetas muy grandes, puedes usar el campo 'Ruta local en disco' ingresando su ruta para un análisis instantáneo en 2 segundos.");
         } finally {
             LinacLogSuite.state.loading = false;
             LinacLogSuite.renderUI();

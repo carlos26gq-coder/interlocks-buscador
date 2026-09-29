@@ -249,7 +249,15 @@ class LinacFolderAnalyzer:
         }
 
     def _analyze_audit_trail(self, max_records: int = 5000) -> Dict[str, Any]:
-        audit_files = glob.glob(os.path.join(self.folder_path, "*AUDIT*.TXT"))
+        audit_files = []
+        try:
+            for fname in os.listdir(self.folder_path):
+                f_lower = fname.lower()
+                if "audit" in f_lower and f_lower.endswith(".txt"):
+                    audit_files.append(os.path.join(self.folder_path, fname))
+        except Exception:
+            audit_files = glob.glob(os.path.join(self.folder_path, "*audit*.txt"))
+
         if not audit_files:
             return {
                 "total_events": 0,

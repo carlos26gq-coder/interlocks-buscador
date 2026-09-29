@@ -429,6 +429,52 @@ class TestLogEngineParsers(unittest.TestCase):
         self.assertEqual(res_data["data"]["profile"]["linac_id"], "8888")
 
 
+    def test_api_linaclog_analyze_folder_quoted_path(self):
+        import api
+        client = api.app.test_client()
+        # Verify path with surrounding quotes is cleanly stripped and processed
+        quoted_path = f'"{api.LINACLOG_DIR}"'
+        res = client.post("/api/linaclog/analyze-folder", json={"folder_path": quoted_path, "max_audit_records": 10})
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["data"]["profile"]["linac_id"], "4574")
+
+    def test_api_linaclog_chunked_upload_flow(self):
+        import api
+        import io
+        client = api.app.test_client()
+        session_id = "test_chunk_sess_123"
+
+        # Chunk 1: Manifest
+        fake_manifest = b"RTD Linac Console Manifest File\nHost Name: ChunkHost\nLinac ID: 9999\nHT Hours: 12.3\nLT Hours: 45.6\n"
+        data1 = {
+            "session_id": session_id,
+            "files": (io.BytesIO(fake_manifest), "RTDManifest.txt")
+        }
+        res1 = client.post("/api/linaclog/upload-chunk", data=data1, content_type="multipart/form-data")
+        self.assertEqual(res1.status_code, 200)
+        self.assertTrue(res1.get_json()["ok"])
+
+        # Chunk 2: Fake audit file
+        fake_audit = b"2026-09-20 10:00:00 [INFO] System reset completed\n"
+        data2 = {
+            "session_id": session_id,
+            "files": (io.BytesIO(fake_audit), "AuditTrail.txt")
+        }
+        res2 = client.post("/api/linaclog/upload-chunk", data=data2, content_type="multipart/form-data")
+        self.assertEqual(res2.status_code, 200)
+        self.assertTrue(res2.get_json()["ok"])
+
+        # Finalize
+        res_fin = client.post("/api/linaclog/finalize-upload", json={"session_id": session_id})
+        self.assertEqual(res_fin.status_code, 200)
+        fin_data = res_fin.get_json()
+        self.assertTrue(fin_data["ok"])
+        self.assertEqual(fin_data["files_processed"], 2)
+        self.assertEqual(fin_data["data"]["profile"]["linac_id"], "9999")
+
+
 if __name__ == "__main__":
     unittest.main()
 

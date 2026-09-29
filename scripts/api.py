@@ -1113,9 +1113,10 @@ def linaclog_analyze_folder():
             req_json = request.get_json(silent=True) or {}
             custom_path = req_json.get("folder_path")
             if custom_path:
-                norm_path = os.path.abspath(custom_path)
+                clean_path = str(custom_path).strip().strip('"\'').strip()
+                norm_path = os.path.abspath(os.path.normpath(clean_path))
                 if not os.path.exists(norm_path) or not os.path.isdir(norm_path):
-                    raise ValidationError(f"Directorio no válido o inexistente: {custom_path}")
+                    raise ValidationError(f"Directorio no válido o inexistente: {clean_path}")
                 target_dir = norm_path
             max_audit = int(req_json.get("max_audit_records", 5000))
             max_trf = int(req_json.get("max_trf_records", 200))
@@ -1133,6 +1134,90 @@ def linaclog_analyze_folder():
     except Exception as exc:
         app.logger.exception("Error en /api/linaclog/analyze-folder")
         return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
+@app.route("/api/linaclog/upload-chunk", methods=["POST"])
+@limiter.limit("1000 per hour")
+def linaclog_upload_chunk():
+    """Receives a batch/chunk of files for an ongoing upload session to prevent HTTP 413."""
+    import tempfile
+    import re
+    try:
+        session_id = request.form.get("session_id", "").strip()
+        if not session_id or not re.match(r"^[a-zA-Z0-9_\-]+$", session_id):
+            raise ValidationError("ID de sesión de carga inválido o no provisto.")
+        
+        session_dir = os.path.join(tempfile.gettempdir(), f"solvi_session_{session_id}")
+        os.makedirs(session_dir, exist_ok=True)
+
+        uploaded_files = request.files.getlist("files") or request.files.getlist("files[]")
+        if not uploaded_files:
+            raise ValidationError("No se recibieron archivos en este lote de carga.")
+
+        saved_count = 0
+        for f in uploaded_files:
+            if not f.filename:
+                continue
+            base_fname = os.path.basename(f.filename)
+            if not base_fname:
+                continue
+            dest_path = os.path.join(session_dir, base_fname)
+            f.save(dest_path)
+            saved_count += 1
+
+        return jsonify({
+            "ok": True,
+            "session_id": session_id,
+            "files_saved": saved_count
+        }), 200
+    except ValidationError as val_err:
+        return jsonify({"ok": False, "error": "validation_error", "message": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error en /api/linaclog/upload-chunk")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+
+
+@app.route("/api/linaclog/finalize-upload", methods=["POST"])
+@limiter.limit("60 per hour")
+def linaclog_finalize_upload():
+    """Finalizes an upload session, correlates all files, and returns executive dashboard data."""
+    global _LAST_LINAC_ANALYSIS
+    import tempfile
+    import shutil
+    import re
+    from log_engine import LinacFolderAnalyzer
+
+    req_json = request.get_json(silent=True) or {}
+    session_id = str(req_json.get("session_id", "")).strip()
+    if not session_id or not re.match(r"^[a-zA-Z0-9_\-]+$", session_id):
+        return jsonify({"ok": False, "error": "validation_error", "message": "ID de sesión inválido"}), 400
+
+    session_dir = os.path.join(tempfile.gettempdir(), f"solvi_session_{session_id}")
+    if not os.path.exists(session_dir) or not os.path.isdir(session_dir):
+        return jsonify({"ok": False, "error": "not_found", "message": "Sesión de carga expirada o inexistente"}), 404
+
+    try:
+        max_audit = int(req_json.get("max_audit_records", 5000))
+        max_trf = int(req_json.get("max_trf_records", 200))
+
+        analyzer = LinacFolderAnalyzer(session_dir)
+        result = analyzer.analyze(max_audit_records=max_audit, max_trf_records=max_trf)
+        _LAST_LINAC_ANALYSIS = result
+
+        saved_files_count = len(os.listdir(session_dir))
+        return jsonify({
+            "ok": True,
+            "data": result,
+            "files_processed": saved_files_count
+        }), 200
+    except Exception as exc:
+        app.logger.exception("Error en /api/linaclog/finalize-upload")
+        return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500
+    finally:
+        try:
+            shutil.rmtree(session_dir, ignore_errors=True)
+        except Exception:
+            pass
 
 
 @app.route("/api/linaclog/upload-folder", methods=["POST"])
