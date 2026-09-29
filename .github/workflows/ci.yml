@@ -57,6 +57,7 @@ jobs:
           node --check scripts/static/app.js
           node --check scripts/static/search-worker.js
           node --check scripts/static/log-parser.js
+          node --check scripts/static/linaclog-suite.js
           node --check sw.js
 
   browser-contract:

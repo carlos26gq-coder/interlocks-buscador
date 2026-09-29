@@ -71,8 +71,11 @@ try {
     }, 25000);
     assert.doesNotMatch(await page.locator("#diagResults").innerText(), /Error al procesar el diagnóstico causal: 503/i, "se filtró un error remoto crudo al usuario");
 
-    // Registros: análisis local de texto y resultado renderizado.
+    // Registros: análisis de suite forense y cascada local de texto.
     await page.locator("#navL").click();
+    await page.waitForSelector("#linacLogSuiteContainer", { state: "visible" });
+    await page.locator("#btnTabCascadeText").click();
+    await page.waitForSelector("#logPasteArea", { state: "visible" });
     await page.locator("#logPasteArea").fill("2026-09-15 10:55:58 ERROR ITEM 112 failed\n2026-09-15 10:55:59 FATAL INTERLOCK 283 tripped cascade");
     await page.getByRole("button", { name: "Analizar Texto" }).click();
     await poll(async () => await page.locator("#logResults").innerText().then(text => text.trim().length > 0));

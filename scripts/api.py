@@ -1416,7 +1416,14 @@ def linaclog_files():
             active_dir = _LAST_LINAC_DIR
 
         if not os.path.exists(active_dir):
-            return jsonify({"ok": True, "files": {}, "total": 0}), 200
+            return jsonify({
+                "ok": True,
+                "categories": {},
+                "files": {},
+                "folder": active_dir,
+                "total": 0,
+                "sampled_total": 0
+            }), 200
 
         import glob
         categories = {
@@ -1429,7 +1436,14 @@ def linaclog_files():
             "rtd_manifest": [os.path.basename(f) for f in glob.glob(os.path.join(active_dir, "RTDManifest.txt"))],
         }
         total_count = sum(len(v) for v in categories.values())
-        return jsonify({"ok": True, "categories": categories, "sampled_total": total_count, "folder": active_dir}), 200
+        return jsonify({
+            "ok": True,
+            "categories": categories,
+            "files": categories,
+            "total": total_count,
+            "sampled_total": total_count,
+            "folder": active_dir
+        }), 200
     except Exception as exc:
         app.logger.exception("Error en /api/linaclog/files")
         return jsonify({"ok": False, "error": _sanitize_error_message(exc)}), 500

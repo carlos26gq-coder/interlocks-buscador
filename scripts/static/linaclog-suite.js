@@ -24,14 +24,20 @@ class LinacLogSuite {
     };
 
     static async init() {
+        LinacLogSuite.renderUI();
         await Promise.all([
             LinacLogSuite.loadProfile(),
             LinacLogSuite.loadAvailableFiles(),
             LinacLogSuite.loadSuggestedFolders()
         ]);
-        // Auto-run folder analysis if not already loaded
+        // Auto-run folder analysis if not already loaded and available
         if (!LinacLogSuite.state.folderAnalysis) {
-            await LinacLogSuite.analyzeFolder(false);
+            try {
+                await LinacLogSuite.analyzeFolder(false);
+            } catch (e) {
+                console.warn("LinacLogSuite: Auto-analysis not available in this environment:", e);
+                LinacLogSuite.renderUI();
+            }
         } else {
             LinacLogSuite.renderUI();
         }
@@ -138,15 +144,7 @@ class LinacLogSuite {
             LinacLogSuite.renderUI();
         }
     }
-
-    static async analyzeCustomPath() {
-        const input = document.getElementById("linacLocalPathInput");
-        let path = input ? input.value.trim() : "";
-        if (!path) {
-            // Si el campo está vacío, analizar la carpeta predeterminada del Linac
-            await LinacLogSuite.analyzeFolder(true);
-            return;
-        }
+ 
     static async parseTrfHeadersInBrowser(trfFiles, onProgress) {
         const deliveries = [];
         let totalMu = 0;
@@ -671,7 +669,18 @@ class LinacLogSuite {
             </div>
 
             <!-- Vista 1: Tablero Ejecutivo de Salud y Diagnóstico Forense -->
-            ${analysis ? LinacLogSuite._renderExecutiveDashboard(analysis, profile) : ''}
+            ${analysis ? LinacLogSuite._renderExecutiveDashboard(analysis, profile) : `
+                <div style="background:var(--surface);border:1px dashed var(--border);border-radius:10px;padding:36px 20px;text-align:center;margin-bottom:14px;">
+                    <div style="font-size:2.2rem;margin-bottom:10px;">📋</div>
+                    <h4 style="font-size:1rem;color:var(--text);margin-bottom:6px;font-weight:700;">Auditoría y Forensia de Registros Linac</h4>
+                    <p style="font-size:0.82rem;color:var(--muted);max-width:540px;margin:0 auto 16px;line-height:1.5;">
+                        Selecciona la carpeta completa de registros (ej. <strong>AL5LOGS</strong>, paquete <strong>SDD</strong> o carpeta extraída) para correlacionar telemetría TRF (25 Hz), interlocks de hardware, auditoría clínica y calibraciones.
+                    </p>
+                    <button class="btn btn-primary" onclick="LinacLogSuite.triggerFolderUpload()" style="display:inline-flex;align-items:center;gap:8px;font-size:0.85rem;padding:9px 20px;">
+                        <span>📂</span> Seleccionar Carpeta de Logs
+                    </button>
+                </div>
+            `}
 
             <!-- Drawer desplegable para Inspección de Archivos Individuales -->
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:14px;">

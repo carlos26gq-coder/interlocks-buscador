@@ -17,8 +17,11 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from dotenv import load_dotenv
-load_dotenv(ROOT / ".env")
+try:
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    pass
 
 from api import app, search_engine
 from report_service import (

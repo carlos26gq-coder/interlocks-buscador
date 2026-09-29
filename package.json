@@ -5,7 +5,7 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "test:browser": "node tests/browser_smoke.mjs",
-    "check:syntax": "node --check scripts/static/app.js && node --check scripts/static/search-worker.js && node --check scripts/static/log-parser.js && node --check sw.js"
+    "check:syntax": "node --check scripts/static/app.js && node --check scripts/static/search-worker.js && node --check scripts/static/log-parser.js && node --check scripts/static/linaclog-suite.js && node --check sw.js"
   },
   "devDependencies": { "playwright": "1.62.1" }
 }

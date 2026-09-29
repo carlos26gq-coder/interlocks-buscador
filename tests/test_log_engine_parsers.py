@@ -219,10 +219,14 @@ class TestLogEngineParsers(unittest.TestCase):
         data = res.get_json()
         self.assertTrue(data["ok"])
         self.assertIn("categories", data)
-        self.assertIn("trf_treatment", data["categories"])
+        self.assertIn("files", data)
+        if os.path.exists(api.LINACLOG_DIR):
+            self.assertIn("trf_treatment", data["categories"])
 
     def test_api_linaclog_parse_endpoint_file_name(self):
         import api
+        if not os.path.exists(os.path.join(api.LINACLOG_DIR, "rt-udp.0.log")):
+            self.skipTest("rt-udp.0.log not on disk")
         client = api.app.test_client()
         res = client.post("/api/linaclog/parse", json={"file_name": "rt-udp.0.log", "max_records": 10})
         self.assertEqual(res.status_code, 200)
@@ -391,6 +395,8 @@ class TestLogEngineParsers(unittest.TestCase):
 
     def test_api_linaclog_analyze_folder_endpoint(self):
         import api
+        if not os.path.exists(api.LINACLOG_DIR):
+            self.skipTest("linaclog dir not on disk")
         client = api.app.test_client()
         res = client.post("/api/linaclog/analyze-folder", json={"max_audit_records": 20, "max_trf_records": 5})
         self.assertEqual(res.status_code, 200)
@@ -402,7 +408,17 @@ class TestLogEngineParsers(unittest.TestCase):
     def test_api_linaclog_export_excel_endpoint(self):
         import api
         client = api.app.test_client()
-        res = client.get("/api/linaclog/export-excel")
+        mock_analysis = {
+            "profile": {"linac_id": "4574", "linac_name": "05Elekta", "console_host": "ELEKTA5", "software_version": "Integrity 4.0.6"},
+            "executive_summary": {"linac_id": "4574", "total_beams_delivered": 10, "total_suspension_interlocks": 5},
+            "interlocks": {"top_suspension_interlocks": [], "collision_warnings": []},
+            "treatments": {"deliveries": []},
+            "audit_trail": {"records": []},
+            "supervisor": {"events": []},
+            "optical": {"leaves": []},
+            "correlations": []
+        }
+        res = client.post("/api/linaclog/export-excel", json={"analysis_data": mock_analysis})
         self.assertEqual(res.status_code, 200)
         self.assertEqual(
             res.headers.get("Content-Type"),
@@ -431,6 +447,8 @@ class TestLogEngineParsers(unittest.TestCase):
 
     def test_api_linaclog_analyze_folder_quoted_path(self):
         import api
+        if not os.path.exists(api.LINACLOG_DIR):
+            self.skipTest("linaclog dir not on disk")
         client = api.app.test_client()
         # Verify path with surrounding quotes is cleanly stripped and processed
         quoted_path = f'"{api.LINACLOG_DIR}"'
@@ -476,6 +494,8 @@ class TestLogEngineParsers(unittest.TestCase):
 
     def test_resolve_folder_path_intelligent_resolution(self):
         import api
+        if not os.path.exists(api.LINACLOG_DIR):
+            self.skipTest("linaclog dir not on disk")
         # 1. LINACLOG_DIR itself
         self.assertEqual(api.resolve_folder_path(api.LINACLOG_DIR), api.LINACLOG_DIR)
 
@@ -505,6 +525,8 @@ class TestLogEngineParsers(unittest.TestCase):
 
     def test_api_linaclog_analyze_folder_path_without_drive(self):
         import api
+        if not os.path.exists(api.LINACLOG_DIR):
+            self.skipTest("linaclog dir not on disk")
         client = api.app.test_client()
         drive, rest = os.path.splitdrive(api.LINACLOG_DIR)
         path_input = rest.lstrip("\\/") if drive else api.LINACLOG_DIR
@@ -522,6 +544,8 @@ class TestLogEngineParsers(unittest.TestCase):
 
     def test_api_linaclog_files_with_folder_query_param(self):
         import api
+        if not os.path.exists(api.LINACLOG_DIR):
+            self.skipTest("linaclog dir not on disk")
         client = api.app.test_client()
         drive, rest = os.path.splitdrive(api.LINACLOG_DIR)
         path_input = rest.lstrip("\\/") if drive else api.LINACLOG_DIR
