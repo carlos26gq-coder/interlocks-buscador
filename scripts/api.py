@@ -1501,6 +1501,11 @@ def linaclog_analyze_folder():
             if custom_path:
                 resolved = resolve_folder_path(custom_path)
                 if not resolved or not os.path.isdir(resolved):
+                    if os.name != "nt" and (":\\" in custom_path or custom_path.startswith("Users") or "\\" in custom_path):
+                        raise ValidationError(
+                            f"La ruta '{custom_path}' pertenece al disco de tu computadora local, mientras que esta sesión se ejecuta en la nube (Render). "
+                            "Por favor pulsa el botón '📂 Seleccionar Carpeta de Logs' para analizar tu carpeta al instante."
+                        )
                     suggestions = [f["path"] for f in discover_local_linac_folders()][:3]
                     hint = f" Carpetas sugeridas encontradas en el equipo: {', '.join(suggestions)}" if suggestions else ""
                     raise ValidationError(f"Directorio no válido o inexistente: {custom_path}.{hint}")

@@ -268,6 +268,20 @@ class LinacFolderAnalyzer:
         }
 
     def _analyze_trf_deliveries(self, max_records: int = 200) -> Dict[str, Any]:
+        index_file = os.path.join(self.folder_path, "trf_index.json")
+        if os.path.exists(index_file):
+            try:
+                with open(index_file, "r", encoding="utf-8") as f:
+                    cached = json.load(f)
+                if isinstance(cached, dict) and "deliveries" in cached:
+                    delivs = cached.get("deliveries", [])
+                    cached_res = dict(cached)
+                    cached_res["deliveries"] = delivs[:max_records]
+                    cached_res["all_deliveries_count"] = len(delivs)
+                    return cached_res
+            except Exception:
+                pass
+
         trf_files = glob.glob(os.path.join(self.folder_path, "*.trf"))
         parser = TrfLogParser()
 

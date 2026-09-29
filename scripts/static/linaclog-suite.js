@@ -147,15 +147,113 @@ class LinacLogSuite {
             await LinacLogSuite.analyzeFolder(true);
             return;
         }
-        // Limpiar comillas iniciales o finales añadidas por Windows al 'Copiar como ruta de acceso'
+    static async parseTrfHeadersInBrowser(trfFiles, onProgress) {
+        const deliveries = [];
+        let totalMu = 0;
+        let successCount = 0;
+        let faultCount = 0;
+
+        for (let i = 0; i < trfFiles.length; i++) {
+            const f = trfFiles[i];
+            try {
+                const sliceBlob = f.slice(0, 2048);
+                const buffer = await sliceBlob.arrayBuffer();
+                const uint8 = new Uint8Array(buffer);
+
+                let text = "";
+                const maxLen = Math.min(uint8.length, 300);
+                for (let j = 0; j < maxLen; j++) {
+                    text += String.fromCharCode(uint8[j]);
+                }
+
+                const match = text.match(/(\d\d[/|-]\d\d[/|-]\d\d \d\d:\d\d:\d\d Z)[\x00-\x19]([\+|\-]\d\d:\d\d)[\x00-\x32]([^\x00-\x1f\x7f-\xff]*)/);
+                if (match) {
+                    const dateUtc = match[1];
+                    const timezone = match[2];
+                    const rawBeam = match[3] || "";
+
+                    const matchIdx = text.indexOf(match[0]);
+                    let idx = matchIdx + match[0].length;
+                    if (idx < uint8.length) {
+                        const idLen = uint8[idx];
+                        idx += 1 + idLen;
+                    }
+
+                    const dv = new DataView(buffer, idx);
+                    let muVal = 0;
+                    let version = 1;
+                    let itemPartsCount = 0;
+                    let durationSec = 0;
+
+                    if (dv.byteLength >= 16) {
+                        const muRaw = dv.getFloat64(0, true);
+                        version = dv.getInt32(8, true);
+                        itemPartsCount = dv.getInt32(12, true);
+                        muVal = Math.round((version >= 3 ? muRaw / 10.0 : muRaw) * 100) / 100;
+
+                        const headerLen = idx + 16 + (4 * itemPartsCount);
+                        const rowLen = 8 + (itemPartsCount * 2);
+                        const tableSize = f.size - headerLen;
+                        const numRows = (tableSize > 0 && rowLen > 0) ? Math.floor(tableSize / rowLen) : 0;
+                        durationSec = Math.round(numRows * 0.04 * 100) / 100;
+                    }
+
+                    totalMu += muVal;
+                    let fieldLabel = "";
+                    let fieldName = rawBeam;
+                    if (rawBeam.includes("/")) {
+                        const parts = rawBeam.split("/");
+                        fieldLabel = parts[0];
+                        fieldName = parts[1];
+                    }
+
+                    deliveries.push({
+                        file_name: f.name,
+                        date_utc: dateUtc,
+                        timezone: timezone,
+                        beam_name: rawBeam,
+                        field_label: fieldLabel,
+                        field_name: fieldName,
+                        mu: muVal,
+                        duration_sec: durationSec,
+                        channels_count: itemPartsCount,
+                        status: durationSec > 2.0 ? "Completed" : "Short/Interrupted"
+                    });
+                    successCount++;
+                } else {
+                    faultCount++;
+                }
+            } catch (err) {
+                faultCount++;
+            }
+            if (onProgress && (i % 50 === 0 || i === trfFiles.length - 1)) {
+                onProgress(i + 1, trfFiles.length);
+            }
+        }
+
+        deliveries.sort((a, b) => (b.date_utc || '').localeCompare(a.date_utc || ''));
+
+        return {
+            total_beams_count: trfFiles.length,
+            successfully_parsed: deliveries.length,
+            total_mu_delivered: Math.round(totalMu * 100) / 100,
+            successful_deliveries: successCount,
+            faulted_deliveries: faultCount,
+            deliveries: deliveries.slice(0, 200),
+            all_deliveries_count: deliveries.length
+        };
+    }
+
+    static async analyzeCustomPath() {
+        const input = document.getElementById("linacLocalPathInput");
+        let path = input ? input.value.trim() : "";
+        if (!path) {
+            await LinacLogSuite.analyzeFolder(true);
+            return;
+        }
         path = path.replace(/^["'`\u201c\u201d]+|["'`\u201c\u201d]+$/g, '').trim();
         LinacLogSuite.state.customPath = path;
         await LinacLogSuite.analyzeFolder(true, path);
-    }
-
-    static switchIngestMode(mode) {
-        LinacLogSuite.state.ingestMode = mode;
-        LinacLogSuite.renderUI();
     }
 
     static triggerZipUpload() {
@@ -210,7 +308,7 @@ class LinacLogSuite {
         const files = event.target.files;
         if (!files || files.length === 0) return;
 
-        // Detección automática en equipo local (Zero-Upload directo desde disco en ~1.8s)
+        // 1. Detección directa en equipo local (si el servidor corre en localhost)
         const isLocalHost = ['localhost', '127.0.0.1', '::1', ''].includes(window.location.hostname);
         const topFolder = (files[0] && files[0].webkitRelativePath) ? files[0].webkitRelativePath.split('/')[0] : "";
         if (isLocalHost && topFolder) {
@@ -242,35 +340,63 @@ class LinacLogSuite {
                     return;
                 }
             } catch (err) {
-                console.warn("Direct local resolution attempt failed, proceeding to web upload:", err);
+                console.warn("Local disk access fallback to smart ingestion:", err);
             }
         }
 
-        // Filtrado inteligente para transferencia por lotes web/remota
+        // 2. Ingestión inteligente ultrarrápida con indexación local de TRF
+        LinacLogSuite.state.loading = true;
+        LinacLogSuite.state.loadingText = `Filtrando registros de diagnóstico entre ${files.length} archivos...`;
+        LinacLogSuite.renderUI();
+
         const IGNORED_EXTS = ['.dat', '.evtx', '.dmp', '.iso', '.exe', '.dll', '.zip', '.tar', '.gz'];
-        const validFiles = [];
+        const trfFiles = [];
+        const diagnosticFiles = [];
         let logCount = 0;
-        let totalBytes = 0;
 
         for (let i = 0; i < files.length; i++) {
             const f = files[i];
             const lower = f.name.toLowerCase();
             if (IGNORED_EXTS.some(ext => lower.endsWith(ext))) continue;
 
-            if (lower.startsWith('log') && !lower.includes('.')) {
-                logCount++;
-                if (logCount > 40) continue;
+            if (lower.endsWith('.trf')) {
+                trfFiles.push(f);
+            } else {
+                if (lower.startsWith('log') && !lower.includes('.')) {
+                    logCount++;
+                    if (logCount > 40) continue;
+                }
+                diagnosticFiles.push(f);
             }
-
-            validFiles.push(f);
-            totalBytes += f.size;
         }
 
-        if (validFiles.length === 0) {
+        if (trfFiles.length === 0 && diagnosticFiles.length === 0) {
             alert("No se encontraron archivos de registro compatibles en la carpeta seleccionada (.trf, rt-udp, audit trail, supervisor ccp, opt xml, rtd registry).");
+            LinacLogSuite.state.loading = false;
+            LinacLogSuite.renderUI();
             return;
         }
 
+        // Indexar cabeceras TRF directamente en el navegador (toma < 100ms y evita transferir 2.7 GB)
+        let trfIndexBlob = null;
+        if (trfFiles.length > 0) {
+            LinacLogSuite.state.loadingText = `Indexando telemetría de ${trfFiles.length} entregas de radioterapia...`;
+            LinacLogSuite.renderUI();
+            const trfSummary = await LinacLogSuite.parseTrfHeadersInBrowser(trfFiles, (cur, total) => {
+                LinacLogSuite.state.loadingText = `Indexando telemetría TRF (${cur}/${total})...`;
+                LinacLogSuite.renderUI();
+            });
+            const trfJsonStr = JSON.stringify(trfSummary);
+            trfIndexBlob = new Blob([trfJsonStr], { type: "application/json" });
+        }
+
+        // Preparar lista de archivos a transferir
+        const filesToUpload = [...diagnosticFiles];
+        if (trfIndexBlob) {
+            filesToUpload.push(new File([trfIndexBlob], "trf_index.json"));
+        }
+
+        const totalBytes = filesToUpload.reduce((acc, f) => acc + f.size, 0);
         const totalMb = (totalBytes / (1024 * 1024)).toFixed(1);
         const sessionId = "linac_sess_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
 
@@ -280,8 +406,8 @@ class LinacLogSuite {
         const MAX_BATCH_BYTES = 15 * 1024 * 1024; // 15 MB
         const MAX_BATCH_FILES = 25;
 
-        for (let i = 0; i < validFiles.length; i++) {
-            const f = validFiles[i];
+        for (let i = 0; i < filesToUpload.length; i++) {
+            const f = filesToUpload[i];
             if (currentBatch.length >= MAX_BATCH_FILES || (currentBatchBytes + f.size > MAX_BATCH_BYTES && currentBatch.length > 0)) {
                 batches.push(currentBatch);
                 currentBatch = [];
@@ -294,17 +420,13 @@ class LinacLogSuite {
             batches.push(currentBatch);
         }
 
-        LinacLogSuite.state.loading = true;
-        LinacLogSuite.state.loadingText = `Iniciando transferencia de registros (${validFiles.length} archivos, ${batches.length} lotes, ${totalMb} MB)...`;
-        LinacLogSuite.renderUI();
-
         try {
             let uploadedBytes = 0;
             for (let b = 0; b < batches.length; b++) {
                 const batch = batches[b];
                 const pct = Math.round(((b) / batches.length) * 100);
                 const currentMb = (uploadedBytes / (1024 * 1024)).toFixed(1);
-                LinacLogSuite.state.loadingText = `Subiendo lote ${b + 1} de ${batches.length} (${pct}%) — ${currentMb} / ${totalMb} MB...`;
+                LinacLogSuite.state.loadingText = `Transfiriendo registros (${b + 1}/${batches.length} lotes, ${pct}%) — ${currentMb} / ${totalMb} MB...`;
                 LinacLogSuite.renderUI();
 
                 const formData = new FormData();
@@ -325,7 +447,7 @@ class LinacLogSuite {
                 }
             }
 
-            LinacLogSuite.state.loadingText = `Lotes transferidos exitosamente. Correlacionando eventos y telemetría...`;
+            LinacLogSuite.state.loadingText = `Correlacionando eventos de interlocks y telemetría...`;
             LinacLogSuite.renderUI();
 
             const finalizeRes = await fetch("/api/linaclog/finalize-upload", {
@@ -346,12 +468,13 @@ class LinacLogSuite {
                 }
                 LinacLogSuite.state.activeView = "folder";
             } else {
-                alert("Error al finalizar el análisis de la carpeta: " + (data.message || data.error || "Formato no reconocido"));
+                alert("Aviso al finalizar el análisis: " + (data.message || data.error || "Formato no reconocido"));
             }
         } catch (e) {
-            alert("Error en la transferencia de registros: " + e.message + "\n\n💡 Si estás en el mismo equipo, puedes ingresar la ruta en 'Ruta local en disco' para análisis instantáneo en 2 segundos.");
+            alert("Error en la transferencia de registros: " + e.message);
         } finally {
             LinacLogSuite.state.loading = false;
+            event.target.value = "";
             LinacLogSuite.renderUI();
         }
     }
@@ -494,11 +617,11 @@ class LinacLogSuite {
             <input type="file" id="linacZipUploadInput" accept=".zip" style="display:none" onchange="LinacLogSuite.handleZipUpload(event)">
 
             <!-- Panel Principal de Ingestión y Diagnóstico -->
-            <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
-                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:14px;">
                     <div>
                         <span style="font-size:0.68rem;font-family:var(--mono);color:var(--accent);text-transform:uppercase;letter-spacing:0.06em;">AUDITORÍA Y FORENSIA DE ACELERADOR LINEAL</span>
-                        <h3 style="font-size:1.05rem;font-weight:700;color:var(--text);margin-top:2px;">
+                        <h3 style="font-size:1.1rem;font-weight:700;color:var(--text);margin-top:2px;">
                             Ingestión y Correlación Integral de Registros Elekta
                         </h3>
                     </div>
@@ -509,60 +632,36 @@ class LinacLogSuite {
                     </div>
                 </div>
 
-                <!-- Selector de Modo de Ingestión (Local vs Remoto) -->
-                <div style="display:flex;gap:6px;background:rgba(0,0,0,0.25);padding:4px;border-radius:8px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.05);width:fit-content;flex-wrap:wrap;">
-                    <button type="button" onclick="LinacLogSuite.switchIngestMode('local')" style="padding:5px 12px;font-size:0.75rem;font-weight:600;border-radius:6px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all 0.2s;${isLocal ? 'background:var(--accent);color:#000;' : 'background:transparent;color:var(--muted);'}">
-                        <span>⚡</span> Este Equipo (Ruta Local / Instantáneo)
-                    </button>
-                    <button type="button" onclick="LinacLogSuite.switchIngestMode('remote')" style="padding:5px 12px;font-size:0.75rem;font-weight:600;border-radius:6px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all 0.2s;${!isLocal ? 'background:var(--accent);color:#000;' : 'background:transparent;color:var(--muted);'}">
-                        <span>🌐</span> Dispositivo Remoto / Celular / Red (Subida Web)
-                    </button>
+                <!-- Botones Principales y Control Unificado -->
+                <div style="padding:14px;background:rgba(56,189,248,0.04);border:1px solid rgba(56,189,248,0.18);border-radius:8px;display:flex;flex-direction:column;gap:12px;">
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                        <button class="btn btn-primary" onclick="LinacLogSuite.triggerFolderUpload()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:8px;padding:8px 18px;font-size:0.85rem;font-weight:600;">
+                            <span>📂</span> Seleccionar Carpeta de Logs (AL5LOGS, SDD...)
+                        </button>
+                        <button class="btn btn-ghost" onclick="LinacLogSuite.triggerZipUpload()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;font-size:0.82rem;">
+                            <span>📦</span> Cargar Archivo SDD (.zip)
+                        </button>
+                    </div>
+
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.08);">
+                        <span style="font-size:0.75rem;font-family:var(--mono);color:var(--muted);white-space:nowrap;">📍 O ingresa ruta en disco:</span>
+                        <input type="text" id="linacLocalPathInput" placeholder="Ej: AL5LOGS o C:\\Users\\CGutierrez\\Desktop\\AL5LOGS\\LOGS" style="flex:1;min-width:220px;padding:6px 10px;font-size:0.78rem;font-family:var(--mono);" value="${LinacLogSuite.state.customPath || ''}" onkeydown="if(event.key==='Enter') LinacLogSuite.analyzeCustomPath()">
+                        <button class="btn btn-ghost" onclick="LinacLogSuite.analyzeCustomPath()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;font-size:0.75rem;">
+                            <span>⚡</span> Analizar Ruta
+                        </button>
+                    </div>
+
+                    ${(LinacLogSuite.state.suggestedFolders && LinacLogSuite.state.suggestedFolders.length > 0) ? `
+                        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:4px;">
+                            <span style="font-size:0.7rem;font-family:var(--mono);color:var(--muted);">💡 Carpetas detectadas en este equipo:</span>
+                            ${LinacLogSuite.state.suggestedFolders.map(f => `
+                                <button type="button" onclick="LinacLogSuite.selectSuggestedFolder('${f.path.replace(/\\/g, '\\\\')}')" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.25);color:var(--accent);font-size:0.72rem;font-family:var(--mono);padding:3px 8px;border-radius:4px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;" title="${f.path}">
+                                    <span>📍</span> ${f.label} <span style="opacity:0.7;font-size:0.65rem;">(${Number(f.file_count_estimate).toLocaleString()} arch.)</span>
+                                </button>
+                            `).join('')}
+                        </div>
+                    ` : ''}
                 </div>
-
-                ${isLocal ? `
-                    <!-- MODO LOCAL: Zero-Upload directo desde disco -->
-                    <div style="padding:10px;background:rgba(56,189,248,0.04);border:1px solid rgba(56,189,248,0.15);border-radius:8px;">
-                        <p style="font-size:0.72rem;color:var(--muted);margin-bottom:8px;line-height:1.4;">
-                            <strong style="color:var(--accent);">⚡ Modo Directo desde Disco:</strong> Procesa carpetas completas o volcados SDD de 3+ GB en ~1.5 segundos sin transferencias web ni límites de memoria.
-                        </p>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                            <span style="font-size:0.75rem;font-family:var(--mono);color:var(--muted);white-space:nowrap;">📍 Ruta o carpeta:</span>
-                            <input type="text" id="linacLocalPathInput" placeholder="Ej: AL5LOGS o Users\\CGutierrez\\Desktop\\AL5LOGS\\LOGS o C:\\..." style="flex:1;min-width:240px;padding:6px 10px;font-size:0.78rem;font-family:var(--mono);" value="${LinacLogSuite.state.customPath || ''}" onkeydown="if(event.key==='Enter') LinacLogSuite.analyzeCustomPath()">
-                            <button class="btn btn-primary" onclick="LinacLogSuite.analyzeCustomPath()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:6px;">
-                                <span>⚡</span> Analizar Ruta Local
-                            </button>
-                            <button class="btn btn-ghost" onclick="LinacLogSuite.triggerFolderUpload()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:6px;" title="Examinar y seleccionar carpeta en disco con auto-detección instantánea">
-                                <span>📂</span> Examinar en Disco...
-                            </button>
-                        </div>
-
-                        ${(LinacLogSuite.state.suggestedFolders && LinacLogSuite.state.suggestedFolders.length > 0) ? `
-                            <div style="margin-top:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                                <span style="font-size:0.7rem;font-family:var(--mono);color:var(--muted);">💡 Carpetas detectadas en el equipo:</span>
-                                ${LinacLogSuite.state.suggestedFolders.map(f => `
-                                    <button type="button" onclick="LinacLogSuite.selectSuggestedFolder('${f.path.replace(/\\/g, '\\\\')}')" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.25);color:var(--accent);font-size:0.72rem;font-family:var(--mono);padding:3px 8px;border-radius:4px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;" title="${f.path}">
-                                        <span>📍</span> ${f.label} <span style="opacity:0.7;font-size:0.65rem;">(${Number(f.file_count_estimate).toLocaleString()} arch.)</span>
-                                    </button>
-                                `).join('')}
-                            </div>
-                        ` : ''}
-                    </div>
-                ` : `
-                    <!-- MODO REMOTO / RED: Transferencia web para clientes móviles o remotos -->
-                    <div style="padding:10px;background:rgba(168,85,247,0.04);border:1px solid rgba(168,85,247,0.2);border-radius:8px;">
-                        <p style="font-size:0.72rem;color:var(--muted);margin-bottom:8px;line-height:1.4;">
-                            <strong style="color:var(--purple,#a855f7);">🌐 Subida Web / Dispositivo Remoto:</strong> Úsalo cuando accedas a SOLVI desde un celular, tablet o laptop remota. Para máxima velocidad en red, se recomienda subir el archivo <strong style="color:var(--text);">.zip de volcado SDD</strong>.
-                        </p>
-                        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-                            <button class="btn btn-primary" onclick="LinacLogSuite.triggerZipUpload()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:6px;">
-                                <span>📦</span> Subir Archivo SDD (.zip)
-                            </button>
-                            <button class="btn btn-ghost" onclick="LinacLogSuite.triggerFolderUpload()" ${LinacLogSuite.state.loading ? 'disabled' : ''} style="display:inline-flex;align-items:center;gap:6px;">
-                                <span>📁</span> Subir Carpeta Desglosada...
-                            </button>
-                        </div>
-                    </div>
-                `}
             </div>
 
             <!-- Spinner de carga -->
