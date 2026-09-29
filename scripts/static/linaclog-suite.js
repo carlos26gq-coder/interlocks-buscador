@@ -66,16 +66,26 @@ class LinacLogSuite {
         }
     }
 
-    static async analyzeFolder(showFeedback = true) {
+    static async analyzeFolder(showFeedback = true, customPath = null) {
         LinacLogSuite.state.loading = true;
         LinacLogSuite.state.loadingText = "Correlacionando telemetría, interlocks y entregas de la carpeta...";
         LinacLogSuite.renderUI();
 
         try {
+            const payload = {
+                max_audit_records: 5000,
+                max_trf_records: 200
+            };
+            if (customPath) {
+                payload.folder_path = customPath;
+            } else if (LinacLogSuite.state.customPath) {
+                payload.folder_path = LinacLogSuite.state.customPath;
+            }
+
             const res = await fetch("/api/linaclog/analyze-folder", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ max_audit_records: 5000, max_trf_records: 200 })
+                body: JSON.stringify(payload)
             });
             const data = await res.json();
             if (data.ok && data.data) {
@@ -85,7 +95,7 @@ class LinacLogSuite {
                 }
                 LinacLogSuite.state.activeView = "folder";
             } else if (showFeedback) {
-                alert("Aviso: " + (data.error || "No se pudo completar el análisis de la carpeta."));
+                alert("Aviso: " + (data.message || data.error || "No se pudo completar el análisis de la carpeta."));
             }
         } catch (e) {
             if (showFeedback) {
@@ -97,6 +107,17 @@ class LinacLogSuite {
         }
     }
 
+    static async analyzeCustomPath() {
+        const input = document.getElementById("linacLocalPathInput");
+        const path = input ? input.value.trim() : "";
+        if (!path) {
+            alert("Por favor ingresa la ruta de la carpeta de logs en disco.");
+            return;
+        }
+        LinacLogSuite.state.customPath = path;
+        await LinacLogSuite.analyzeFolder(true, path);
+    }
+
     static triggerFolderUpload() {
         const input = document.getElementById("linacFolderUploadInput");
         if (input) input.click();
@@ -106,14 +127,41 @@ class LinacLogSuite {
         const files = event.target.files;
         if (!files || files.length === 0) return;
 
+        // Filtrado inteligente: sólo archivos de diagnóstico requeridos para análisis
+        const IGNORED_EXTS = ['.dat', '.evtx', '.dmp', '.iso', '.exe', '.dll', '.zip', '.tar', '.gz'];
+        const validFiles = [];
+        let logCount = 0;
+        let totalBytes = 0;
+
+        for (let i = 0; i < files.length; i++) {
+            const f = files[i];
+            const lower = f.name.toLowerCase();
+            if (IGNORED_EXTS.some(ext => lower.endsWith(ext))) continue;
+
+            // Acotar registros repetitivos de controlador LOGxxxx a un máximo representativo
+            if (lower.startsWith('log') && !lower.includes('.')) {
+                logCount++;
+                if (logCount > 40) continue;
+            }
+
+            validFiles.push(f);
+            totalBytes += f.size;
+        }
+
+        if (validFiles.length === 0) {
+            alert("No se encontraron archivos de registro compatibles en la carpeta seleccionada (.trf, rt-udp, audit trail, supervisor ccp, opt xml).");
+            return;
+        }
+
+        const mbSize = (totalBytes / (1024 * 1024)).toFixed(1);
         LinacLogSuite.state.loading = true;
-        LinacLogSuite.state.loadingText = `Subiendo y analizando ${files.length} archivos de la carpeta Linac...`;
+        LinacLogSuite.state.loadingText = `Subiendo y analizando ${validFiles.length} archivos de diagnóstico (${mbSize} MB)...`;
         LinacLogSuite.renderUI();
 
         try {
             const formData = new FormData();
-            for (let i = 0; i < files.length; i++) {
-                formData.append("files", files[i]);
+            for (let i = 0; i < validFiles.length; i++) {
+                formData.append("files", validFiles[i]);
             }
             formData.append("max_audit_records", "5000");
             formData.append("max_trf_records", "200");
@@ -122,6 +170,12 @@ class LinacLogSuite {
                 method: "POST",
                 body: formData
             });
+
+            if (res.status === 413) {
+                alert("⚠️ La carpeta supera el límite de transferencia web por navegador.\n\nSugerencia: Para carpetas muy grandes, usa el campo 'Ruta local en disco' ingresando su ruta (ej. C:\\...\\tu_carpeta) para analizarla directamente sin restricciones de tamaño ni demoras de red.");
+                return;
+            }
+
             const data = await res.json();
             if (data.ok && data.data) {
                 LinacLogSuite.state.folderAnalysis = data.data;
@@ -129,9 +183,9 @@ class LinacLogSuite {
                     LinacLogSuite.state.linacProfile = data.data.profile;
                 }
                 LinacLogSuite.state.activeView = "folder";
-                alert(`✅ Análisis completado con éxito: ${data.files_processed || files.length} archivos procesados.`);
+                alert(`✅ Análisis completado con éxito: ${data.files_processed || validFiles.length} archivos procesados.`);
             } else {
-                alert("Error al procesar la carpeta subida: " + (data.error || "Formato no reconocido"));
+                alert("Error al procesar la carpeta subida: " + (data.message || data.error || "Formato no reconocido"));
             }
         } catch (e) {
             alert("Error en la subida de carpeta: " + e.message);
@@ -296,6 +350,14 @@ class LinacLogSuite {
                         </button>
                     </div>
                 </div>
+
+                <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <span style="font-size:0.75rem;font-family:var(--mono);color:var(--muted);white-space:nowrap;">📍 Ruta local en disco:</span>
+                    <input type="text" id="linacLocalPathInput" placeholder="Ej: C:\\Users\\...\\Desktop\\mi_carpeta_linac o linaclog" style="flex:1;min-width:240px;padding:6px 10px;font-size:0.78rem;font-family:var(--mono);" value="${LinacLogSuite.state.customPath || ''}" onkeydown="if(event.key==='Enter') LinacLogSuite.analyzeCustomPath()">
+                    <button class="btn btn-sm btn-primary" onclick="LinacLogSuite.analyzeCustomPath()" ${LinacLogSuite.state.loading ? 'disabled' : ''}>
+                        ⚡ Analizar Ruta Local
+                    </button>
+                </div>
             </div>
 
             <!-- Spinner de carga -->
@@ -406,7 +468,8 @@ class LinacLogSuite {
                     <div style="display:flex;gap:6px;flex-wrap:wrap;">
                         <span class="tag" style="border-color:rgba(74,222,128,0.3);background:rgba(74,222,128,0.1);color:var(--green);">HT: ${profile.ht_hours || 0} h</span>
                         <span class="tag" style="border-color:rgba(0,212,255,0.3);background:rgba(0,212,255,0.1);color:var(--accent);">LT: ${profile.lt_hours || 0} h</span>
-                        <span class="tag">Colimador Agility (160L)</span>
+                        <span class="tag" style="border-color:rgba(234,179,8,0.3);color:var(--warn);">${profile.energies || '6MV'}</span>
+                        ${(profile.hardware_options || ['Agility 160 MLC', 'Cuña Motorizada', 'Servo Cañón Avanzado']).map(opt => `<span class="tag">${opt}</span>`).join('')}
                         <span class="tag">${profile.scale || 'IEC1217'}</span>
                     </div>
                 </div>

@@ -134,11 +134,13 @@ class LinacExcelExporter:
         ws["A4"].value = "1. IDENTIFICACIÓN Y ESPECIFICACIONES DEL LINAC"
         ws["A4"].font = Font(name="Calibri", size=11, bold=True, color="1F4E79")
 
+        hw_opts = ", ".join(profile.get("hardware_options", ["Agility 160 MLC", "Cuña Motorizada", "Servo Cañón Avanzado"]))
         profile_rows = [
             ("Número de Serie (Linac ID):", exec_s.get("linac_id", "4574"), "Nombre en Red:", exec_s.get("linac_name", "05Elekta")),
             ("Equipo Consola:", exec_s.get("console_host", "ELEKTA5"), "Software de Control:", exec_s.get("software_version", "Integrity 4.0.6")),
             ("Horas de Radiación (HT):", f"{exec_s.get('ht_hours', 0)} h", "Horas Electrónica (LT):", f"{exec_s.get('lt_hours', 0)} h"),
             ("Colimador Multiláminas:", "Elekta Agility (160 Láminas, 80 Pares)", "Escala Coordenadas:", exec_s.get("scale", "IEC1217")),
+            ("Energías Autorizadas:", profile.get("energies", "6MV"), "Subsistemas Físicos:", hw_opts),
         ]
 
         row_idx = 5

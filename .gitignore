@@ -5,6 +5,8 @@ linaclog/
 __pycache__/
 *.pyc
 .env
+scratch/
+*.xlsx
 
 # Configuraciones locales de agentes e IDE
 AGENTS.md

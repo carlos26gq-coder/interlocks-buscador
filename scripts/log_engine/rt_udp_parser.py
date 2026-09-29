@@ -74,7 +74,7 @@ class RtUdpLogParser(BaseLogParser):
         collision_leaves = Counter()
         current_timestamp = "Unknown"
 
-        re_time = re.compile(r"^(\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+(?:AM|PM)):?$")
+        re_time = re.compile(r"(\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+(?:AM|PM))", re.IGNORECASE)
         re_collision = re.compile(r"MLC Collision \((\d+)\):\s*(\d+),\s*dist:\s*([-\d]+)x10\^-3(?:,\s*(mod setpoint))?")
         re_suspend = re.compile(r"Suspend - Item\s+(\d+)\s+Code\s+(\d+)\s+value\s+([-\d]+)")
 
@@ -86,10 +86,9 @@ class RtUdpLogParser(BaseLogParser):
                 continue
 
             # Update timestamp if this line contains it
-            tm = re_time.match(line_str)
+            tm = re_time.search(line_str)
             if tm:
                 current_timestamp = tm.group(1)
-                continue
 
             # Check MLC collision
             cm = re_collision.search(line_str)

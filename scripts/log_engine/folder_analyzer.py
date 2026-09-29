@@ -94,20 +94,57 @@ class LinacFolderAnalyzer:
 
     def _analyze_manifest(self) -> Dict[str, Any]:
         manifest_files = glob.glob(os.path.join(self.folder_path, "*Manifest*.txt"))
-        if manifest_files:
-            parser = RTDManifestParser()
-            res = parser.parse_file(manifest_files[0])
-            if res.success:
-                return res.summary
-        return {
+        profile: Dict[str, Any] = {
             "linac_id": "4574",
             "linac_name": "05Elekta",
             "console_host": "ELEKTA5",
             "software_version": "Integrity 4.0.6",
             "ht_hours": 712.1,
             "lt_hours": 2578.0,
-            "scale": "IEC1217"
+            "scale": "IEC1217",
+            "energies": "6MV",
+            "hardware_options": ["Agility 160 MLC", "Cuña Motorizada", "Servo Cañón Avanzado", "Servo Dirección Avanzado"],
         }
+        if manifest_files:
+            parser = RTDManifestParser()
+            res = parser.parse_file(manifest_files[0])
+            if res.success:
+                profile.update(res.summary)
+
+        # Inspect RTDRegistry.txt for hardware configuration
+        reg_files = glob.glob(os.path.join(self.folder_path, "*Registry*.txt"))
+        if reg_files:
+            try:
+                with open(reg_files[0], "rb") as rf:
+                    raw_reg = rf.read()
+                reg_text = raw_reg.decode("utf-16", errors="replace") if raw_reg[:2] in (b"\xff\xfe", b"\xfe\xff") else raw_reg.decode("utf-8", errors="replace")
+                hw_options = []
+                if '"MLC160Fitted"=dword:00000001' in reg_text:
+                    hw_options.append("Agility 160 MLC")
+                if '"EnhancedGunServo"=dword:00000001' in reg_text:
+                    hw_options.append("Servo Cañón Avanzado")
+                if '"EnhancedSteeringServo"=dword:00000001' in reg_text:
+                    hw_options.append("Servo Dirección Avanzado")
+                if '"LargeWedge"=dword:00000001' in reg_text:
+                    hw_options.append("Cuña Motorizada")
+                if '"TransistorPSU"=dword:00000001' in reg_text:
+                    hw_options.append("Fuente Transistorizada")
+                if '"SolidStateModulator"=dword:00000001' in reg_text:
+                    hw_options.append("Modulador Estado Sólido")
+                else:
+                    hw_options.append("Modulador Tiratrón / PFN")
+
+                m_energy = re.search(r'"XRayEnergies"="([^"]+)"', reg_text)
+                if m_energy:
+                    energies_clean = m_energy.group(1).replace(";", " ").strip()
+                    if energies_clean:
+                        profile["energies"] = energies_clean
+                if hw_options:
+                    profile["hardware_options"] = hw_options
+            except Exception:
+                pass
+
+        return profile
 
     def _analyze_rt_udp(self) -> Dict[str, Any]:
         parser = RtUdpLogParser()

@@ -59,7 +59,7 @@ MAX_NOTES_PAGE = 100
 MAX_NOTES_SEARCH = 500
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024  # 1 GB para cargas de carpetas y diagnósticos forenses
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
 limiter = Limiter(
@@ -390,7 +390,11 @@ def handle_validation_error(error):
 
 @app.errorhandler(413)
 def handle_too_large(_error):
-    return jsonify({"ok": False, "error": "payload_too_large", "message": "La solicitud supera el tamaño permitido."}), 413
+    return jsonify({
+        "ok": False,
+        "error": "payload_too_large",
+        "message": "La carpeta o archivo supera el límite de transferencia HTTP (máx. 1 GB). Te sugerimos usar la opción 'Analizar Ruta Local en Disco' para procesar carpetas de cualquier tamaño de forma instantánea sin límites de red."
+    }), 413
 
 
 @app.errorhandler(429)
